@@ -33,7 +33,7 @@ Four scopes. The TUI aggregates them into one view at runtime.
 
 **Global** (`<notez_root>/`, has its own git remote):
 - Cross-project notes, daily logs, todoz categories, scratch pad.
-- Synced between machines via `notez sync` (wraps `git pull --rebase && git push`).
+- Synced between machines via `notez sync` (commits pending changes, then `git pull --rebase && git push`).
 - Contains a `.notez-config.toml` metadata file (synced) with project display
   names, descriptions, tags.
 
@@ -144,9 +144,10 @@ The global todo board (GLOBAL → `_todos/<category>` → each project's persona
 `notez sync` is a thin wrapper:
 
 1. Validates that `~/notez/` is a git repo with a remote
-2. Runs `git pull --rebase`
-3. Runs `git push`
-4. On conflict, surfaces the git output and tells the user to resolve manually
+2. Commits any pending changes (`git add -A`, message `notes: sync <date time>`), since `pull --rebase` refuses a dirty tree
+3. Runs `git pull --rebase`
+4. Runs `git push`
+5. On conflict, surfaces the git output and tells the user to resolve manually
 
 The first-time setup walks the user through `git init && git remote add origin ...` if `~/notez/` does not have a remote yet.
 

@@ -301,8 +301,8 @@ pub fn detach_project(name: String) -> Result<(), String> {
     reg.save_to(&paths::registry_file()).map_err(err)
 }
 
-/// `git pull --rebase` then `git push` on the notez root, returning git's
-/// combined output.
+/// Commit pending changes, then `git pull --rebase` and `git push` on the
+/// notez root, returning git's combined output.
 #[tauri::command]
 pub fn sync() -> Result<String, String> {
     let config = Config::load().map_err(err)?;
@@ -314,6 +314,9 @@ pub fn sync() -> Result<String, String> {
         ));
     }
     let mut log = String::new();
+    if notez_core::sync::commit_pending(&root).map_err(err)? {
+        log.push_str("Committed local changes.\n");
+    }
     for args in [["pull", "--rebase"].as_slice(), ["push"].as_slice()] {
         let out = std::process::Command::new("git")
             .arg("-C")

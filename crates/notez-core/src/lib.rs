@@ -10,6 +10,7 @@ pub mod filter;
 pub mod migrate;
 pub mod note_tags;
 pub mod search;
+pub mod sync;
 pub mod tags;
 pub mod todo;
 pub mod util;

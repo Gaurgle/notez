@@ -240,7 +240,7 @@ fn print_help() {
     println!();
 
     println!("  {}", mauve.apply_to("Sync"));
-    cmd("notez sync", "git pull --rebase && git push the global root");
+    cmd("notez sync", "commit changes, git pull --rebase && git push the global root");
     println!();
 
     println!("  {}", mauve.apply_to("Setup"));

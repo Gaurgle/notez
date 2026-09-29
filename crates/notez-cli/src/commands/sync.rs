@@ -1,6 +1,7 @@
-//! `notez sync`: pull and push the global notez root via git.
+//! `notez sync`: commit, pull and push the global notez root via git.
 //!
-//! Thin wrapper around `git -C <notez_root> pull --rebase` followed by
+//! Commits any pending changes (see `notez_core::sync::commit_pending`), then
+//! runs `git -C <notez_root> pull --rebase` followed by
 //! `git -C <notez_root> push`. Surfaces git's own output on conflict so the
 //! user can resolve manually.
 
@@ -17,6 +18,10 @@ pub fn run(config: &Config) -> Result<()> {
             "notez root at {} is not a git repository. Run `git init` there and add a remote first.",
             root.display()
         );
+    }
+
+    if notez_core::sync::commit_pending(&root)? {
+        println!("Committed local changes.");
     }
 
     println!("Pulling latest from remote...");
