@@ -1,8 +1,8 @@
 # epoz (desktop app)
 
-**epoz** is the desktop workspace over the notez2 data model: Notes, Todos, Tickets (GitHub Issues), Spaze, and a live repo Dashboard. Tauri (Rust) backend reusing `notez-core`, SvelteKit + TypeScript frontend, CodeMirror 6 editor. It reads and writes the same files as the `notez` CLI, so notes and todos round-trip without spurious diffs.
+**epoz** is the desktop workspace over the notez data model: Notes, Todos, Tickets (GitHub Issues), Spaze, and a live repo Dashboard. Tauri (Rust) backend reusing `notez-core`, SvelteKit + TypeScript frontend, CodeMirror 6 editor. It reads and writes the same files as the `notez` CLI, so notes and todos round-trip without spurious diffs.
 
-Naming: **notez2** is the CLI/core (the `notez` binary); **epoz** is this desktop app. Scope language is two-axis: accessibility (personal vs public) x binding (project vs global), plus a machine-only scratch tier. The name previously belonged to a standalone ratatui repo-dashboard TUI, which now lives on as **fleetz**.
+Naming: **notez** is the CLI/core (the `notez` binary); **epoz** is this desktop app. Scope language is two-axis: accessibility (personal vs public) x binding (project vs global), plus a machine-only scratch tier. The name previously belonged to a standalone ratatui repo-dashboard TUI, which now lives on as **fleetz**.
 
 ## Develop
 

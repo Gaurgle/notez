@@ -1,7 +1,7 @@
 [package]
 name = "notez-app"
 version = "0.1.0"
-description = "notez2 desktop app"
+description = "notez desktop app"
 authors = ["Gaurgle"]
 edition = "2021"
 license = "MIT"

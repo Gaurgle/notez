@@ -1,6 +1,6 @@
 //! Configuration files: per-machine and synced.
 //!
-//! Three TOML files drive notez2:
+//! Three TOML files drive notez:
 //!
 //! 1. **Per-machine config** at `$XDG_CONFIG_HOME/notez/config.toml`. Stores
 //!    the global notez root, subdirectory names, editor preferences and

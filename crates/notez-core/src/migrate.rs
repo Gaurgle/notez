@@ -1,5 +1,5 @@
 //! Migration from the legacy notez-cli layout (numbered dirs + symlinks +
-//! `~/.config/notez/projects`) to notez2's scope model.
+//! `~/.config/notez/projects`) to notez's scope model.
 //!
 //! Strategy: a numbered dir `NN_<name>` whose `<name>` matches a legacy
 //! project becomes that project's Personal notes — moved to
@@ -8,7 +8,7 @@
 //! repo's `.notez/` (private) and `notez/` (public) stores, so after the
 //! move the tree is materialized: private targets move here as real files
 //! (personal scope owns them now), public targets stay in the repo (that is
-//! already notez2's public scope) and only the symlink is dropped, dangling
+//! already notez's public scope) and only the symlink is dropped, dangling
 //! links are pruned. Global dirs (quick-notes, daily-logs, _todos) and
 //! unknown dirs are left untouched. Existing destinations are merged
 //! entry-by-entry; nothing is ever overwritten — collisions are reported

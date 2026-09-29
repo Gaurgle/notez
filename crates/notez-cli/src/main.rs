@@ -1,4 +1,4 @@
-//! notez2 binary entry point.
+//! notez binary entry point.
 //!
 //! Handles three things before delegating to per-command modules:
 //!
@@ -192,7 +192,7 @@ fn print_help() {
     println!("  {}", overlay.apply_to(&div));
     println!(
         "  {}  {}",
-        lavender.apply_to("notez2"),
+        lavender.apply_to("notez"),
         overlay.apply_to("a local-first note-taking tool"),
     );
     println!("  {}", overlay.apply_to(&div));
@@ -233,7 +233,7 @@ fn print_help() {
     cmd("notez mkdir <name>", "create a subdirectory");
     println!();
 
-    println!("  {}", mauve.apply_to("Projects (new in notez2)"));
+    println!("  {}", mauve.apply_to("Projects"));
     cmd("notez attach [name]", "register this project on this machine");
     cmd("notez detach <name>", "unregister a project");
     cmd("notez list", "list registered projects");

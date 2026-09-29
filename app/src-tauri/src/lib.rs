@@ -1,4 +1,4 @@
-//! notez2 desktop backend. The brains live in `notez-core`; this crate only
+//! notez desktop backend. The brains live in `notez-core`; this crate only
 //! exposes them over Tauri's IPC and owns window/app lifecycle.
 
 mod commands;

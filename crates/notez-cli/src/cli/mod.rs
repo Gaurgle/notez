@@ -156,7 +156,7 @@ pub enum Commands {
     #[command(alias = "n")]
     Nav,
 
-    // New in notez2:
+    // Project registry:
 
     /// Register a project on this machine. Without args: uses current dir.
     Attach {

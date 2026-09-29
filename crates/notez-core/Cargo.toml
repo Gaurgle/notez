@@ -2,7 +2,7 @@
 name = "notez-core"
 version = "0.1.0"
 edition = "2021"
-description = "GUI-agnostic core for notez2: scopes, notes, todos, config, aggregation."
+description = "GUI-agnostic core for notez: scopes, notes, todos, config, aggregation."
 license = "MIT"
 
 [dependencies]

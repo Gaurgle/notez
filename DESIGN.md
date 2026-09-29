@@ -1,4 +1,4 @@
-# notez2 design
+# notez design
 
 A from-scratch rewrite of [notez-cli](https://github.com/Gaurgle/notez-cli) with cross-machine portability as a first-class concern. UX surface is preserved 1:1; only the storage layer is reworked.
 
@@ -172,7 +172,7 @@ reads the legacy `~/.config/notez/projects` (`name=path`) and, for every
 2. Materializes the legacy symlink mirrors: links into a repo's `.notez/`
    (private store) are replaced by the real file, moved here - personal scope
    owns it now. Links into a repo's `notez/` (public store) are just dropped;
-   those files already sit exactly where notez2's public scope wants them.
+   those files already sit exactly where notez's public scope wants them.
    Dangling links are pruned.
 
 Global dirs (quick-notes, daily-logs, `_todos`) and unmatched dirs are left
@@ -182,7 +182,7 @@ those once by hand or via `notez setup`.
 Executed for real on 2026-07-05 (this machine): 11 project dirs migrated, the
 duplicate/empty numbered dirs removed, `~/notes` (the pre-notez knowledge
 base) consolidated into `~/notez/reference/`, and the legacy binaries in
-`~/.local/bin` replaced by notez2 builds. `~/notez/` now contains zero
+`~/.local/bin` replaced by notez builds. `~/notez/` now contains zero
 symlinks and no numbered project dirs.
 
 ## Open questions and future work
@@ -270,7 +270,7 @@ auth lands; it already gives every view real identity + org data.
   collapsible categories, a filter, and a 6-month archive threshold (dormant
   repos hidden behind a toggle). `Ctrl+1-6` jumps between views.
 - [x] **Auto-generated backlog.** Seeded ~68 story-pointed GitHub issues across
-  11 active repos (airwavez x3, notez2, spaze, repoz, epoz, noiz-kmp, glanze,
+  11 active repos (airwavez x3, notez, spaze, repoz, epoz, noiz-kmp, glanze,
   clockz, bonsai-education) from each repo's README/design-docs/git-history -
   backlog + in-progress + closed "done" waypoints, points via `sp:N` labels.
 - [ ] **bonsai-education/content + /socials backlog (blocked).** The `Gaurgle`
@@ -531,7 +531,7 @@ Build order toward the umbrella: 1) `notez tree` port, 2) `ticketz` TUI,
 3) extract the fleetz shared core (also unblocks the repoz TUI), 4) the
 epoz umbrella shell that mounts the module TUIs as library crates. Until 4
 lands, a tmux/zellij layout preset over the standalone TUIs is the
-zero-code stand-in. notez2 stays the CLI/core (notez-core is the data
+zero-code stand-in. notez stays the CLI/core (notez-core is the data
 layer under all of it).
 
 This also resolves the earlier "repoz big brother" naming confusion: the

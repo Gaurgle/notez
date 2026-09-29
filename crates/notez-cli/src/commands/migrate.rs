@@ -1,5 +1,5 @@
 //! `notez migrate-from-legacy` — one-time port of the notez-cli layout
-//! (numbered dirs + symlink mirrors) into notez2's scope model.
+//! (numbered dirs + symlink mirrors) into notez's scope model.
 
 use anyhow::Result;
 use notez_core::config::Config;

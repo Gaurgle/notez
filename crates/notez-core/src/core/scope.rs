@@ -36,7 +36,7 @@ impl Scope {
     /// Resolve from CLI flags. Precedence: `-g` > `-p` > `-l` > default.
     ///
     /// Default (no flag) is `Personal`. Personal is the most common scope
-    /// in notez2: notes you write about a specific project, syncing across
+    /// in notez: notes you write about a specific project, syncing across
     /// your own machines but not visible to teammates.
     pub fn from_flags(global: bool, public: bool, local: bool) -> Self {
         if global {

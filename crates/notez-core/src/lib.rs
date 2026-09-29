@@ -1,5 +1,5 @@
 //! notez-core: the GUI-agnostic engine shared by the `notez` CLI and the
-//! notez2 desktop app.
+//! notez desktop app.
 //!
 //! Everything here returns plain data and performs no terminal I/O, so the
 //! same logic backs the ratatui TUI, the clap CLI, and the Tauri backend.

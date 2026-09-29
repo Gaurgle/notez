@@ -1,7 +1,7 @@
 //! todoz core: parse, serialize, aggregate and mutate `TODO.md` boards.
 //!
 //! Ported from notez-cli's TUI, with the terminal layer stripped out and the
-//! symlink-based file discovery replaced by notez2's scope + registry model.
+//! symlink-based file discovery replaced by notez's scope + registry model.
 //! The board is a flat `Vec<Task>`; see [`model`] for the hierarchy encoding.
 
 pub mod model;

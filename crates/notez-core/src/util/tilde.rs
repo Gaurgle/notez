@@ -1,6 +1,6 @@
 //! Tilde-relative path handling.
 //!
-//! All persisted paths in notez2 (config, registry, metadata) store paths as
+//! All persisted paths in notez (config, registry, metadata) store paths as
 //! tilde-relative (`~/foo/bar`). They are expanded to absolute paths at runtime
 //! using the current user's home directory. This is what makes the same config
 //! work on machines with different usernames.

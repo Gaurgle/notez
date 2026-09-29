@@ -1,8 +1,8 @@
-# notez2
+# notez
 
 A local-first note-taking tool with a CLI/TUI **and** a native desktop app. Cross-machine portable rewrite of [notez-cli](https://github.com/Gaurgle/notez-cli) (now deprecated).
 
-**Naming:** notez2 is the CLI and core (`crates/`); the desktop app in `app/` is **epoz**. Same data model, two surfaces. (The epoz name previously belonged to a standalone repo-dashboard TUI, which lives on as **fleetz**.)
+**Naming:** `notez` is the CLI and core (`crates/`); the desktop app in `app/` is **epoz**. Same engine, two surfaces. (The epoz name previously belonged to a standalone repo-dashboard TUI, which lives on as **fleetz**.)
 
 ## What it is
 

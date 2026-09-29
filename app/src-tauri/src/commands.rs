@@ -350,7 +350,7 @@ pub fn machine_name() -> String {
 
 // --- legacy migration ---
 
-/// Preview the legacy → notez2 migration (changes nothing).
+/// Preview the legacy → notez migration (changes nothing).
 #[tauri::command]
 pub fn migrate_preview() -> Result<Vec<notez_core::migrate::PlanItem>, String> {
     let config = Config::load().map_err(err)?;
