@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/notez-core", "crates/notez-cli", "app/src-tauri"]
+members = ["crates/notez-core", "crates/notez-cli"]
 
-# Shared release profile for every workspace member (incl. the future Tauri app).
+# Shared release profile for every workspace member.
 [profile.release]
 lto = true
 codegen-units = 1

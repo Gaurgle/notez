@@ -242,123 +242,13 @@ todoz preview pane, so this is moving from idea to in-progress):
 - [ ] A fuller calendar view aggregating dated todos across sections and scopes.
 - [ ] Date-based sorting and filtering; interplay with `#blocked` / `#longterm`.
 
-### Real GitHub org data (done, via the gh CLI)
+### Desktop app (moved to epoz)
 
-A backend module (`app/src-tauri/src/github.rs`) shells out to the
-already-authenticated **`gh` CLI** (no HTTP client, no token handling, no
-device-flow build-out) and exposes `github_user/repos/commits/issues/
-contributors/create_issue` over IPC (`ipc.ts`). The default org is `airwavez`.
-`gh` is resolved from `PATH`, falling back to `/opt/homebrew/bin/gh` for the
-Finder-launch case. This is the pragmatic stand-in until/if a real device-flow
-auth lands; it already gives every view real identity + org data.
-
-- [x] Dashboard weather is **live** via Open-Meteo (no API key), location from
-  browser geolocation → IP lookup → Stockholm default, with animated
-  sun/cloud/rain/snow/fog/storm scenes, humidity, and wind. Falls back to mock
-  if offline.
-- [x] **Dashboard is live**: real repos, recent-commit feed, **git-activity
-  heatmap + streak built from real commit dates**, contributors with real
-  avatars, an open-issues list, and note/todo/issue/commit stat tiles.
-- [x] **Ticketz reads real issues**: airwavez issues mapped to lanes (closed =
-  Done; review / in-progress labels drive the middle lanes; else Backlog), real
-  assignees/labels/points/markdown bodies; New creates a real issue via `gh`.
-- [x] **Spaze**: rooms are the org repos, member counts from real contributors,
-  composer posts as the real GitHub identity (login + avatar).
-- [x] **Notes/Todoz**: airwavez repos attached to the per-machine registry
-  (`~/.config/notez/registry.toml`) so their notes aggregate in the desktop app.
-- [ ] **Avatars on commits/issues**: commit authors already carry a real avatar
-  URL; issue authors/assignees don't yet (the issues DTO leaves `avatar_url`
-  null) - fetch them so ticketz/inspector show real faces.
-- [x] **All repos across owners, not one org.** `github_all_repos` lists every
-  reachable repo (owned / collaborator / org member) via `/user/repos`; a shared
-  `repoStore` holds the global active-repo selection, grouped by owner with
-  collapsible categories, a filter, and a 6-month archive threshold (dormant
-  repos hidden behind a toggle). `Ctrl+1-6` jumps between views.
-- [x] **Auto-generated backlog.** Seeded ~68 story-pointed GitHub issues across
-  11 active repos (airwavez x3, notez, spaze, repoz, epoz, noiz-kmp, glanze,
-  clockz, bonsai-education) from each repo's README/design-docs/git-history -
-  backlog + in-progress + closed "done" waypoints, points via `sp:N` labels.
-- [ ] **bonsai-education/content + /socials backlog (blocked).** The `Gaurgle`
-  account has only **read** access on these two org repos, so labels/issues
-  couldn't be written. Grounded backlogs are prepared; needs Triage/Write to
-  create. (`bonsai-education/bonsai-education` got issues but no `sp:` labels for
-  the same reason - points show as default there.)
-
-### Desktop dashboard + sync - open feedback (next)
-
-- [x] **CLI → desktop sync.** Todos polls the board from disk every 3s while the
-  tab is open (no focus guard, so it works side-by-side with a terminal). The
-  reload used to fold the tree back up - fixed with `preserve_collapsed` in the
-  backend (carry expand/collapse across the disk reload, keyed by header
-  identity). Skipped during edits/dialogs. _Follow-up: proper fs-watch (notify →
-  emit event) to replace polling; and the TUI doesn't auto-refresh on desktop
-  edits - that's a notez-cli change._
-- [x] **Ticketz: drag cards between columns** (Backlog / In progress / Review /
-  Done) - pointer-based kanban drag-and-drop (WKWebView won't fire HTML5 DnD),
-  with reorder-within-lane and a floating ghost.
-- [ ] **Ticketz: GitHub write-back for moves/edits.** Drag-to-organize and the
-  edit pane are local/session-only right now. Persist them to GitHub: moving to
-  Done closes the issue (reopen on the way out); moving between open lanes sets a
-  `status:<lane>` label (auto-create it); title/body/assignee/points edits map to
-  `gh issue edit`. Re-fetch after each write so the board reflects the source of
-  truth. Needs a `github_move_issue` / `github_edit_issue` backend pair.
-- [x] **Widget resize handles** - thinned to 5px rounded corner dots + 2px edge
-  pills, hidden until hover with a delayed fade-in.
-- [x] **Recent-commits widget → repoz CLI style**, now on **real commits**:
-  per-repo `name ~/path ···· N open` header, one full-width row per commit
-  (`hash  message ···· relative-time  avatar`), monospace, dotted leaders. Churn
-  (+adds/−dels) was dropped with the mock data - the commits API doesn't return
-  per-commit stats without N extra calls; a follow-up could fetch churn for just
-  the visible rows or read it from the local clone.
-- [ ] **repoz: alternative layout for multiple selected repos.** The current
-  full-width single-column listing reads great for **one** repo, but when
-  several projects are selected the stacked per-repo blocks get long and the
-  `behind`/path headers compete for attention. Need an alternative way to show
-  repoz across multiple repos (e.g. collapsible per-repo sections, a compact
-  summary row per repo with expand-on-demand, or side-by-side columns again for
-  the multi-repo case). Single-repo view stays as-is.
-
-Captured here so it isn't lost.
-
-### Refactor: a shared view shell (tech debt, do later)
-
-The three working views - `NotesView`, `TodozView`, `TicketzView` - each
-**hand-roll the same chrome**, and it has drifted. This isn't urgent, but it
-should be consolidated before adding more views.
-
-What's duplicated across the views (with subtle, accidental differences):
-
-- **Sidebar**: brand (`MachineAvatar` + name), `group` / `group-label` / `item`
-  / `count`, the project list, and ~60 lines of identical CSS - copy-pasted into
-  each view (and into the Dashboard sidebar). Notes uses the standalone
-  `Sidebar.svelte`; todoz/ticketz/dashboard re-implement it inline.
-- **Footer / pane toggles**: each view rebuilds the statusbar + `pane-toggle`
-  buttons. Ticketz had even diverged with a **local `.pane-toggle`** (purple
-  background) that broke parity with notes - only caught by eye. The shared
-  `.pane-toggle` lives in `app.css`; views should not redefine it.
-- **Resizable panes**: every view repeats `Resizer` + a `*Width` `$state` +
-  the `{#if showX}` pane wiring, with per-view min/max drift.
-- **Pane toggles + keybinds**: the `p` / `c` / `i` / `e` handlers and the
-  show-state booleans are re-written per view (todoz/notes via melt `Toggle`,
-  ticketz via a hand-rolled keydown effect).
-- **Inspector / Calendar**: sometimes the shared `Inspector.svelte` /
-  `Calendar.svelte` components, sometimes inline markup (ticketz inspector is
-  inline). Same for the calendar pane wrapper.
-
-Proposed shape:
-
-- A `<ViewShell>` that owns the sidebar slot, the main slot, the right-pane
-  stack, the footer with toggle indicators, and the pane show-state + keybinds +
-  persisted widths. Views provide content via slots/props.
-- One `Sidebar` (brand + groups + items) reused everywhere (incl. Dashboard).
-- Move the sidebar / footer / pane-toggle / item CSS into `app.css` (or the
-  shared components) as the single source of truth; delete the per-view copies.
-- Standardize on `Inspector.svelte` + `Calendar.svelte` in every view.
-- A tiny `usePanes()` rune for `{showPreview, showInspector, showCalendar,
-  showEdit}` + keybinds + width persistence.
-
-Goal: a new view is "sidebar content + main content + which panes," not a
-re-implementation of the chrome.
+The Tauri desktop app, its GitHub data layer, dashboard, ticket board, Spaze
+view and the epoz naming decisions moved to
+[Gaurgle/epoz](https://github.com/Gaurgle/epoz) on 2026-10-05, with their
+design notes in its `docs/design.md`. epoz depends on `notez-core` as a git
+dependency, so changes to the file formats here must stay compatible with it.
 
 ### Scope migration (move notes/todos between scopes)
 
@@ -422,62 +312,6 @@ is fragile. The tree TUI sticks to the keyboard `m` keybind only.
 The two paths converge on the same internal move() function so behavior is
 identical regardless of input modality.
 
-### Authorship + activity, via GitHub identity (future)
-
-Once the desktop app authenticates with GitHub, every note and todo can carry
-**who** touched it and **when** - surfaced on the row as a small author avatar
-and a relative time ("2d ago"). A mock version of this already renders in the
-todoz rows (deterministic placeholder data) to evaluate the layout.
-
-- Identity comes from GitHub auth; the avatar/initial and name follow the
-  GitHub user. Long term this generalizes to other forges (GitLab, etc.).
-- The "when" reuses the date model from the calendar work above (inline
-  `@date`-style tokens that survive the CLI round-trip), plus git history as a
-  secondary source of truth for created/last-touched.
-- This is what makes a **richer task lifecycle** meaningful: beyond the current
-  tri-state checkbox (`[ ]` / `[/]` / `[x]`), a todo could be **done**,
-  **deferred**, or **scrapped/won't-do**, with the row showing the state + who
-  set it + when. Encoding must still round-trip byte-for-byte through `todoz`
-  (likely an inline status token next to `#tags` / `@date`).
-
-### A repo-bound ticket / kanban layer (big-picture, future)
-
-The natural next layer is a **Trello-style ticket board** bound to the
-project/repo - tickets with status columns, assignees (GitHub users), and links
-to the notes and todos that already live with the repo. This ties the pieces
-into one workspace:
-
-- **Git authorizes everything.** GitHub identity = who can see/edit; the repo =
-  the boundary. Notes, todoz, tickets (and chat, below) all scope to the repo.
-- **Everything syncs the same way: through git.** Tickets persist as files in
-  the repo (e.g. markdown + frontmatter, or a structured dir), so they sync,
-  diff, and merge with the same byte-for-byte CLI-compatible discipline as
-  notes/todoz. No separate backend; GitHub is the sync substrate.
-- **`spaze` (the CLI chat tool) folds in** as the conversation layer - chat
-  threads attachable to a ticket / repo, same identity, same git-backed sync.
-
-Design principle for all of the above: **it must always work and always sync**,
-which means every new artifact is a plain file in the repo with an encoding the
-CLI tools can read and write losslessly. Build the data model first (round-trip
-tests), UI second. Captured here as direction, not committed scope.
-
-**Status:** both desktop views are now backed by **real org data via `gh`**
-(see "Real GitHub org data" above). **Ticketz** (`TicketzView.svelte`) reads real
-issues; **Spaze** (`SpazeView.svelte`, modelled on the `spaze` TUI: rooms
-sidebar, `<name>` timeline, inline `#note`/`#todo` capture) draws real rooms,
-members, and identity. The git-backed file-per-ticket data model is still the
-long-term target; GitHub Issues is the real backing in the meantime. The rail is
-Notes / Todos / Tickets / Spaze.
-
-**Decision (2026-07-01): keep GitHub Issues as the ticket storage.** Tickets
-stay backed by real GitHub Issues (read/written via `gh`) rather than building
-the file-per-ticket model now. Rationale: Issues already sync through GitHub,
-carry identity and assignees for free, and the board already reads them live, so
-this keeps the "always works, always syncs" principle without new infrastructure.
-The git-backed file-per-ticket model remains the long-term target but is
-deferred; revisit if Issues become limiting (offline-first editing, custom
-fields, or lossless round-trip with the CLI tools).
-
 ### Two-axis scope language (decided 2026-07-06)
 
 Scopes are presented as two axes, not four silos:
@@ -516,45 +350,6 @@ also scaffolds `<path>/notez/` so the public store exists from day one.
   prose from `TODO.md`s. A footer warning names sections whose file contains
   non-todo text before a save would drop it. The desktop app should migrate
   to the same call (its wholesale `save_all_todos` has the identical hazard).
-
-### Naming and companion tools (decided 2026-07-05, refined 2026-07-06)
-
-**epoz is the product; it has two shells.** The Tauri app in `app/` is
-**Epoz Desktop**. **epoz (TUI)** is a planned umbrella terminal app with the
-same rail (Home / Notes / Todos / Tickets / Spaze), composing the module
-TUIs rather than reimplementing them. Every module also ships standalone:
-
-| Module | Standalone TUI | Status |
-|---|---|---|
-| Todos | `todoz` | shipped 2026-07-05 |
-| Notes | `notez tree` | next: last unported legacy surface |
-| Dashboard | `fleetz` | exists; realtime + worktrees roadmap in its README |
-| Spaze | `spaze` | exists (was TUI-first) |
-| Tickets | `ticketz` | to build: ratatui kanban over `gh`, reusing the desktop's lane mapping |
-
-Build order toward the umbrella: 1) `notez tree` port, 2) `ticketz` TUI,
-3) extract the fleetz shared core (also unblocks the repoz TUI), 4) the
-epoz umbrella shell that mounts the module TUIs as library crates. Until 4
-lands, a tmux/zellij layout preset over the standalone TUIs is the
-zero-code stand-in. notez stays the CLI/core (notez-core is the data
-layer under all of it).
-
-This also resolves the earlier "repoz big brother" naming confusion: the
-standalone ratatui multi-repo dashboard TUI that used to hold the epoz name
-was renamed **fleetz** and lives on as a repoz sibling (and becomes the
-umbrella's Dashboard module).
-
-The sibling CLI tools share the same git-backed, GitHub-identity discipline:
-
-- **`fleetz`** (formerly the epoz TUI) - live multi-repo dashboard: CI, PRs,
-  ahead/behind, worktrees, stashes. Roadmap: true realtime refresh and
-  first-class worktree operations (see its README).
-- **`repoz`** - the snapshot repo-status command; a repoz-owned TUI is wanted,
-  sharing a data layer with fleetz rather than duplicating it.
-
-Their capabilities (repo fleet status, CI/PR state, worktrees) are also
-roadmap items for epoz's Dashboard view, surfaced through the same desktop
-shell rather than reimplemented ad hoc.
 
 ## Test scenarios
 

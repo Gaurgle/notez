@@ -1,7 +1,9 @@
 # notez
 
 Local-first notes and todos: `crates/notez-core` (engine), `crates/notez-cli`
-(the `notez` binary and its aliases), `app/` (epoz, the Tauri desktop app).
+(the `notez` binary and its aliases). The desktop app, epoz, lives in
+`Gaurgle/epoz` and depends on `notez-core` by pinned git rev, so file-format
+changes here must stay compatible with it.
 Design and scope model: `DESIGN.md`.
 
 <!-- house-rules:start v1 -->
@@ -55,5 +57,3 @@ untouched files as part of an unrelated change.
   `notez2` name on purpose.
 - After pulling, run `./install.sh`. Its `codesign` step is required on Apple
   silicon.
-- Tauri's build script caches absolute paths in `target/`. After moving the
-  checkout, run `cargo clean` or the app crate fails to build.

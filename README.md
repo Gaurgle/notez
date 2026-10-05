@@ -1,52 +1,30 @@
 # notez
 
-A local-first note-taking tool with a CLI/TUI **and** a native desktop app. Cross-machine portable rewrite of [notez-cli](https://github.com/Gaurgle/notez-cli) (now deprecated).
+A local-first note-taking tool with a CLI/TUI. Cross-machine portable rewrite of [notez-cli](https://github.com/Gaurgle/notez-cli) (now deprecated).
 
-**Naming:** `notez` is the CLI and core (`crates/`); the desktop app in `app/` is **epoz**. Same engine, two surfaces. (The epoz name previously belonged to a standalone repo-dashboard TUI, which lives on as **fleetz**.)
+**Naming:** `notez` is the CLI and core (`crates/`). The desktop app, **epoz**, lives in [its own repo](https://github.com/Gaurgle/epoz) and builds on `notez-core`.
 
 ## What it is
 
 - Two axes, not four silos: **accessibility** (personal vs public) x **binding** (project vs global). Default = public+project: committed with the repo, shared with collaborators (outside a repo it falls back to `~/notez`). `-p` = personal+project: private notes in your own notez repo, synced across your machines, never touching the project repo. `notez add` writes to the scope root; `notez quick` (or `notez add quick`) writes a private quick note to `00_quick-notes/`. `-g` = personal+global: the `~/notez` repo itself, for notes bound to no project. `-l` = scratch: gitignored, this machine only.
-- One model that surfaces everything from the CLI or the desktop app: local scratch, personal-per-project, public-with-team, and global cross-project notes.
+- One model that surfaces everything from the CLI or epoz: local scratch, personal-per-project, public-with-team, and global cross-project notes.
 - A full todoz todo manager: tags, subtasks, drag-to-reorder.
 - Cross-machine portable. No OS symlinks. No absolute paths persisted. Per-machine project registry; private notes stay private by living in your own repo.
 
 ## Repository layout
 
-A Cargo workspace plus a Tauri/Svelte frontend:
+A Cargo workspace:
 
 ```
 crates/notez-core/   # scopes, aggregation, todoz model, tags (GUI-agnostic)
 crates/notez-cli/    # the `notez` binary (+ todoz/zlog symlink dispatch)
-app/                 # epoz, the desktop app: Tauri (Rust) + SvelteKit frontend
 ```
 
-## Desktop app (epoz)
+## Desktop app
 
-A native desktop app (Tauri + SvelteKit + TypeScript, CodeMirror 6 editor) that reads and writes the same files as the CLI, byte-for-byte, so notes round-trip through `notez`, `nvim`, and the GUI without spurious diffs.
-
-**Notes**
-- Sidebar of scopes (Personal / Public / notez (global) / Scratch / Docs), the global notez folder tree, and registered projects; filter by one scope, folder, **or** project, or view everything.
-- Note list with importance-tag dots and a scope/project pill.
-- Markdown editor with optional **vim mode** (toggle with the footer pill or `Ctrl+;`, with a NORMAL/INSERT/VISUAL badge) and a separate, resizable, togglable **live preview** pane.
-- Right-side inspector (scope, project, path, tags) and a status-bar footer.
-- Sort by latest touch / oldest / name, across any scope or project.
-- Importance tags (`1`-`5`), vim + arrow-key navigation, `/` and `Cmd/Ctrl+F` to search.
-
-**Todoz**
-- Interactive tree todo board: tri-state checkboxes, 5 importance tags, subtasks, sections, drag-to-reorder.
-- Full keyboard control mirroring the todoz TUI, `#tag` / `#1` filtering.
-
-All panes are resizable; preview and inspector are independently togglable (`p` / `i`).
-
-### Run / build the app
-
-```bash
-cd app
-npm install
-npm run tauri dev      # dev build with hot reload
-npm run tauri build    # production bundle
-```
+The desktop app, **epoz**, moved to its own repo:
+[Gaurgle/epoz](https://github.com/Gaurgle/epoz). It uses `notez-core` as a
+library, so notes and todos round-trip between `notez`, `nvim` and epoz.
 
 ## CLI
 
