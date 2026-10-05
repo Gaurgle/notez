@@ -6,7 +6,7 @@ A local-first note-taking tool with a CLI/TUI **and** a native desktop app. Cros
 
 ## What it is
 
-- Two axes, not four silos: **accessibility** (personal vs public) x **binding** (project vs global). Default = personal+project: notes in your own private notez repo, synced across your machines, never touching the project repo. `-p` = public+project: committed with the repo, shared with collaborators. `-g` = personal+global: the `~/notez` repo itself, for notes bound to no project. `-l` = scratch: gitignored, this machine only.
+- Two axes, not four silos: **accessibility** (personal vs public) x **binding** (project vs global). Default = public+project: committed with the repo, shared with collaborators (outside a repo it falls back to `~/notez`). `-p` = personal+project: private notes in your own notez repo, synced across your machines, never touching the project repo. `notez add` writes to the scope root; `notez quick` (or `notez add quick`) writes a private quick note to `00_quick-notes/`. `-g` = personal+global: the `~/notez` repo itself, for notes bound to no project. `-l` = scratch: gitignored, this machine only.
 - One model that surfaces everything from the CLI or the desktop app: local scratch, personal-per-project, public-with-team, and global cross-project notes.
 - A full todoz todo manager: tags, subtasks, drag-to-reorder.
 - Cross-machine portable. No OS symlinks. No absolute paths persisted. Per-machine project registry; private notes stay private by living in your own repo.
@@ -53,7 +53,8 @@ npm run tauri build    # production bundle
 The CLI surface mirrors notez-cli's. Working today:
 
 ```
-notez add        notez log         notez mkdir
+notez add        notez quick       notez log
+notez mkdir
 notez attach     notez detach      notez list
 notez sync       notez setup       notez completions
 notez init       notez --help      notez migrate-from-legacy
@@ -75,6 +76,10 @@ under `[paths]` in config.toml).
 **notez tree** is the interactive tree browser (sections per scope and
 project including `docs`, tag strip + `#tag` filtering, preview pane,
 open-in-editor). Tag changes write only `.tags` roots that actually changed.
+
+**notez add** writes a public note to the repo's `notez/` (`-p` for a
+private one under `~/notez/personal/<project>/`). **notez quick** (or
+`notez add quick ...`) writes a private quick note to `00_quick-notes/`.
 
 `notez add --in <dir>` targets a subdirectory (global root by default,
 the current scope's root with `--in-local`); bare `--in` opens an fzf

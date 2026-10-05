@@ -19,7 +19,7 @@ use clap::Parser;
 
 use crate::cli::{Cli, Commands};
 use notez_core::config::Config;
-use notez_core::core::Scope;
+use notez_core::core::{Project, Scope};
 
 fn main() -> ExitCode {
     install_panic_hook();
@@ -52,7 +52,8 @@ fn main() -> ExitCode {
         return finish(commands::nav::run(&config));
     }
 
-    let scope = Scope::from_flags(parsed.global, parsed.public, parsed.local);
+    let in_project = Project::try_detect().is_some();
+    let scope = Scope::from_flags(parsed.global, parsed.private, parsed.local, in_project);
 
     // No subcommand: open the tree browser. notez-cli made a bare `notez`,
     // `notez -g` or `notez -p` open a browser on the resolved scope, and
@@ -63,17 +64,14 @@ fn main() -> ExitCode {
     };
 
     let result: anyhow::Result<()> = match cmd {
-        Commands::Add { title, r#in, in_local }
-        | Commands::Znote { title, r#in, in_local } => {
-            commands::add::run(title, r#in, in_local, scope, &config).map(|created| {
-                println!("Created: {}", created.path.display());
-                // Legacy UX: no inline body means "write it now" - open the
-                // editor on the fresh note. With a body, stay silent.
-                if !created.had_body {
-                    commands::add::open_created(&created.path, &config);
-                }
-            })
+        Commands::Add { mut title, r#in, in_local }
+        | Commands::Znote { mut title, r#in, in_local } => {
+            let is_quick = commands::add::take_quick_keyword(&mut title);
+            commands::add::run(title, r#in, in_local, is_quick, scope, &config)
+                .map(|created| report_created(&created, &config))
         }
+        Commands::Quick { title } => commands::add::run(title, None, false, true, scope, &config)
+            .map(|created| report_created(&created, &config)),
         Commands::Log { message } | Commands::Zlog { message } => {
             commands::log::run(message, scope, &config).map(|p| {
                 println!("Appended to: {}", p.display());
@@ -124,6 +122,15 @@ fn main() -> ExitCode {
     };
 
     finish(result)
+}
+
+fn report_created(created: &commands::add::Created, config: &Config) {
+    println!("Created: {}", created.path.display());
+    // Legacy UX: no inline body means "write it now" - open the editor on
+    // the fresh note. With a body, stay silent.
+    if !created.had_body {
+        commands::add::open_created(&created.path, config);
+    }
 }
 
 fn finish(result: anyhow::Result<()>) -> ExitCode {
@@ -207,11 +214,12 @@ fn print_help() {
     };
 
     println!("  {}", mauve.apply_to("Notes"));
-    cmd("notez add [title]", "create a private note");
+    cmd("notez add [title]", "create a public note in the repo");
     cmd("notez add [title] \"body\"", "create with content");
     cmd("notez add --in <dir>", "create inside a subdirectory (bare --in: fzf picker)");
-    cmd("notez -p add [title]", "create public note");
+    cmd("notez -p add [title]", "create private note");
     cmd("notez -g add [title]", "create global note");
+    cmd("notez quick [title]", "private quick note (same as add quick)");
     cmd("notez edit [term]", "open an existing note (fuzzy match)");
     println!();
 
@@ -265,12 +273,12 @@ fn print_help() {
     println!(
         "    {} {}",
         sapphire.apply_to("(default)"),
-        overlay.apply_to("personal+project: ~/notez/personal/<project>/ (private, syncs across your machines)"),
+        overlay.apply_to("public+project:   ./notez/ (committed with the repo; ~/notez/ outside a repo)"),
     );
     println!(
         "    {} {}",
         sapphire.apply_to("-p"),
-        overlay.apply_to("public+project:   ./notez/ (committed with the repo, shared with collaborators)"),
+        overlay.apply_to("personal+project: ~/notez/personal/<project>/ (private, syncs across your machines)"),
     );
     println!(
         "    {} {}",

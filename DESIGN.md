@@ -56,10 +56,15 @@ plus the machine-only scratch tier. See "Two-axis scope language" below.
 
 | Flag | Meaning | Where |
 |---|---|---|
-| _(default)_ | personal + project | `<notez_root>/personal/<project>/` |
-| `-p` `--public` | public + project | `<cwd>/notez/` |
+| _(default)_ | public + project (personal + global outside a project) | `<cwd>/notez/` |
+| `-p` `--private` | personal + project | `<notez_root>/personal/<project>/` |
 | `-g` `--global` | personal + global | `<notez_root>/` |
 | `-l` `--local` | scratch (this machine) | `<cwd>/.notez/` |
+
+`notez add` writes to the root of the resolved scope. Quick notes
+(`notez quick`, or `notez add quick ...`) go to `00_quick-notes/` and are
+private: the default public scope becomes personal; `-g` and `-l` apply as
+usual.
 
 ## Config files
 
@@ -582,10 +587,10 @@ Setup: Alice has `shared-repo-1` cloned at `/Users/alice/repos/shared-repo-1`
 on laptop, and at `/Users/alice-desk/Repos/shared-repo-1` (capital R) on
 desktop. She has run `notez attach` inside the project on each machine.
 
-Action: on laptop, `cd ~/repos/shared-repo-1 && notez add "API redesign idea"`
+Action: on laptop, `cd ~/repos/shared-repo-1 && notez -p add "API redesign idea"`
 
 Verify:
-- File lands at `/Users/alice/notez/personal/shared-repo-1/00_quick-notes/<date>-api-redesign-idea.md`.
+- File lands at `/Users/alice/notez/personal/shared-repo-1/<date>-api-redesign-idea.md`.
 - `~/notez/personal/shared-repo-1/` is tracked in Alice's notez repo.
 - After `notez sync` on laptop and again on desktop, the file appears at
   `/Users/alice-desk/notez/personal/shared-repo-1/...` (note the different
@@ -595,12 +600,12 @@ Verify:
 
 ### Scenario B. Bob pushes a public note in shared-repo-1
 
-Action: Bob runs `notez -p add "deploy steps"` inside `shared-repo-1`,
-commits the new `notez/00_quick-notes/<date>-deploy-steps.md`, pushes.
+Action: Bob runs `notez add "deploy steps"` inside `shared-repo-1`,
+commits the new `notez/<date>-deploy-steps.md`, pushes.
 
 Verify:
 - Alice pulls the project on laptop and sees the file in
-  `~/repos/shared-repo-1/notez/00_quick-notes/...`.
+  `~/repos/shared-repo-1/notez/...`.
 - `notez tree` on Alice's laptop shows the note under the Public scope for
   `shared-repo-1`, with the team-globe icon.
 - Bob's same note is visible on Alice's desktop after she pulls there too.
@@ -612,7 +617,7 @@ Verify:
 Action: Alice on laptop runs `notez -l add "try this branch out"`.
 
 Verify:
-- File lands at `/Users/alice/repos/shared-repo-1/.notez/00_quick-notes/...`.
+- File lands at `/Users/alice/repos/shared-repo-1/.notez/...`.
 - The `.notez/` directory is gitignored (notez ensures this on first write).
 - After `notez sync`: still only on laptop. Not synced to desktop, not
   visible to Bob.
@@ -707,7 +712,7 @@ Verify:
 ### Scenario K. Public note moves to personal (future `notez mv`)
 
 Action: Alice realizes a public note in `shared-repo-1` should not have
-been shared. She runs `notez -p mv "leaked-thoughts" --to personal`.
+been shared. She runs `notez mv "leaked-thoughts" --to personal`.
 
 Verify:
 - File leaves `~/repos/shared-repo-1/notez/`.

@@ -1,8 +1,13 @@
-//! `notez add` and `znote`: create a new note.
+//! `notez add`, `znote` and `notez quick`: create a new note.
 //!
-//! `--in <dir>` targets a subdirectory instead of quick-notes: under the
-//! global root by default, under the current scope's root with `--in-local`
-//! (legacy semantics). Bare `--in` opens an fzf picker over the existing
+//! A plain note lands in the root of the current scope. A quick note
+//! (`notez quick`, or `notez add quick ...`) lands in `00_quick-notes/` and
+//! is private: the default public scope is swapped for personal, while
+//! `-g` and `-l` still apply.
+//!
+//! `--in <dir>` targets a subdirectory instead: under the global root by
+//! default, under the current scope's root with `--in-local` (legacy
+//! semantics). Bare `--in` opens an fzf picker over the existing
 //! subdirectories of that root.
 
 use std::path::{Path, PathBuf};
@@ -22,11 +27,25 @@ pub struct Created {
     pub had_body: bool,
 }
 
+/// Keyword that turns `notez add quick ...` into a quick note.
+const QUICK_KEYWORD: &str = "quick";
+
+/// Strip a leading `quick` keyword from `add`'s title words. Returns whether
+/// it was present, i.e. whether the note is a quick note.
+pub fn take_quick_keyword(title_words: &mut Vec<String>) -> bool {
+    let is_quick = title_words.first().is_some_and(|w| w == QUICK_KEYWORD);
+    if is_quick {
+        title_words.remove(0);
+    }
+    is_quick
+}
+
 /// Write the new note to disk and return its absolute path.
 pub fn run(
     title_words: Vec<String>,
     in_arg: Option<String>,
     in_local: bool,
+    is_quick: bool,
     scope: Scope,
     config: &Config,
 ) -> Result<Created> {
@@ -36,7 +55,9 @@ pub fn run(
 
     let note = Note::new(title, body);
     let dir = match &in_arg {
-        None => resolve::quick_notes(scope, config)?,
+        None if is_quick => resolve::quick_notes(quick_scope(scope), config)?,
+        None => resolve::root(scope, config)?,
+        Some(_) if is_quick => bail!("quick notes always go to quick-notes; drop --in"),
         Some(target) => {
             let root = in_root(in_local, scope, config)?;
             if target.is_empty() {
@@ -57,6 +78,14 @@ pub fn run(
         .with_context(|| format!("failed to write note {}", path.display()))?;
 
     Ok(Created { path, had_body })
+}
+
+/// Quick notes are private: the default public scope becomes personal.
+fn quick_scope(scope: Scope) -> Scope {
+    match scope {
+        Scope::Public => Scope::Personal,
+        other => other,
+    }
 }
 
 /// Open a freshly created note in the configured editor (nvim lands on the
@@ -181,14 +210,25 @@ mod tests {
         c
     }
 
+    fn git_init(dir: &std::path::Path) {
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(dir)
+            .stderr(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+    }
+
     #[test]
-    fn add_global_writes_into_quick_notes() {
+    fn add_global_writes_into_scope_root() {
         let dir = tempdir().unwrap();
         let config = config_in(dir.path());
 
         let path = run(
             vec!["my".into(), "first".into(), "note".into()],
             None,
+            false,
             false,
             Scope::Global,
             &config,
@@ -197,11 +237,22 @@ mod tests {
         .path;
 
         assert!(path.exists());
-        let parent = path.parent().unwrap();
-        assert!(parent.ends_with("00_quick-notes"));
+        assert_eq!(path.parent().unwrap(), dir.path());
 
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("# my first note"));
+    }
+
+    #[test]
+    fn quick_global_writes_into_quick_notes() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let path = run(vec!["idea".into()], None, false, true, Scope::Global, &config)
+            .unwrap()
+            .path;
+
+        assert_eq!(path.parent().unwrap(), dir.path().join("00_quick-notes"));
     }
 
     #[test]
@@ -215,6 +266,7 @@ mod tests {
             vec!["hello".into()],
             None,
             false,
+            false,
             Scope::Local,
             &Config::defaults(),
         );
@@ -223,7 +275,7 @@ mod tests {
 
         let path = result.unwrap().path;
         assert!(path.exists());
-        assert!(path.to_string_lossy().contains("/.notez/00_quick-notes/"));
+        assert!(path.parent().unwrap().ends_with(".notez"), "got {:?}", path);
     }
 
     #[test]
@@ -236,14 +288,13 @@ mod tests {
         let saved = std::env::current_dir().unwrap();
         std::env::set_current_dir(cwd.path()).unwrap();
 
-        let result = run(vec!["hi".into()], None, false, Scope::Personal, &config);
+        let result = run(vec!["hi".into()], None, false, false, Scope::Personal, &config);
 
         std::env::set_current_dir(saved).unwrap();
 
         let path = result.unwrap().path;
         // No git project => personal falls back to the global notez_root.
-        let expected_parent = notez_root.path().join("00_quick-notes");
-        assert_eq!(path.parent().unwrap(), expected_parent);
+        assert_eq!(path.parent().unwrap(), notez_root.path());
     }
 
     #[test]
@@ -253,30 +304,79 @@ mod tests {
         let config = config_in(notez_root.path());
 
         let project_dir = tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(project_dir.path())
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap();
+        git_init(project_dir.path());
 
         let saved = std::env::current_dir().unwrap();
         std::env::set_current_dir(project_dir.path()).unwrap();
-        let result = run(vec!["note".into()], None, false, Scope::Personal, &config);
+        let result = run(vec!["note".into()], None, false, false, Scope::Personal, &config);
         std::env::set_current_dir(saved).unwrap();
 
         let path = result.unwrap().path;
-        assert!(
-            path.to_string_lossy().contains("/personal/"),
-            "expected path under personal/, got {:?}",
-            path,
-        );
-        assert!(
-            path.ends_with(std::path::Path::new("00_quick-notes")
-                .join(path.file_name().unwrap()))
-                || path.parent().unwrap().ends_with("00_quick-notes"),
-        );
+        let parent = path.parent().unwrap();
+        assert_eq!(parent.parent().unwrap(), notez_root.path().join("personal"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn add_public_inside_git_writes_into_project_notez_root() {
+        let notez_root = tempdir().unwrap();
+        let config = config_in(notez_root.path());
+        let project_dir = tempdir().unwrap();
+        git_init(project_dir.path());
+
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(project_dir.path()).unwrap();
+        let result = run(vec!["plan".into()], None, false, false, Scope::Public, &config);
+        std::env::set_current_dir(saved).unwrap();
+
+        let path = result.unwrap().path;
+        let expected = project_dir.path().canonicalize().unwrap().join("notez");
+        assert_eq!(path.parent().unwrap().canonicalize().unwrap(), expected);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn quick_in_public_scope_is_private() {
+        let notez_root = tempdir().unwrap();
+        let config = config_in(notez_root.path());
+        let project_dir = tempdir().unwrap();
+        git_init(project_dir.path());
+
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(project_dir.path()).unwrap();
+        let result = run(vec!["jot".into()], None, false, true, Scope::Public, &config);
+        std::env::set_current_dir(saved).unwrap();
+
+        let path = result.unwrap().path;
+        assert!(path.starts_with(notez_root.path().join("personal")), "got {:?}", path);
+        assert!(path.parent().unwrap().ends_with("00_quick-notes"));
+        assert!(!project_dir.path().join("notez").exists());
+    }
+
+    #[test]
+    fn quick_rejects_in_arg() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let result = run(vec![], Some("ideas".into()), false, true, Scope::Global, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn quick_keyword_is_stripped_from_title() {
+        let mut words = vec!["quick".to_string(), "my".into(), "idea".into()];
+        assert!(take_quick_keyword(&mut words));
+        assert_eq!(words, vec!["my".to_string(), "idea".into()]);
+    }
+
+    #[test]
+    fn quick_keyword_only_counts_as_first_word() {
+        let mut words = vec!["a".to_string(), "quick".into(), "fix".into()];
+        assert!(!take_quick_keyword(&mut words));
+        assert_eq!(words.len(), 3);
+
+        let mut empty: Vec<String> = vec![];
+        assert!(!take_quick_keyword(&mut empty));
     }
 
     #[test]
@@ -287,6 +387,7 @@ mod tests {
         let created = run(
             vec!["title".into(), "this is the body".into()],
             None,
+            false,
             false,
             Scope::Global,
             &config,
@@ -303,7 +404,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = config_in(dir.path());
 
-        let created = run(vec![], None, false, Scope::Global, &config).unwrap();
+        let created = run(vec![], None, false, false, Scope::Global, &config).unwrap();
         assert!(!created.had_body, "no inline body: the editor should open");
         let body = std::fs::read_to_string(&created.path).unwrap();
         assert!(body.starts_with("# untitled\n"));
@@ -350,6 +451,7 @@ mod tests {
             vec!["spark".into()],
             Some("ideas".into()),
             false,
+            false,
             Scope::Global,
             &config,
         )
@@ -362,19 +464,14 @@ mod tests {
     #[serial_test::serial]
     fn add_local_gitignores_scratch_store_in_git_repo() {
         let cwd_holder = tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(cwd_holder.path())
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap();
+        git_init(cwd_holder.path());
         let saved = std::env::current_dir().unwrap();
         std::env::set_current_dir(cwd_holder.path()).unwrap();
 
         let result = run(
             vec!["scratch".into()],
             None,
+            false,
             false,
             Scope::Local,
             &Config::defaults(),

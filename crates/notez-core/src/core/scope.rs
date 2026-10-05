@@ -17,9 +17,10 @@ use serde::{Deserialize, Serialize};
 
 /// The four note scopes.
 ///
-/// Derived from CLI flags: default = `Personal`, `-l` = `Local`,
-/// `-p` = `Public`, `-g` = `Global`. Flags are mutually exclusive; if more
-/// than one is given, the precedence is global > public > local > personal.
+/// Derived from CLI flags: default = `Public` (`Global` outside a project),
+/// `-p` = `Personal`, `-l` = `Local`, `-g` = `Global`. Flags are mutually
+/// exclusive; if more than one is given, the precedence is
+/// global > private > local > default.
 ///
 /// Serializes lowercase (`"local"`, `"personal"`, …) so the frontend and the
 /// `Display` impl agree on the wire form.
@@ -35,18 +36,21 @@ pub enum Scope {
 impl Scope {
     /// Resolve from CLI flags. Precedence: `-g` > `-p` > `-l` > default.
     ///
-    /// Default (no flag) is `Personal`. Personal is the most common scope
-    /// in notez: notes you write about a specific project, syncing across
-    /// your own machines but not visible to teammates.
-    pub fn from_flags(global: bool, public: bool, local: bool) -> Self {
+    /// Default (no flag) is `Public`: notes committed with the project.
+    /// `-p` (private) picks `Personal`. Outside a project there is no repo
+    /// to commit into, so the default falls back to `Global` instead of
+    /// spawning a stray `notez/` in whatever directory the shell is in.
+    pub fn from_flags(global: bool, private: bool, local: bool, in_project: bool) -> Self {
         if global {
             Self::Global
-        } else if public {
-            Self::Public
+        } else if private {
+            Self::Personal
         } else if local {
             Self::Local
+        } else if in_project {
+            Self::Public
         } else {
-            Self::Personal
+            Self::Global
         }
     }
 
@@ -92,30 +96,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_personal() {
-        assert_eq!(Scope::from_flags(false, false, false), Scope::Personal);
+    fn default_in_project_is_public() {
+        assert_eq!(Scope::from_flags(false, false, false, true), Scope::Public);
+    }
+
+    #[test]
+    fn default_outside_project_falls_back_to_global() {
+        assert_eq!(Scope::from_flags(false, false, false, false), Scope::Global);
     }
 
     #[test]
     fn local_flag_picks_local() {
-        assert_eq!(Scope::from_flags(false, false, true), Scope::Local);
+        assert_eq!(Scope::from_flags(false, false, true, true), Scope::Local);
     }
 
     #[test]
-    fn public_flag_picks_public() {
-        assert_eq!(Scope::from_flags(false, true, false), Scope::Public);
+    fn private_flag_picks_personal() {
+        assert_eq!(Scope::from_flags(false, true, false, true), Scope::Personal);
+        assert_eq!(Scope::from_flags(false, true, false, false), Scope::Personal);
     }
 
     #[test]
     fn global_flag_picks_global() {
-        assert_eq!(Scope::from_flags(true, false, false), Scope::Global);
+        assert_eq!(Scope::from_flags(true, false, false, true), Scope::Global);
     }
 
     #[test]
-    fn precedence_global_over_public_over_local() {
-        assert_eq!(Scope::from_flags(true, true, true), Scope::Global);
-        assert_eq!(Scope::from_flags(false, true, true), Scope::Public);
-        assert_eq!(Scope::from_flags(false, false, true), Scope::Local);
+    fn precedence_global_over_private_over_local() {
+        assert_eq!(Scope::from_flags(true, true, true, true), Scope::Global);
+        assert_eq!(Scope::from_flags(false, true, true, true), Scope::Personal);
+        assert_eq!(Scope::from_flags(false, false, true, true), Scope::Local);
     }
 
     #[test]

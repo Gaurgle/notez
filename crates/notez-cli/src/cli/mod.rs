@@ -22,9 +22,9 @@ pub struct Cli {
     #[arg(short = 'g', long = "global", global = true)]
     pub global: bool,
 
-    /// public+project: `./notez/` (committed with the repo, shared with collaborators)
-    #[arg(short = 'p', long = "public", global = true)]
-    pub public: bool,
+    /// personal+project: `~/notez/personal/<project>/` (private, syncs across your machines)
+    #[arg(short = 'p', long = "private", global = true)]
+    pub private: bool,
 
     /// scratch: `./.notez/` (gitignored, this machine only, never syncs)
     #[arg(short = 'l', long = "local", global = true)]
@@ -40,7 +40,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Create a new note
+    /// Create a new note in the scope root (`add quick ...` makes a quick note)
     Add {
         /// Note title (defaults to "untitled")
         title: Vec<String>,
@@ -140,7 +140,13 @@ pub enum Commands {
         item: Option<String>,
     },
 
-    /// Quick new note (alias for `add`)
+    /// Create a private quick note in `00_quick-notes/`
+    Quick {
+        /// Note title (defaults to "untitled")
+        title: Vec<String>,
+    },
+
+    /// New note (alias for `add`)
     Znote {
         /// Note title (defaults to "untitled")
         title: Vec<String>,
