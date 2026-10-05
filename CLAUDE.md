@@ -33,9 +33,7 @@ where the session runs.
 
 ## Ship policy
 
-Direct commits to the default branch, no PR step. The default branch is
-`master` until the rename to `main` lands (see below). No CI: a push triggers
-nothing.
+Direct commits to `main`, no PR step. No CI: a push triggers nothing.
 
 ## Checks
 
@@ -50,9 +48,9 @@ untouched files as part of an unrelated change.
 
 - This repo is public. The private notes vault is `Gaurgle/notez-vault`,
   checked out at `~/notez`. Never let a vault remote point here.
-- Rename in progress (2026-09-29): `master` to `main` waits until both
-  machines' `~/notez` remotes point at `notez-vault`. Creating `main` here
-  earlier lets a stale vault remote rebase onto it and push private notes.
+- `master` was renamed to `main` on 2026-10-05. A checkout still on
+  `master` needs: `git branch -m master main && git fetch origin &&
+  git branch -u origin/main main && git remote set-head origin -a`.
 - `docs/` is historical record (specs, plans, handovers) and keeps the old
   `notez2` name on purpose.
 - After pulling, run `./install.sh`. Its `codesign` step is required on Apple
