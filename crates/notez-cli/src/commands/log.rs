@@ -22,7 +22,17 @@ pub fn run(message_words: Vec<String>, scope: Scope, config: &Config) -> Result<
     }
 
     let path = dir.join(note::todays_log_filename());
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    // Only a missing log starts empty; an existing but unreadable one is
+    // never replaced.
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(existing) => existing,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!("could not read log {}, nothing was changed", path.display())
+            });
+        }
+    };
     let updated = note::append_log_entry(&existing, &message);
     std::fs::write(&path, updated)
         .with_context(|| format!("failed to write log {}", path.display()))?;
@@ -77,6 +87,24 @@ mod tests {
         assert!(body.contains(" - first"));
         assert!(body.contains(" - second"));
         assert!(body.starts_with("# Daily Log - "));
+    }
+
+    #[test]
+    fn unreadable_log_is_left_untouched_and_errors() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+        let log_dir = resolve::daily_logs(Scope::Global, &config).unwrap();
+        std::fs::create_dir_all(&log_dir).unwrap();
+        let path = log_dir.join(note::todays_log_filename());
+        let bytes = [0xff, 0xfe, 0x00, 0x41];
+        std::fs::write(&path, bytes).unwrap();
+
+        let err = run(vec!["entry".into()], Scope::Global, &config).unwrap_err();
+
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let message = format!("{err:#}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+        assert!(message.contains("nothing was changed"), "{message}");
     }
 
     #[test]

@@ -66,7 +66,13 @@ pub fn ensure_scratch_gitignored(path: &Path) {
     }
 
     let gitignore = parent.join(".gitignore");
-    let mut content = std::fs::read_to_string(&gitignore).unwrap_or_default();
+    // Only a missing file starts empty; any other read error means the file
+    // exists and must not be replaced.
+    let mut content = match std::fs::read_to_string(&gitignore) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return,
+    };
     let covered = content
         .lines()
         .any(|l| matches!(l.trim(), ".notez" | ".notez/"));
@@ -249,6 +255,35 @@ mod tests {
 
         let content = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
         assert_eq!(content, "target/\n.notez/\n");
+    }
+
+    #[test]
+    fn scratch_gitignore_appended_to_readable_file() {
+        let dir = tempdir().unwrap();
+        git_init(dir.path());
+        std::fs::write(dir.path().join(".gitignore"), "target/").unwrap();
+        let store = dir.path().join(".notez");
+        std::fs::create_dir_all(&store).unwrap();
+
+        ensure_scratch_gitignored(&store);
+
+        let content = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert_eq!(content, "target/\n.notez\n");
+    }
+
+    #[test]
+    fn scratch_gitignore_unreadable_file_left_untouched() {
+        let dir = tempdir().unwrap();
+        git_init(dir.path());
+        let gitignore = dir.path().join(".gitignore");
+        let bytes = [0xff, 0xfe, 0x00, 0x41];
+        std::fs::write(&gitignore, bytes).unwrap();
+        let store = dir.path().join(".notez");
+        std::fs::create_dir_all(&store).unwrap();
+
+        ensure_scratch_gitignored(&store);
+
+        assert_eq!(std::fs::read(&gitignore).unwrap(), bytes);
     }
 
     #[test]
