@@ -97,6 +97,11 @@ fn main() -> ExitCode {
         Commands::Edit { term } | Commands::Editz { term } => {
             commands::edit::run(term, scope, &config)
         }
+        Commands::Rename { term, title } => {
+            commands::rename::run(term, title, scope, &config).map(|path| {
+                println!("Renamed to {}", path.display());
+            })
+        }
         Commands::Nav => commands::nav::run(&config),
 
         Commands::Attach { name, path } => commands::attach::run(name, path).map(|r| {
@@ -221,6 +226,7 @@ fn print_help() {
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
     cmd("notez edit [term]", "open an existing note (fuzzy match)");
+    cmd("notez rename [term] [title]", "retitle a note, keeping its date prefix");
     println!();
 
     println!("  {}", mauve.apply_to("Daily Logs"));

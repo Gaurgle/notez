@@ -24,6 +24,7 @@ use notez_core::note_tags;
 use notez_core::tags::FLAG_DEFS;
 
 use super::{VimCommandMode, theme};
+use crate::commands::rename;
 
 /// What the title bar shows.
 pub struct TreeContext {
@@ -52,6 +53,8 @@ pub struct SectionSpec {
 struct TreeNode {
     name: String,
     path: PathBuf,
+    /// Path when the browser loaded, so a rename can retire the old `.tags` key.
+    origin: PathBuf,
     is_dir: bool,
     depth: usize,
     expanded: bool,
@@ -149,6 +152,7 @@ fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<PathBuf>) {
         nodes.push(TreeNode {
             name: spec.label.clone(),
             path: spec.root.clone(),
+            origin: spec.root.clone(),
             is_dir: true,
             depth: 0,
             expanded: false,
@@ -180,6 +184,7 @@ fn emit_children(
         nodes.push(TreeNode {
             name: name.clone(),
             path: path.clone(),
+            origin: path.clone(),
             is_dir: true,
             depth,
             expanded: false,
@@ -198,6 +203,7 @@ fn emit_children(
         nodes.push(TreeNode {
             name: name.clone(),
             path: dir_path.join(&name),
+            origin: dir_path.join(&name),
             is_dir: false,
             depth,
             expanded: false,
@@ -249,6 +255,11 @@ fn changed_tag_maps(
         let Some(key) = rel_key(&tag_roots[node.tag_root], &node.path) else {
             continue;
         };
+        if node.origin != node.path {
+            if let Some(old_key) = rel_key(&tag_roots[node.tag_root], &node.origin) {
+                finals[node.tag_root].remove(&old_key);
+            }
+        }
         if node.flags == 0 {
             finals[node.tag_root].remove(&key);
         } else {
@@ -417,6 +428,8 @@ fn event_loop(
     let mut pre_focus_expanded: Vec<(usize, bool)> = Vec::new();
     let mut show_help = false;
     let mut flag_mode = false;
+    let mut rename_buffer: Option<String> = None;
+    let mut status_message: Option<String> = None;
     let mut preview_scroll: u16 = 0;
     let mut last_preview_idx: usize = usize::MAX;
     let mut filter_strip_area: Rect = Rect::default();
@@ -788,7 +801,18 @@ fn event_loop(
                 );
 
                 // Status bar.
-                let status = if vim.active {
+                let status = if let Some(buffer) = &rename_buffer {
+                    Line::from(vec![
+                        Span::styled(" rename: ", Style::default().fg(theme::MAUVE)),
+                        Span::styled(buffer.clone(), Style::default().fg(theme::TEXT)),
+                        Span::styled("_", Style::default().fg(theme::OVERLAY)),
+                    ])
+                } else if let Some(message) = &status_message {
+                    Line::from(Span::styled(
+                        format!(" {message}"),
+                        Style::default().fg(theme::PEACH),
+                    ))
+                } else if vim.active {
                     Line::from(vec![Span::styled(
                         vim.buffer.clone(),
                         theme::command_line(),
@@ -819,7 +843,7 @@ fn event_loop(
                 } else {
                     let bold = Modifier::BOLD;
                     let width = area.width as usize;
-                    let left = " open  tags  focus  view all";
+                    let left = " open  tags  rename  focus  view all";
                     let padding = width.saturating_sub(left.len() + 4);
                     Line::from(vec![
                         Span::raw(" "),
@@ -827,6 +851,8 @@ fn event_loop(
                         Span::styled("pen  ", Style::default().fg(theme::OVERLAY)),
                         Span::styled("t", Style::default().fg(theme::PEACH).add_modifier(bold)),
                         Span::styled("ags  ", Style::default().fg(theme::OVERLAY)),
+                        Span::styled("r", Style::default().fg(theme::MAUVE).add_modifier(bold)),
+                        Span::styled("ename  ", Style::default().fg(theme::OVERLAY)),
                         Span::styled("f", Style::default().fg(theme::GREEN).add_modifier(bold)),
                         Span::styled("ocus  ", Style::default().fg(theme::OVERLAY)),
                         Span::styled(
@@ -917,6 +943,35 @@ fn event_loop(
 
         if show_help {
             show_help = false;
+            continue;
+        }
+
+        status_message = None;
+
+        if let Some(buffer) = rename_buffer.as_mut() {
+            match key.code {
+                KeyCode::Esc => rename_buffer = None,
+                KeyCode::Enter => {
+                    let title = std::mem::take(buffer);
+                    rename_buffer = None;
+                    let visible = compute_visible(nodes, &search_buffer);
+                    let vs = state.selected().unwrap_or(0);
+                    if let Some(&ri) = visible.get(vs) {
+                        match rename::rename_note(&nodes[ri].path, &title) {
+                            Ok(new_path) => {
+                                nodes[ri].name = file_name_of(&new_path);
+                                nodes[ri].path = new_path;
+                            }
+                            Err(e) => status_message = Some(format!("rename failed: {e}")),
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    buffer.pop();
+                }
+                KeyCode::Char(c) => buffer.push(c),
+                _ => {}
+            }
             continue;
         }
 
@@ -1117,6 +1172,11 @@ fn event_loop(
             KeyCode::Char('t') => {
                 flag_mode = true;
             }
+            KeyCode::Char('r') => {
+                if selected < visible.len() && !nodes[real_idx].is_dir {
+                    rename_buffer = Some(rename::editable_title(&nodes[real_idx].name));
+                }
+            }
             KeyCode::Char('J') => {
                 preview_scroll = preview_scroll.saturating_add(1);
             }
@@ -1131,6 +1191,12 @@ fn event_loop(
     }
 
     Ok(())
+}
+
+fn file_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// j/k step that, in focus mode, hops the exclusive expansion from one
@@ -1167,13 +1233,14 @@ fn navigate(
 }
 
 fn render_help(frame: &mut Frame, full: Rect) {
-    let rows: [(&str, Color, &str); 11] = [
+    let rows: [(&str, Color, &str); 12] = [
         ("o / enter", theme::GREEN, "open file / toggle dir"),
         ("l", theme::MAUVE, "expand directory"),
         ("h", theme::MAUVE, "collapse / go to parent"),
         ("f", theme::GREEN, "focus section"),
         ("/", theme::YELLOW, "filter: text + #tag, or click a dot"),
         ("t", theme::PEACH, "tag mode (1-5 toggle, t to close)"),
+        ("r", theme::MAUVE, "rename note (enter confirms, esc cancels)"),
         ("v", theme::SAPPHIRE, "view all / collapse all"),
         ("j/k", theme::TEXT, "navigate"),
         ("J/K", theme::TEXT, "scroll preview"),
@@ -1358,5 +1425,25 @@ mod tests {
         let (nodes, roots) = build_forest(&[a, b]);
         assert_eq!(roots.len(), 1);
         assert!(nodes.iter().all(|n| n.tag_root == 0));
+    }
+
+    #[test]
+    fn renamed_note_moves_its_tag_key() {
+        let s = spec("/r", "S", &["2026-10-06-untitled.md"]);
+        let (mut nodes, roots) = build_forest(&[s]);
+        let initial = vec![HashMap::from([(
+            "2026-10-06-untitled.md".to_string(),
+            FLAG_PRIO,
+        )])];
+        apply_tags(&mut nodes, &roots, &initial);
+
+        nodes[1].path = PathBuf::from("/r/2026-10-06-real.md");
+        let changed = changed_tag_maps(&nodes, &roots, &initial);
+
+        assert_eq!(changed.len(), 1);
+        assert_eq!(
+            changed[0].1,
+            HashMap::from([("2026-10-06-real.md".to_string(), FLAG_PRIO)])
+        );
     }
 }

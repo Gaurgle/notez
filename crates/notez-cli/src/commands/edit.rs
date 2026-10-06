@@ -24,14 +24,16 @@ pub fn filter_by_term(entries: &[NoteEntry], term: &str) -> Vec<NoteEntry> {
         .collect()
 }
 
-pub fn run(term: Option<String>, scope: Scope, config: &Config) -> Result<()> {
+/// Resolve `term` to a single note in `scope`, asking via the picker when
+/// several match.
+pub fn choose_note(term: Option<&str>, scope: Scope, config: &Config) -> Result<NoteEntry> {
     let project = Project::try_detect();
     let entries = aggregate::collect_in_scope(scope, config, project.as_ref());
     if entries.is_empty() {
         bail!("no notes found in {} scope", scope.label());
     }
 
-    let candidates = match term.as_deref() {
+    let candidates = match term {
         Some(t) => {
             let matched = filter_by_term(&entries, t);
             if matched.is_empty() {
@@ -42,14 +44,16 @@ pub fn run(term: Option<String>, scope: Scope, config: &Config) -> Result<()> {
         None => entries,
     };
 
-    let chosen = if candidates.len() == 1 {
-        candidates[0].clone()
-    } else {
-        let labels: Vec<String> = candidates.iter().map(|e| e.name.clone()).collect();
-        let index = picker::pick("note> ", &labels, config.tools.fzf)?;
-        candidates[index].clone()
-    };
+    if candidates.len() == 1 {
+        return Ok(candidates[0].clone());
+    }
+    let labels: Vec<String> = candidates.iter().map(|e| e.name.clone()).collect();
+    let index = picker::pick("note> ", &labels, config.tools.fzf)?;
+    Ok(candidates[index].clone())
+}
 
+pub fn run(term: Option<String>, scope: Scope, config: &Config) -> Result<()> {
+    let chosen = choose_note(term.as_deref(), scope, config)?;
     Command::new(&config.editor.command)
         .arg(&chosen.path)
         .status()

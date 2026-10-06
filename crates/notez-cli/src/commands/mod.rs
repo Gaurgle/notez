@@ -16,6 +16,7 @@ pub mod migrate;
 pub mod mkdir;
 pub mod nav;
 pub mod picker;
+pub mod rename;
 pub mod search;
 pub mod setup;
 pub mod sync;

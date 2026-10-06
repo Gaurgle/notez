@@ -134,6 +134,14 @@ pub enum Commands {
         term: Option<String>,
     },
 
+    /// Rename an existing note
+    Rename {
+        /// Search term to fuzzy-match note filename
+        term: Option<String>,
+        /// New title (prompted for when omitted)
+        title: Vec<String>,
+    },
+
     /// Interactive todo manager (alias for `todo`)
     Todoz {
         /// Quick-add a todo item

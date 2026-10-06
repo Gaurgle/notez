@@ -67,6 +67,11 @@ picker. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
 from the scope model, so it sees exactly the notes the rest of the tool
 considers in scope; a term matching one note skips the picker.
 
+**notez rename [term] [title]** retitles a note found the same way as `edit`.
+The `YYYY-MM-DD-` prefix is kept, the title is slugified into the filename, and
+a leading `# heading` is rewritten to match. Omit the title to be prompted. It
+refuses to overwrite an existing note.
+
 **notez nav** picks a directory in the vault and opens it, with `personal/`
 expanded one level so every project is one hop away.
 
