@@ -9,7 +9,14 @@ ticket status, in-flight work, decisions and the next authorized step.
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
 `aa27d2ed-a3e9-498c-ae61-db84f43eae7c`, took the baton on 2026-10-06 15:01
 CEST. First lead since setup: no previous lead, no ticket worktrees or
-branches, no workers running at takeover. Baton held, not released.
+branches, no workers running at takeover.
+
+PAUSED at 17:20 CEST on 2026-10-06 at Andreas's request ("i must go now,
+can we paus now and continue when i get bakc home?"). Baton RELEASED at the
+pause. This session dispatches nothing more until Andreas says to continue;
+if it is still open then, it retakes the baton and records the time here.
+If it is gone, a new lead takes over from this file after Andreas confirms.
+Read In flight first: one worker was still running at the pause.
 
 ## Authorized by the owner
 
@@ -142,8 +149,22 @@ NZ-7, dispatched 2026-10-06 17:14 CEST under the standing scope:
 - Branch: `feat/NZ-7-always-open-browser`.
 - Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-7`.
 - Method: bounded ticket, one worker pass, no locked tests.
-- Worker: `nz-worker`, model `opus`, running.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+- Worker: `nz-worker`, model `opus`. STILL RUNNING at the 17:20 pause, about
+  6 minutes in. The lead let it finish its run instead of killing it mid
+  edit, and dispatches nothing after it. At 17:20 the worktree had
+  uncommitted edits to `DESIGN.md`, `README.md`,
+  `crates/notez-cli/src/cli/mod.rs`, `crates/notez-cli/src/commands/tree.rs`
+  and `crates/notez-cli/src/main.rs`, and no report yet.
+- If this session ended before the worker reported, that work may be
+  PARTIAL: nothing in the worktree is reviewed or known to build. A
+  resuming lead checks whether an agent is still alive, runs `cargo build
+  --workspace` and `cargo test --workspace` there, and either hands the
+  worktree to a fresh `nz-worker` with the NZ-7 ticket and a note that it
+  inherits unfinished edits, or, only with Andreas's word, discards it and
+  starts again from `main`. It does not dispatch a second worker while one
+  may be running.
+- Reviewer: `nz-reviewer`, model `opus`, not dispatched.
+- Nothing of NZ-7 is committed, merged or pushed.
 
 Queued behind it and not started, in this order: NZ-8, NZ-3, NZ-4, NZ-5.
 
@@ -683,7 +704,17 @@ answers the questions listed on it, and names which to run.
 
 NZ-1 is Done and installed by Andreas. He is trying it in daily use.
 
-Standing scope in progress: NZ-2, then NZ-7, NZ-8, NZ-3, NZ-4, NZ-5 (see
+PAUSED since 17:20 CEST (see Current lead). On resume, with Andreas's go:
+finish NZ-7 from the state under In flight (worker report or leftover
+edits, then review, checks, commit, merge, push), then carry on down the
+queue. The standing scope and the integration delegation recorded above
+still stand for NZ-7, NZ-8, NZ-3, NZ-4 and NZ-5; the pause did not widen or
+withdraw them. Andreas installed the NZ-2 build at 17:15 and saw that bare
+`notez` in `~/Repos/notez` still says "No notes here."; that is NZ-7's fix
+and he knows it has not landed. `notez -p` opens the browser there
+meanwhile.
+
+Standing scope: NZ-2 (done), then NZ-7, NZ-8, NZ-3, NZ-4, NZ-5 (see
 Authorized by the owner for its limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
