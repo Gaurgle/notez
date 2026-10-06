@@ -42,8 +42,17 @@ fn quick_add(text: String, scope: Scope, config: &Config) -> Result<()> {
     }
 
     let path = dir.join("TODO.md");
-    let mut content =
-        std::fs::read_to_string(&path).unwrap_or_else(|_| "# TODO\n".to_string());
+    // Only a missing file starts fresh; an existing but unreadable one is
+    // never replaced.
+    let mut content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "# TODO\n".to_string(),
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!("could not read {}, nothing was changed", path.display())
+            });
+        }
+    };
     if !content.ends_with('\n') {
         content.push('\n');
     }
@@ -282,6 +291,22 @@ mod tests {
 
         let content = std::fs::read_to_string(dir.path().join("TODO.md")).unwrap();
         assert_eq!(content, "# TODO\n- [x] done #prio\n- [ ] next\n");
+    }
+
+    #[test]
+    fn quick_add_leaves_unreadable_todo_untouched_and_errors() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+        let path = dir.path().join("TODO.md");
+        let bytes = [0xff, 0xfe, 0x00, 0x41];
+        std::fs::write(&path, bytes).unwrap();
+
+        let err = quick_add("next".into(), Scope::Global, &config).unwrap_err();
+
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let message = format!("{err:#}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+        assert!(message.contains("nothing was changed"), "{message}");
     }
 
     #[test]
