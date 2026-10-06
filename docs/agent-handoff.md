@@ -135,34 +135,17 @@ branches, no workers running at takeover. Baton held, not released.
 
 ## In flight
 
-NZ-2, dispatched 2026-10-06 16:30 CEST under the standing scope above:
+NZ-7, dispatched 2026-10-06 17:14 CEST under the standing scope:
 
-- Base commit: `3864f48` (`main` and `origin/main` at dispatch).
-- Branch: `feat/NZ-2-footer-help`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-2`.
-- Method: bounded ticket, no locked tests. Split into two worker passes on
-  the same worktree to stay inside the 100k token budget per agent, since
-  `tui/tree.rs` and `tui/todo.rs` are 1625 and 1789 lines: pass 1 builds
-  `tui/footer.rs` and `tui/help.rs` and converts the tree; pass 2 converts
-  the todo board. One review of the whole diff after pass 2.
-- Pass 1: `nz-worker`, model `opus`, reported about 16:40 CEST and is
-  stopped. New `tui/footer.rs` (304 lines) and `tui/help.rs` (230 lines),
-  tree converted, 19 new tests, build clean, tests green (notez-cli 118,
-  notez-core 143), pty run of the tree's footer and help. Usage: about 86k
-  tokens, 9 minutes. Uncommitted: `tui/mod.rs` and `tui/tree.rs` modified,
-  the two new files untracked.
-- Pass 2: a fresh `nz-worker`, model `opus`, dispatched about 16:41 CEST,
-  running, same worktree. Scope: convert `tui/todo.rs` to the shared
-  modules, tests for its key table, a short README note.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched; it reviews the
-  whole diff after pass 2.
-- For Andreas when he tries it, from pass 1: a lit key turns both the key
-  and its word green; the footer now also shows `/ filter` and `? help`, so
-  narrow terminals drop `rename` and `view all` first; the help box is
-  wider than before (about 78 columns).
+- Base commit: `b08e798` (`main` and `origin/main` at dispatch, the NZ-2
+  merge).
+- Branch: `feat/NZ-7-always-open-browser`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-7`.
+- Method: bounded ticket, one worker pass, no locked tests.
+- Worker: `nz-worker`, model `opus`, running.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
 
-Queued behind it and not started, in this order: NZ-7, NZ-8, NZ-3, NZ-4,
-NZ-5.
+Queued behind it and not started, in this order: NZ-8, NZ-3, NZ-4, NZ-5.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -304,9 +287,9 @@ locally" instead of git's error.
 
 ### NZ-7: the main commands always open the browser; quick notes by flag
 
-Status: Ready. Authorized by Andreas on 2026-10-06 16:48 CEST ("i think you
-can decide on these, and I'll test it out"), decisions by the lead. Runs
-right after NZ-2, before NZ-8 and NZ-3 to NZ-5.
+Status: In flight (see In flight above). Authorized by Andreas on
+2026-10-06 16:48 CEST ("i think you can decide on these, and I'll test it
+out"), decisions by the lead. Runs before NZ-8 and NZ-3 to NZ-5.
 
 Problem, reported by Andreas: `notez` inside `~/Repos/notez` prints "No
 notes here." and exits instead of opening the browser. Cause (checked at
@@ -467,7 +450,55 @@ behaviour-preserving refactor ticket first, it goes before NZ-2.
 
 #### NZ-2: context footer and per-view help overlay
 
-Status: In flight (see In flight above).
+Status: Done. Merged into `main` as `b08e798` at 17:12 CEST on 2026-10-06
+and pushed. Not yet installed or tried by Andreas.
+
+Record:
+
+- Base `3864f48`, branch `feat/NZ-2-footer-help`, ticket commit `43ea4a2`
+  (6 files, 1608 insertions, 271 deletions), merge commit `b08e798` made
+  with `git merge --no-ff` under the integration delegation. To undo the
+  ticket: `git revert -m 1 b08e798`.
+- Agents: three `nz-worker` (opus) runs (pass 1 shared modules and tree,
+  pass 2 todo board and README, fix cycle 1) and two separate
+  `nz-reviewer` (opus) invocations. About 441k agent tokens and 38 minutes
+  of agent time.
+- Reviews: review 1 requested changes. B1, the tree drew no key hints in
+  tag, rename and `:` modes (from the lead's pass 1 brief). B2, `Esc` in
+  the `:` command line fell through and quit the view or cleared the
+  filter, in both views, a defect older than the ticket that the new help
+  text contradicted. Review 2 accepted the corrected diff with no
+  blockers, after rendering every footer path at widths 0 to 200. The
+  committed diff hashes to
+  `4c905f9813f1c2b622e895914124db6cc856d8b3244178a0e14f99ce648244f9`
+  (`git diff 3864f48 43ea4a2 | shasum -a 256`), the hash review 2 accepted.
+- Lead verification: `cargo build --workspace` and `cargo test --workspace`
+  in the worktree and again on `main` after the merge: build clean,
+  notez-cli 137 passed, notez-core 143 passed, doc tests 0. Code on `main`
+  is identical to `43ea4a2`.
+- Deliberate behaviour changes: help closes only with `?` or `Esc`
+  (Andreas's decision); a key pressed while the `:` command line is active
+  is consumed by it, so `Esc` there only closes the line (the lead's
+  decision on B2, Andreas said "sure").
+- What exists now for later tickets: `tui/footer.rs` (`KeyHint` tables,
+  `Mode`, `Toggle`, `select`, `line`, `status_line` for a lead plus hints
+  plus a right part, `quit_column`, `QUIT_HINT_RESERVED_COLS`),
+  `tui/help.rs` (`HelpState`, `rows`, `render`), `VimKey` in `tui/mod.rs`,
+  and the tables `TREE_KEYS` and `TODO_KEYS`. A new key goes into the
+  view's table and then shows in both the footer and the help.
+- For Andreas to judge when he tries it: a lit key turns both the key and
+  its word green; the footer now shows `/ filter` and `? help`, so narrow
+  terminals drop `rename` and `view all` first in the tree; the help box
+  is about 78 columns wide; the tag legend is wider than 50 columns, so
+  no hints fit after it on a narrow terminal.
+- Left alone, none authorized: mouse clicks and the wheel still act on the
+  view under an open help overlay (as before the ticket); the tree's
+  warning line still hardcodes its quit hint spans instead of using
+  `footer::hint_spans`.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+
+The ticket as it was run:
 
 Outcome: the tree and the todo board share one footer and one help overlay
 implementation, modelled on fleetz `src/ui/footer.rs` and `src/ui/help.rs`.
