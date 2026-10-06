@@ -64,7 +64,18 @@ plus the machine-only scratch tier. See "Two-axis scope language" below.
 `notez add` writes to the root of the resolved scope. Quick notes
 (`notez quick`, or `notez add quick ...`) go to `00_quick-notes/` and are
 private: the default public scope becomes personal; `-g` and `-l` apply as
-usual.
+usual. A scope flag followed by words and no subcommand is the same quick
+note: `notez -g call the bank` runs `notez -g quick call the bank`. If the
+first word names a subcommand, that subcommand runs instead. Words with no
+scope flag are refused with a hint, so a mistyped subcommand never creates a
+note.
+
+The browser (bare `notez`, `notez tree`, `treez`) does not follow the table
+for its no-flag case. Without a flag it opens the project view, every scope of
+the current project (personal, public, docs, scratch), and the global view
+outside a project. A flag narrows it: `-g` the global view, `-p` the
+project's personal notes only, `-l` its scratch notes only. Outside a project
+`-p` falls back to the global view and `-l` finds nothing.
 
 ## Config files
 

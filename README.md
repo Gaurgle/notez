@@ -38,6 +38,7 @@ notez sync       notez setup       notez completions
 notez init       notez --help      notez migrate-from-legacy
 notez search     todoz             todoz -g
 notez tree       notez -g tree     notez edit
+notez            notez -g <title>  notez -p <title>
 notez nav        notez logz        notez logs
 ```
 
@@ -54,6 +55,10 @@ under `[paths]` in config.toml).
 **notez tree** is the interactive tree browser (sections per scope and
 project including `docs`, tag strip + `#tag` filtering, preview pane,
 open-in-editor). Tag changes write only `.tags` roots that actually changed.
+A bare `notez` opens it too. With no scope flag it shows the whole current
+project (personal, public, docs and scratch sections), or the global view
+outside a project; `-g` opens the global view, `-p` only the project's
+personal notes, `-l` only its scratch notes.
 
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename or a
@@ -68,6 +73,12 @@ it on a short terminal.
 **notez add** writes a public note to the repo's `notez/` (`-p` for a
 private one under `~/notez/personal/<project>/`). **notez quick** (or
 `notez add quick ...`) writes a private quick note to `00_quick-notes/`.
+A scope flag followed by words is the short form: `notez -g call the bank`
+is `notez -g quick call the bank`, and likewise for `-p` and `-l`. A first
+word that names a subcommand runs it (`notez -g tree`); use `quick` to title
+a note with such a word. Words without a scope flag are an error, so a
+mistyped subcommand never becomes a note. Words starting with `-` go after
+`--` (`notez -g -- -x marks`).
 
 `notez add --in <dir>` targets a subdirectory (global root by default,
 the current scope's root with `--in-local`); bare `--in` opens an fzf
