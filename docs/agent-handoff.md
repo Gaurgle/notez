@@ -100,6 +100,26 @@ branches, no workers running at takeover. Baton held, not released.
   these builds, and their look is his to accept. The lead asked him
   whether he wants each ticket merged as it passes; until he says so, the
   tickets stop at Ready to integrate on pushed branches.
+- 2026-10-06 16:35 CEST, Andreas, in the lead session (`aa27d2ed`),
+  answering the lead's question whether NZ-2 to NZ-5 should wait on
+  branches or be merged as they pass: "i only need to test at bigger
+  changes, we can focus on building right now, you may ship changes. merge
+  as you go along." INTEGRATION DELEGATION for the standing scope:
+  - The lead may commit each of NZ-2, NZ-3, NZ-4 and NZ-5 on its branch,
+    merge it into `main` with `git merge --no-ff`, and push `main`, and may
+    commit and push `docs/agent-handoff.md` as the work moves.
+  - Andreas waived trying each branch build first; he tests at bigger
+    changes. The other safe-merge conditions in `docs/agent-workflow.md`
+    still apply to every merge: a separate reviewer accepted the exact diff
+    that is committed; `cargo build --workspace` and `cargo test
+    --workspace` pass on the combined result; no dependency, CI,
+    persistence format or external contract change. If one fails or is
+    unclear, the ticket stops at Ready to integrate and the lead asks.
+  - Limits: these four tickets only. Not NZ-6, not the NZ-1 leftovers, not
+    any later ticket. No install, tag, release, force-push or deletion of
+    remote branches. It ends when NZ-5 is on `main` or Andreas says stop.
+  - This supersedes the "branches only" reading in the entry above: ticket
+    branches are merged, not pushed to `origin` on their own.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -483,20 +503,24 @@ the owner for its limits). Per ticket the lead:
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
 2. Runs `cargo build --workspace` and `cargo test --workspace` itself.
-3. Commits exactly the reviewed diff on the ticket branch and pushes the
-   branch to `origin` (authorized: "then commit and push").
-4. Records the ticket as Ready to integrate, with the try command.
-5. Starts the next ticket in a new worktree based on that ticket's commit.
+3. Commits exactly the reviewed diff on the ticket branch, staging the
+   ticket's files by name.
+4. Merges it into `main` with `git merge --no-ff`, reruns the checks on
+   `main`, and pushes `main` (authorized: "merge as you go along"), provided
+   the safe-merge conditions hold. Otherwise it stops at Ready to integrate
+   and asks.
+5. Marks the ticket Done, removes its worktree and local branch, commits
+   and pushes this file, and tells Andreas what changed on screen.
+6. Starts the next ticket in a new worktree based on `main`.
 
-It does not merge into `main` unless Andreas says so. A lead resuming from
-this file first checks whether a worker is still running in the worktree
-named under In flight and whether it holds uncommitted work, and does not
-dispatch a second worker onto it.
+A lead resuming from this file first checks whether a worker is still
+running in the worktree named under In flight and whether it holds
+uncommitted work, and does not dispatch a second worker onto it.
+
+Andreas installs and tries when he chooses (`./install.sh`, his to run).
 
 Waiting on Andreas, none of it blocking the scope above:
 
-- Whether NZ-2 to NZ-5 should each be merged into `main` as they pass, or
-  wait on their branches for him to try.
 - NZ-6 (quiet offline exit): his choice between fully quiet and one short
   line, and the instruction to run it. It touches `main.rs`, `sync.rs` and
   `commands/sync.rs`, so it could run alongside NZ-2, NZ-4 or NZ-5, but
