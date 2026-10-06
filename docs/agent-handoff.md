@@ -120,6 +120,17 @@ branches, no workers running at takeover. Baton held, not released.
     remote branches. It ends when NZ-5 is on `main` or Andreas says stop.
   - This supersedes the "branches only" reading in the entry above: ticket
     branches are merged, not pushed to `origin` on their own.
+- 2026-10-06 16:48 CEST, Andreas, in the lead session (`aa27d2ed`), after
+  the lead put two design questions to him on the command line and on
+  creating notes in the browser: "i think you can decide on these, and
+  I'll test it out." With it he reported that `notez` in `~/Repos/notez`
+  prints "No notes here." instead of opening the TUI. The lead's reading:
+  the lead decides the design and builds it, as NZ-7 and NZ-8 (see
+  Tickets). They join the standing scope and run in this order: NZ-2,
+  NZ-7, NZ-8, NZ-3, NZ-4, NZ-5. The integration delegation above ("you may
+  ship changes. merge as you go along") is applied to NZ-7 and NZ-8 too, on
+  the reading that he can only test them once they are on `main`; the lead
+  told him so in the same turn. Same limits and stop conditions.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -134,10 +145,24 @@ NZ-2, dispatched 2026-10-06 16:30 CEST under the standing scope above:
   `tui/tree.rs` and `tui/todo.rs` are 1625 and 1789 lines: pass 1 builds
   `tui/footer.rs` and `tui/help.rs` and converts the tree; pass 2 converts
   the todo board. One review of the whole diff after pass 2.
-- Pass 1: `nz-worker`, model `opus`, running.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+- Pass 1: `nz-worker`, model `opus`, reported about 16:40 CEST and is
+  stopped. New `tui/footer.rs` (304 lines) and `tui/help.rs` (230 lines),
+  tree converted, 19 new tests, build clean, tests green (notez-cli 118,
+  notez-core 143), pty run of the tree's footer and help. Usage: about 86k
+  tokens, 9 minutes. Uncommitted: `tui/mod.rs` and `tui/tree.rs` modified,
+  the two new files untracked.
+- Pass 2: a fresh `nz-worker`, model `opus`, dispatched about 16:41 CEST,
+  running, same worktree. Scope: convert `tui/todo.rs` to the shared
+  modules, tests for its key table, a short README note.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched; it reviews the
+  whole diff after pass 2.
+- For Andreas when he tries it, from pass 1: a lit key turns both the key
+  and its word green; the footer now also shows `/ filter` and `? help`, so
+  narrow terminals drop `rename` and `view all` first; the help box is
+  wider than before (about 78 columns).
 
-NZ-3, NZ-4 and NZ-5 are queued behind it and not started.
+Queued behind it and not started, in this order: NZ-7, NZ-8, NZ-3, NZ-4,
+NZ-5.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -276,6 +301,122 @@ quiet until something shows sync state on screen (NZ-3's header would).
 Options: (a) fully quiet like Pinz, the lead's recommendation if NZ-3 is
 going ahead; (b) one short line such as "notez: offline, changes kept
 locally" instead of git's error.
+
+### NZ-7: the main commands always open the browser; quick notes by flag
+
+Status: Ready. Authorized by Andreas on 2026-10-06 16:48 CEST ("i think you
+can decide on these, and I'll test it out"), decisions by the lead. Runs
+right after NZ-2, before NZ-8 and NZ-3 to NZ-5.
+
+Problem, reported by Andreas: `notez` inside `~/Repos/notez` prints "No
+notes here." and exits instead of opening the browser. Cause (checked at
+`af345a5`): with no scope flag inside a project, `Scope::from_flags` gives
+`Scope::Public`, and `commands/tree.rs` `build_view` then shows only
+`<project>/notez/`, which is empty there. The view its own comment calls the
+"Default view: every scope of the current project" sits under
+`Scope::Personal`, so it is reachable only with `-p`. That project has
+notes in `~/notez/personal/notez/` which the bare command never shows.
+Then `run` prints and returns when every section is empty.
+
+Outcome and decisions:
+
+1. No scope flag, no subcommand (`notez`), and `notez tree` / `treez` with
+   no scope flag: inside a project, open the project view (personal,
+   public, docs and local sections of that project). Outside a project,
+   the global view, as today.
+2. A scope flag and no title keeps opening the browser, narrowed to that
+   scope: `-g` the global view as today, `-p` the project's personal notes
+   only, `-l` the project's scratch notes only.
+3. A scope flag followed by free text creates a quick note in that scope:
+   `notez -g call the bank` behaves exactly like `notez -g quick call the
+   bank` does today (same folder, same file naming, same editor and sync
+   behaviour). A first word that is a subcommand name still runs that
+   subcommand; `quick` remains the way to title a note with such a word.
+4. Free text with no scope flag is not a quick note: `notez somthing`
+   stays an error, and the error names `notez quick <title>` and the flag
+   form, so a mistyped subcommand cannot silently create a note.
+5. The truly empty case (no notes in the resolved view) is NZ-8's, which
+   opens the browser with an empty state. Until then the message stays.
+
+Acceptance criteria:
+
+1. In a project with personal notes and an empty `notez/`, bare `notez`,
+   `notez tree` and `treez` open the browser showing those notes.
+2. `-g`, `-p`, `-l` with no title open the browser on the views in
+   decision 2.
+3. `notez -g <words>`, `notez -p <words>` and `notez -l <words>` create
+   the same note as the matching `quick` command; a test compares the two
+   paths for each flag.
+4. `notez <unknown words>` with no flag exits non-zero with the hint in
+   decision 4 and creates nothing.
+5. Existing subcommands and the argv-0 aliases (`todoz`, `znote`, `treez`
+   and the rest) behave as before. `Scope::from_flags` in `notez-core` is
+   not changed; "no flag given" is decided in the CLI.
+6. The vault pull on open and the exit sync apply to the browser paths as
+   now, and a quick note created by flag syncs as `quick` does.
+7. Tests cover criteria 1 to 5 without touching the real HOME or vault.
+   `README.md`, `DESIGN.md` (scope flags section), the `print_help` text
+   and the comment above the "No subcommand" branch are updated.
+
+Allowed files: `crates/notez-cli/src/main.rs`,
+`crates/notez-cli/src/cli/mod.rs`, `crates/notez-cli/src/commands/tree.rs`,
+`crates/notez-cli/src/commands/add.rs`, `README.md`, `DESIGN.md`. Nothing
+under `crates/notez-cli/src/tui/`. No new dependency, no `notez-core`
+change.
+
+### NZ-8: create a note from the tree browser
+
+Status: Ready. Authorized with NZ-7, decisions by the lead. Runs after
+NZ-7. Needs NZ-2's footer and help tables.
+
+Outcome and decisions:
+
+1. `n` in the tree browser starts a new note. The footer prompt names the
+   target before anything is created, for example
+   `new note in personal/ideas: _`.
+2. The target is the folder under the cursor (the parent folder when the
+   cursor is on a file), in that row's section, so the scope (personal,
+   public, local, global) follows where the cursor is.
+3. `Tab` in the prompt cycles the scope through the ones that apply
+   (inside a project: public, personal, local, global; outside: global),
+   targeting that scope's root, so a note can be made private or public
+   even when that section is empty or not on screen. The prompt shows the
+   scope by name.
+4. `Enter` creates the note through the same code path as `notez add`, so
+   file naming, numbering and any template are identical, then opens it in
+   the editor as `add` does, and on return the tree is rebuilt with the
+   new note selected. `Esc` cancels and creates nothing. An empty title
+   becomes "untitled", as with `add`.
+5. The browser opens even when the view has no notes, with an empty state
+   line that names `n`. The "No notes here." exit is removed.
+6. `n` and the prompt keys are in the key table, so the footer and the
+   help overlay show them.
+
+Acceptance criteria:
+
+1. Creating with the cursor in each section writes the file where the
+   matching `notez add` with that scope flag would, checked by tests on
+   the target resolution (pure function: cursor row and cycled scope in,
+   target directory and scope out).
+2. `Tab` cycling, `Esc`, the empty title and a name collision behave as in
+   decisions 3 and 4; a collision follows whatever `add` does and never
+   overwrites.
+3. An empty vault or project opens the browser; no key panics on an empty
+   tree (navigation, open, tags, rename, filter, focus, view all, help).
+4. After creation the new note is selected and visible, tags and expanded
+   state of the rest of the tree are kept.
+5. The public scope writes into the project repository
+   (`<project>/notez/`), which is committed with the project and may be a
+   public repo: the prompt must say "public" in so many words when that is
+   the target.
+6. Unit tests for target resolution, scope cycling and the empty tree;
+   README updated.
+
+Allowed files: `crates/notez-cli/src/tui/` (`tree.rs`, `footer.rs`,
+`help.rs`), `crates/notez-cli/src/commands/tree.rs`,
+`crates/notez-cli/src/commands/add.rs` (to expose the creation path, no
+behaviour change to `add`), `README.md`. No new dependency, no
+`notez-core` change unless Andreas approves.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
@@ -488,6 +629,20 @@ Constraints for every ticket:
 - The tree browser lives in one 1300-line file, `tui/tree.rs`. Parallel
   workers on it will collide; keep one worker on that file at a time.
 
+New direction from Andreas (2026-10-06, about 16:45 CEST, during NZ-2), not
+yet a ticket and not authorized: look over the notez commands. `notez` and
+`treez` should always open the TUI; flags (`-g`, `-p`, with or without
+`add`) should be the quick-note paths; and the TUI then needs a way to say
+whether a note created inside it is private or public. Facts the lead
+checked at `af345a5`: bare `notez`, `notez -g`, `notez -p`, `tree` and
+`treez` already open the tree browser on the resolved scope
+(`crates/notez-cli/src/main.rs`, the "No subcommand" branch, from the
+recent `3d0bb7a`); notes are created only by `add`, `znote` and `quick`;
+the tree browser has no create key at all. Open with Andreas: what a flag
+with no title should do, and how the TUI picks the scope for a new note.
+The lead proposed: create in the section under the cursor, with a scope
+picker when that is ambiguous.
+
 The four areas are drafted as NZ-2 (footer and help), NZ-3 (status header),
 NZ-4 (layout and panes) and NZ-5 (search and filtering) under Tickets, in the
 suggested running order. Open: Andreas approves or changes each brief,
@@ -497,8 +652,8 @@ answers the questions listed on it, and names which to run.
 
 NZ-1 is Done and installed by Andreas. He is trying it in daily use.
 
-Standing scope in progress: NZ-2, then NZ-3, NZ-4, NZ-5 (see Authorized by
-the owner for its limits). Per ticket the lead:
+Standing scope in progress: NZ-2, then NZ-7, NZ-8, NZ-3, NZ-4, NZ-5 (see
+Authorized by the owner for its limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
