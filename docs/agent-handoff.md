@@ -149,21 +149,35 @@ NZ-7, dispatched 2026-10-06 17:14 CEST under the standing scope:
 - Branch: `feat/NZ-7-always-open-browser`.
 - Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-7`.
 - Method: bounded ticket, one worker pass, no locked tests.
-- Worker: `nz-worker`, model `opus`. STILL RUNNING at the 17:20 pause, about
-  6 minutes in. The lead let it finish its run instead of killing it mid
-  edit, and dispatches nothing after it. At 17:20 the worktree had
-  uncommitted edits to `DESIGN.md`, `README.md`,
-  `crates/notez-cli/src/cli/mod.rs`, `crates/notez-cli/src/commands/tree.rs`
-  and `crates/notez-cli/src/main.rs`, and no report yet.
-- If this session ended before the worker reported, that work may be
-  PARTIAL: nothing in the worktree is reviewed or known to build. A
-  resuming lead checks whether an agent is still alive, runs `cargo build
-  --workspace` and `cargo test --workspace` there, and either hands the
-  worktree to a fresh `nz-worker` with the NZ-7 ticket and a note that it
-  inherits unfinished edits, or, only with Andreas's word, discards it and
-  starts again from `main`. It does not dispatch a second worker while one
-  may be running.
-- Reviewer: `nz-reviewer`, model `opus`, not dispatched.
+- Worker: `nz-worker`, model `opus`. It was still running at the 17:20
+  pause; the lead let it finish. It REPORTED at 17:53 CEST and is stopped,
+  so the worktree holds a complete worker result, not partial edits. No
+  agent is running.
+- Worker's claims, not yet reviewed or checked by the lead: all seven
+  criteria satisfied (criterion 6 by reading the code, not by a test); the
+  lead's reading of the cause confirmed by a failing test against the base;
+  18 new tests; build clean, tests green (notez-cli 155, notez-core 143);
+  no existing test changed. Usage: about 86k tokens.
+- How it was done: an optional positional `words: Vec<String>` on `Cli`
+  beside the optional subcommand; a pure `decide(...)` in `main.rs` picks
+  browse, quick note, subcommand or the hint; `commands/tree.rs` chooses
+  the view through a `View { Project, Global, Only(Scope) }` enum; all
+  browser paths go through one `browse()`.
+- Uncommitted change in the worktree: 5 files (`DESIGN.md`, `README.md`,
+  `crates/notez-cli/src/cli/mod.rs`, `crates/notez-cli/src/commands/tree.rs`,
+  `crates/notez-cli/src/main.rs`), 455 insertions, 54 deletions, nothing
+  untracked. `git diff b08e798 | shasum -a 256` gives
+  `60f92fa6f9ebb7552908af6cd481f6735596e3a76b07d84de30136844af67b40`.
+- Points for the reviewer and for Andreas, from the worker: a mistyped
+  subcommand (`notez tre`) now gets the quick-note hint instead of clap's
+  "did you mean"; `notez -g -n foo` now runs nav where it was a parse
+  error; project detection and the decision run before the config loads;
+  the `Commands::Tree | Treez` match arm is now unreachable but kept;
+  flags typed after the words count (`notez call the bank -g`); a word
+  starting with a dash needs `--`.
+- NEXT, on resume and not before: dispatch `nz-reviewer` on that hash with
+  the NZ-7 ticket, then the lead's checks, commit, merge and push under the
+  recorded delegation.
 - Nothing of NZ-7 is committed, merged or pushed.
 
 Queued behind it and not started, in this order: NZ-8, NZ-3, NZ-4, NZ-5.
