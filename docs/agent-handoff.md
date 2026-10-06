@@ -11,11 +11,29 @@ Claude `nz-coordinator` (model `claude-fable-5-1`), session
 CEST. First lead since setup: no previous lead, no ticket worktrees or
 branches, no workers running at takeover.
 
-Paused from 17:20 to 17:56 CEST on 2026-10-06 at Andreas's request, baton
-released for that time. RESUMED at 17:56 CEST on his "continue": the same
-session retook the baton after checking that `main`, the NZ-7 worktree and
-its diff hash matched this file and that no agent was running. Baton held,
-not released.
+Paused from 17:20 to 17:56 CEST at Andreas's request, then resumed by the
+same session (its id appears to have changed to `298bd2d1` at about 18:21).
+
+STOPPED FOR THE NIGHT at 18:35 CEST on 2026-10-06 on Andreas's instruction
+("wrap this up ... we'll keep working on this another day"). BATON
+RELEASED. No lead is active. No worker or reviewer is running; every agent
+dispatched today has reported or was stopped. A new lead may take over
+from this file once Andreas says to continue; nothing here authorizes
+starting on its own.
+
+State at the stop, in short (details under In flight, Tickets, Next step):
+
+- `main` and `origin/main` are in sync. Done and pushed today: NZ-1, NZ-2,
+  NZ-7, NZ-9, NZ-10.
+- One open worktree: `.claude/worktrees/NZ-8`, branch
+  `feat/NZ-8-create-note-in-browser`, with a COMPLETE BUT UNREVIEWED,
+  uncommitted worker result. It is the next thing to do.
+- Not started: NZ-4, NZ-5, NZ-3 (UI, in that order), NZ-6, NZ-11.
+- Andreas's installed binary is from 18:07 (NZ-1, NZ-2, NZ-7). NZ-9 and
+  NZ-10 need another `./install.sh`, his to run.
+- This file has grown long. The sections that matter to a new lead are
+  this one, In flight, Next step, and the tickets NZ-8, NZ-4, NZ-5, NZ-3,
+  NZ-6 and NZ-11. The Done tickets are history.
 
 ## Authorized by the owner
 
@@ -202,38 +220,54 @@ NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
   `new_note_target`, `new_note_lead`, `restore_state`, an `n` key row and
   handler. Unknown: whether the flow is complete end to end; nobody ran it.
 - Continuation: a fresh `nz-worker`, model `opus`, dispatched 18:23 CEST on
-  the same worktree, running. It inherits those edits, audits them against
-  the pass 1 list, finishes what is missing, then does pass 2 (the empty
-  browser, `Tab` scope cycling, README) in that priority order, stopping
-  at a clean point if its budget runs out. Nothing was discarded.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched; it reviews the
-  whole diff when the worker work is complete.
+  the same worktree. It REPORTED at 18:32 CEST and is stopped: the whole
+  ticket claimed complete (audit of the inherited pass 1, the `n` footer
+  hint, `Tab` scope cycling, the empty browser, README), with a pty run
+  under isolation. Usage: about 100k tokens, 8 minutes. No agent is
+  working on NZ-8.
+- WORKER COMPLETE, NOT REVIEWED. Stopped here for the night on Andreas's
+  wrap-up instruction; no reviewer was dispatched.
+- Uncommitted change in the worktree: `README.md`,
+  `crates/notez-cli/src/commands/add.rs`,
+  `crates/notez-cli/src/commands/tree.rs`,
+  `crates/notez-cli/src/tui/tree.rs`; 947 insertions, 36 deletions, nothing
+  untracked. `git diff c272d02 | shasum -a 256` gives
+  `9edb7c7079a4b83dcd70f2f74f1f74ecd98c39ebca4957ce1beedd3de961e378`.
+- Lead check at 18:32 CEST on that state: `cargo build --workspace` clean,
+  `cargo test --workspace` green (notez-cli 184, notez-core 143). That is a
+  build and test run only, not a review.
+- What the worker says it built: `add::create_in_dir` (the tail of `run`,
+  shared by `notez add` and the browser); `SectionSpec` with `scope`,
+  `project`, `new_note_root`; pure `new_note_target`, `scope_label`,
+  `next_scope_target`; `NewNotePrompt` with `origin` and `project`;
+  `NewNoteRoots` on `TreeContext`, filled by `commands/tree.rs`;
+  `Forest::rebuild`, fed by a `rebuild` closure that re-collects the view
+  from disk; the "No notes here." exit removed and an empty state line
+  `no notes here yet: n creates one`.
+- For the reviewer to judge, from the worker's own list: (1) two tests that
+  existed at the base were edited because `n` now shows in the footer:
+  `normal_and_focus_footers_hint_the_browse_keys` (expected list) and
+  `narrow_footer_drops_low_priority_hints_but_keeps_help_and_quit` (the
+  widths at which keys drop were re-measured); check coverage was kept.
+  (2) `Tab` offers a row's project scopes whenever that project's
+  repository is known, even in the global view outside a project, which is
+  broader than "outside a project: global only" in decision 3. (3) The
+  prompt has no in-line cursor, like rename. (4) `n` and `f` share footer
+  priority 3. (5) Creating in another section while focused expands that
+  section too. (6) The mouse on an empty tree was reasoned, not exercised.
+- NEXT, on another day and only on Andreas's word: check the hash above
+  still matches, dispatch `nz-reviewer` on it with the NZ-8 ticket and the
+  six points, then fixes if asked, the lead's checks, commit, merge, push.
 - The lead's session scratchpad was removed at about the same time (the
   session id appears to have changed to `298bd2d1`), so the diff snapshots
   saved there for earlier reviews are gone. Hashes in this file still
   identify the reviewed revisions; committed ticket diffs can be
   re-derived with `git diff <base> <ticket commit>`.
 
-NZ-10, dispatched 2026-10-06 18:28 CEST in the second worker slot:
-
-- Base commit: `6292515` (`main` and `origin/main` at dispatch).
-- Branch: `fix/NZ-10-no-overwrite-on-read-error`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-10`.
-- Files: `crates/notez-cli/src/commands/todo.rs`,
-  `crates/notez-cli/src/commands/log.rs`,
-  `crates/notez-core/src/core/project.rs`. Disjoint from NZ-8's files.
-- Method: bounded ticket, regression tests first, no locked tests.
-- Worker: `nz-worker`, model `opus`, reported 18:29 CEST and is stopped.
-  Three regression tests shown failing on the old code, then the fix: only
-  `ErrorKind::NotFound` falls back to the default. 4 new tests, build
-  clean, tests green (notez-cli 164, notez-core 145), no existing test
-  changed, no `pub` line touched in `notez-core`. Usage: about 37k tokens,
-  2 minutes.
-- Uncommitted change: the three files, 92 insertions, 4 deletions, nothing
-  untracked. `git diff 6292515 | shasum -a 256` gives
-  `217f6b13fadc59cc2950c4e8cb6e7e4044b51b0cf3cdf6472d2ff024dba89640`.
-- Review 1: `nz-reviewer`, model `opus`, dispatched 18:30 CEST on that
-  hash, running. No verdict yet.
+NZ-8 is the only ticket with work in a worktree. `main` has moved since its
+base `c272d02`: NZ-10 landed (`commands/todo.rs`, `commands/log.rs`,
+`notez-core/src/core/project.rs`), none of them NZ-8's files, plus handoff
+commits. The lead reruns the checks on the combined result at the merge.
 
 Queue after NZ-8, UI first because Andreas wants to demo it soon: NZ-4
 (panes), NZ-5 (search), NZ-3 (header). The lead put NZ-4 and NZ-5 ahead of
@@ -559,8 +593,45 @@ Allowed files: `crates/notez-cli/src/commands/add.rs`, and `README.md` or
 
 ### NZ-10: never replace a file that exists but could not be read
 
-Status: In flight (see In flight above). Asked for by Andreas on 2026-10-06
-18:26 CEST ("yes to the tickets").
+Status: Done. Merged into `main` as `3180556` at 18:33 CEST on 2026-10-06
+and pushed. Asked for by Andreas at 18:26 CEST ("yes to the tickets").
+
+Record:
+
+- Base `6292515`, branch `fix/NZ-10-no-overwrite-on-read-error`, ticket
+  commit `329be15` (3 files, 92 insertions, 4 deletions), merge commit
+  `3180556` made with `git merge --no-ff`. To undo the ticket: `git revert
+  -m 1 3180556`.
+- Agents: one `nz-worker` (opus) and one `nz-reviewer` (opus), no fix
+  cycle. About 74k agent tokens, 5 minutes. The review was already running
+  when Andreas asked to wrap up; merging its accepted result was finishing
+  work in hand.
+- Review: accepted first time, no blockers. The reviewer reproduced all
+  three failures on the old code and ran the built binary against a temp
+  HOME: permission denied and "is a directory" both exit 1 with the file
+  untouched; a dangling symlink and an empty file behave as before. The
+  committed diff hashes to
+  `217f6b13fadc59cc2950c4e8cb6e7e4044b51b0cf3cdf6472d2ff024dba89640`
+  (`git diff 6292515 329be15 | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and on `main` after
+  the merge: build clean, notez-cli 164 passed, notez-core 145 passed.
+- `notez-core`: one function body changed (`ensure_scratch_gitignored`),
+  no public line added or removed, so epoz's two call sites are unaffected.
+  epoz picks the fix up only when it bumps its pinned rev.
+- Left alone, none authorized: (1) the error says "nothing was changed",
+  but in the local scope the `.gitignore` step runs before the read, so
+  `.notez` may have been appended to `.gitignore` just before the failure;
+  the target file itself is untouched. (2) Same class of bug, read by the
+  reviewer but not traced end to end: `notez_core::note_tags::load_tags`
+  maps any read error to an empty map and `save_tags` later rewrites
+  `.tags`, so an unreadable `.tags` could be replaced by a tag toggle; and
+  `notez_core::todo::load_single_todo` maps any read error to an empty
+  task list, so a board save could replace an unreadable todo file. Both
+  are in `notez-core`. For Andreas to decide.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+
+The ticket as it was run:
 
 Problem (read by the lead at `6292515`): three places read a file with a
 fallback to empty and then write the whole file. If the file exists but
@@ -937,16 +1008,44 @@ answers the questions listed on it, and names which to run.
 
 ## Next step
 
-NZ-1 is Done and installed by Andreas. He is trying it in daily use.
+STOPPED for the night at 18:35 CEST on 2026-10-06. Nothing runs until
+Andreas says to continue. When he does, the lead (this session if it is
+still open, otherwise a new one that records its takeover under Current
+lead):
 
-Running since 17:56 CEST after a pause. NZ-7 and NZ-9 are on `main`;
-Andreas was told he can run `./install.sh` to get the fix for "No notes
-here." (his installed build is from 17:15, NZ-2). Finish NZ-8 from the
-state under In flight, then carry on down the queue.
+1. Reconciles: `git status --short`, `main` against `origin/main`, `git
+   worktree list`, and that the NZ-8 worktree diff still hashes to the
+   value under In flight. Confirms with Andreas that the standing scope
+   and "merge as you go along" still hold; they were paused, not
+   withdrawn, and a new day is a fair moment to ask.
+2. NZ-8: dispatches `nz-reviewer` on the recorded hash with the ticket and
+   the six points listed under In flight, then fixes if asked, re-review,
+   the lead's checks on the combined result with current `main`, commit,
+   merge, push, cleanup.
+3. Then the UI queue, one at a time on `tui/tree.rs`: NZ-4 (panes), NZ-5
+   (search), NZ-3 (header). Andreas wants to demo the UI soon and has not
+   said when; ask him, and cut to what fits.
+4. In the second worker slot or between UI tickets: NZ-6 (quiet offline
+   exit, decided: quiet like Pinz) and NZ-11 (wide characters in the
+   warning footer).
 
-Standing scope: NZ-2, NZ-7 and NZ-9 done (see NZ-9's ticket for the lead's
-grounds), then NZ-8, NZ-3, NZ-4, NZ-5 (see Authorized by the owner for the
-limits). Per ticket the lead:
+Open with Andreas, none blocking: when the demo is and whether that UI
+order suits it; whether the two `notez-core` read-error cases found in the
+NZ-10 review (`.tags`, `load_single_todo`) should become a ticket; the
+smaller leftovers listed on the Done tickets.
+
+What worked today, for whoever leads next: splitting any ticket that
+touches `tui/tree.rs` or `tui/todo.rs` into two worker passes (one worker
+used its whole 100k budget on half a ticket); giving the reviewer a list
+of specific things to probe; and hashing the uncommitted diff so the
+committed revision can be matched to the accepted one. There is no session
+scratch directory any more, so compute hashes by piping `git diff` and do
+not rely on saved diff files.
+
+Standing scope, as it stood at the stop: NZ-2, NZ-7, NZ-9 and NZ-10 done
+(see NZ-9's ticket for the lead's grounds), then NZ-8, NZ-4, NZ-5, NZ-3,
+with NZ-6 and NZ-11 fitted around them (see Authorized by the owner for
+the limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
