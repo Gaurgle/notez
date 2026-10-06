@@ -63,6 +63,14 @@ private one under `~/notez/personal/<project>/`). **notez quick** (or
 the current scope's root with `--in-local`); bare `--in` opens an fzf
 picker. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
 
+**Auto sync.** When an interactive session ends (`notez tree`, `todo`, `edit`,
+`logz`, or `add` that opened the editor), notez commits the vault, runs
+`git pull --rebase` and pushes, like `notez sync` but silent unless something
+happened. Offline, no upstream or a conflict never fails the command: a failed
+pull aborts its rebase, leaves your notes as local commits and prints a one-line
+warning. Pass `--no-sync` to skip it. Only `~/notez` syncs; a project's public
+`notez/` folder is never touched.
+
 **notez edit [term]** (alias `editz`) opens an existing note. Candidates come
 from the scope model, so it sees exactly the notes the rest of the tool
 considers in scope; a term matching one note skips the picker.

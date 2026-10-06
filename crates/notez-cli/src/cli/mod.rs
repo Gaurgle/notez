@@ -34,6 +34,10 @@ pub struct Cli {
     #[arg(short = 'n', long = "nav", global = true)]
     pub nav: bool,
 
+    /// Skip the automatic vault sync when a session ends
+    #[arg(long = "no-sync", global = true)]
+    pub no_sync: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

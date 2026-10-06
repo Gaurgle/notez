@@ -59,8 +59,9 @@ fn main() -> ExitCode {
     // `notez -g` or `notez -p` open a browser on the resolved scope, and
     // `tree` is that command's successor here. Without this, the habit of
     // typing `notez -g` hits a dead end.
+    let sync = !parsed.no_sync;
     let Some(cmd) = parsed.command else {
-        return finish(commands::tree::run(scope, &config));
+        return finish(synced_after(commands::tree::run(scope, &config), &config, sync));
     };
 
     let result: anyhow::Result<()> = match cmd {
@@ -68,23 +69,27 @@ fn main() -> ExitCode {
         | Commands::Znote { mut title, r#in, in_local } => {
             let is_quick = commands::add::take_quick_keyword(&mut title);
             commands::add::run(title, r#in, in_local, is_quick, scope, &config)
-                .map(|created| report_created(&created, &config))
+                .map(|created| report_created(&created, &config, sync))
         }
         Commands::Quick { title } => commands::add::run(title, None, false, true, scope, &config)
-            .map(|created| report_created(&created, &config)),
+            .map(|created| report_created(&created, &config, sync)),
         Commands::Log { message } | Commands::Zlog { message } => {
             commands::log::run(message, scope, &config).map(|p| {
                 println!("Appended to: {}", p.display());
             })
         }
-        Commands::Logz | Commands::Logs => commands::logz::run(scope, &config),
+        Commands::Logz | Commands::Logs => {
+            synced_after(commands::logz::run(scope, &config), &config, sync)
+        }
         Commands::Mkdir { name } => commands::mkdir::run(name, scope, &config).map(|p| {
             println!("Created: {}", p.display());
         }),
         Commands::Search { term } | Commands::Findz { term } => {
             commands::search::run(term, &config)
         }
-        Commands::Tree | Commands::Treez => commands::tree::run(scope, &config),
+        Commands::Tree | Commands::Treez => {
+            synced_after(commands::tree::run(scope, &config), &config, sync)
+        }
         Commands::Setup => commands::setup::run(),
         Commands::Demo { view: _ } => Err(anyhow::anyhow!(
             "demo is not implemented; it was a screenshot helper in the legacy CLI"
@@ -92,10 +97,12 @@ fn main() -> ExitCode {
         Commands::Completions { shell } => commands::completions::run(&shell),
         Commands::Init { shell } => commands::init::run(&shell),
         Commands::Todo { item } | Commands::Todoz { item } => {
-            commands::todo::run(item, scope, &config)
+            let interactive = item.is_none();
+            let result = commands::todo::run(item, scope, &config);
+            synced_after(result, &config, sync && interactive)
         }
         Commands::Edit { term } | Commands::Editz { term } => {
-            commands::edit::run(term, scope, &config)
+            synced_after(commands::edit::run(term, scope, &config), &config, sync)
         }
         Commands::Rename { term, title } => {
             commands::rename::run(term, title, scope, &config).map(|path| {
@@ -129,12 +136,29 @@ fn main() -> ExitCode {
     finish(result)
 }
 
-fn report_created(created: &commands::add::Created, config: &Config) {
+/// Sync the vault once an interactive session has ended cleanly. Quiet unless
+/// something happened or went wrong, and never fails the command: the notes are
+/// saved either way, and `notez sync` shows git's own output for a stopped sync.
+fn synced_after(result: anyhow::Result<()>, config: &Config, enabled: bool) -> anyhow::Result<()> {
+    if result.is_ok() && enabled {
+        match notez_core::sync::auto_sync(&config.notez_root_path()) {
+            notez_core::sync::AutoSync::Idle => {}
+            notez_core::sync::AutoSync::Done => eprintln!("notez: vault synced"),
+            notez_core::sync::AutoSync::Stopped(why) => {
+                eprintln!("notez: sync stopped ({why}); run `notez sync` to see it");
+            }
+        }
+    }
+    result
+}
+
+fn report_created(created: &commands::add::Created, config: &Config, sync: bool) {
     println!("Created: {}", created.path.display());
     // Legacy UX: no inline body means "write it now" - open the editor on
     // the fresh note. With a body, stay silent.
     if !created.had_body {
         commands::add::open_created(&created.path, config);
+        let _ = synced_after(Ok(()), config, sync);
     }
 }
 
@@ -226,6 +250,7 @@ fn print_help() {
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
     cmd("notez edit [term]", "open an existing note (fuzzy match)");
+    cmd("--no-sync", "skip the automatic vault sync after tree, todo, edit, logz and add");
     cmd("notez rename [term] [title]", "retitle a note, keeping its date prefix");
     println!();
 
