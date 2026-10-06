@@ -161,8 +161,27 @@ NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
 - Lead decision added at dispatch: with the cursor in a docs section, the
   target is the project's personal root, so nothing is published by
   accident.
-- Pass 1: `nz-worker`, model `opus`, running.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+- Pass 1: `nz-worker`, model `opus`. STOPPED BY ANDREAS by accident at
+  about 18:21 CEST, some 8 minutes in, before it reported ("oops, sorry.
+  continue!"). It left uncommitted edits to `commands/add.rs` (+80),
+  `commands/tree.rs` (+62) and `tui/tree.rs` (+474), nothing untracked. The
+  lead measured them at 18:22: `cargo build --workspace` clean, `cargo test
+  --workspace` green (notez-cli 176, 14 new; notez-core 143). Present by
+  name: `add::create_in_dir`, `NewNoteTarget`, `NewNotePrompt`,
+  `new_note_target`, `new_note_lead`, `restore_state`, an `n` key row and
+  handler. Unknown: whether the flow is complete end to end; nobody ran it.
+- Continuation: a fresh `nz-worker`, model `opus`, dispatched 18:23 CEST on
+  the same worktree, running. It inherits those edits, audits them against
+  the pass 1 list, finishes what is missing, then does pass 2 (the empty
+  browser, `Tab` scope cycling, README) in that priority order, stopping
+  at a clean point if its budget runs out. Nothing was discarded.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched; it reviews the
+  whole diff when the worker work is complete.
+- The lead's session scratchpad was removed at about the same time (the
+  session id appears to have changed to `298bd2d1`), so the diff snapshots
+  saved there for earlier reviews are gone. Hashes in this file still
+  identify the reviewed revisions; committed ticket diffs can be
+  re-derived with `git diff <base> <ticket commit>`.
 
 Queued behind it and not started, in this order: NZ-3, NZ-4, NZ-5.
 
