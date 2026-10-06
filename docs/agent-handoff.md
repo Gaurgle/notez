@@ -145,17 +145,26 @@ not released.
 
 ## In flight
 
-NZ-9, dispatched 2026-10-06 18:05 CEST:
+NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
 
-- Base commit: `7cc29ad` (`main` and `origin/main` at dispatch, the NZ-7
+- Base commit: `c272d02` (`main` and `origin/main` at dispatch, the NZ-9
   merge).
-- Branch: `fix/NZ-9-never-overwrite-note`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-9`.
-- Method: bounded ticket, regression test first, no locked tests.
-- Worker: `nz-worker`, model `opus`, running.
+- Branch: `feat/NZ-8-create-note-in-browser`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-8`.
+- Method: bounded ticket, no locked tests, two worker passes on the same
+  worktree because `tui/tree.rs` is 1910 lines. Pass 1: expose the creation
+  path in `commands/add.rs`, give sections their scope, target resolution,
+  the `n` prompt, create, open the editor, rebuild the tree with state
+  kept. Pass 2: `Tab` scope cycling in the prompt, the browser opening
+  with no notes (removing the "No notes here." exit), README. One review
+  of the whole diff after pass 2.
+- Lead decision added at dispatch: with the cursor in a docs section, the
+  target is the project's personal root, so nothing is published by
+  accident.
+- Pass 1: `nz-worker`, model `opus`, running.
 - Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
 
-Queued behind it and not started, in this order: NZ-8, NZ-3, NZ-4, NZ-5.
+Queued behind it and not started, in this order: NZ-3, NZ-4, NZ-5.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -399,8 +408,47 @@ change.
 
 ### NZ-9: creating a note never overwrites an existing file
 
-Status: In flight (see In flight above). Opened by the lead on 2026-10-06
-18:05 CEST from a finding in the NZ-7 review, and run before NZ-8.
+Status: Done. Merged into `main` as `c272d02` at 18:11 CEST on 2026-10-06
+and pushed. Opened by the lead at 18:05 CEST from a finding in the NZ-7
+review, and run before NZ-8.
+
+Record:
+
+- Base `7cc29ad`, branch `fix/NZ-9-never-overwrite-note`, ticket commit
+  `8e60809` (`README.md` one sentence, `crates/notez-cli/src/commands/add.rs`;
+  183 insertions, 4 deletions), merge commit `c272d02` made with `git merge
+  --no-ff`. To undo the ticket: `git revert -m 1 c272d02`.
+- Agents: one `nz-worker` (opus) and one `nz-reviewer` (opus), no fix
+  cycle. About 86k agent tokens, 6 minutes.
+- Review: accepted first time, no blockers. The reviewer reproduced the
+  failure on the old code (6 new tests fail there) and probed, on APFS:
+  dangling and live symlinks at the name, a directory with the name, a
+  case-insensitive collision, a multi-byte name, a 255-byte name, all 1000
+  names taken, and a read-only directory. None overwrites; each fails
+  cleanly or takes the next suffix. The committed diff hashes to
+  `db27d31abf98467f9a78401be8433852cc7a5fe6d77d440ddc407ce340b2f2ef`
+  (`git diff 7cc29ad 8e60809 | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and on `main` after
+  the merge: build clean, notez-cli 162 passed, notez-core 143 passed.
+- How it works: `create_new_note_file` in `commands/add.rs` tries the
+  natural name and then `-2` to `-1000` with `create_new`; `Created.path`
+  is the file actually written.
+- Left alone, none authorized: if writing the content fails after the file
+  was created, an empty or partial new file stays (as before the ticket);
+  a title so long that the `-2` name passes 255 bytes fails with "File name
+  too long" on the second note that day.
+- Reported by the worker and NOT fixed, for Andreas to decide: the same
+  kind of loss when a file exists but cannot be read (not valid UTF-8, or a
+  permission error). `commands/todo.rs` (adding a todo) replaces `TODO.md`
+  with a fresh header plus the new item; `commands/log.rs` replaces the
+  daily log with one entry; `notez-core/src/core/project.rs`
+  `ensure_scratch_gitignored` replaces `.gitignore` with `.notez`. Each
+  reads with a fallback to empty and then writes the whole file. The last
+  one is in `notez-core`, which epoz pins.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+
+The ticket as it was run:
 
 Authority, as the lead reads it: Andreas did not name this ticket. NZ-8,
 which he authorized, already requires that a name collision "never
@@ -435,7 +483,7 @@ Allowed files: `crates/notez-cli/src/commands/add.rs`, and `README.md` or
 
 ### NZ-8: create a note from the tree browser
 
-Status: Ready. Authorized with NZ-7, decisions by the lead. Runs after
+Status: In flight (see In flight above). Authorized with NZ-7, decisions by the lead. Runs after
 NZ-7. Needs NZ-2's footer and help tables.
 
 Outcome and decisions:
@@ -769,14 +817,14 @@ answers the questions listed on it, and names which to run.
 
 NZ-1 is Done and installed by Andreas. He is trying it in daily use.
 
-Running since 17:56 CEST after a pause. NZ-7 is on `main`; Andreas was told
-he can run `./install.sh` to get the fix for "No notes here." (his
-installed build is from 17:15, NZ-2). Finish NZ-9 from the state under In
-flight, then carry on down the queue.
+Running since 17:56 CEST after a pause. NZ-7 and NZ-9 are on `main`;
+Andreas was told he can run `./install.sh` to get the fix for "No notes
+here." (his installed build is from 17:15, NZ-2). Finish NZ-8 from the
+state under In flight, then carry on down the queue.
 
-Standing scope: NZ-2 (done), NZ-7 (done), then NZ-9 (see its ticket for
-the lead's grounds), NZ-8, NZ-3, NZ-4, NZ-5 (see Authorized by the owner
-for the limits). Per ticket the lead:
+Standing scope: NZ-2, NZ-7 and NZ-9 done (see NZ-9's ticket for the lead's
+grounds), then NZ-8, NZ-3, NZ-4, NZ-5 (see Authorized by the owner for the
+limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
