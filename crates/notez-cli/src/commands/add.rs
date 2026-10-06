@@ -73,11 +73,55 @@ pub fn run(
         project::ensure_scratch_gitignored(&dir);
     }
 
-    let path = dir.join(note.filename());
-    std::fs::write(&path, note.rendered())
-        .with_context(|| format!("failed to write note {}", path.display()))?;
+    let path = create_new_note_file(&dir, &note.filename(), &note.rendered())?;
 
     Ok(Created { path, had_body })
+}
+
+/// Upper bound on same-name notes in one directory before giving up.
+const MAX_NAME_ATTEMPTS: u32 = 1000;
+
+/// Write `contents` to the first free name in `dir`, starting from `natural`
+/// and then trying `suffixed_name` candidates. Never touches an existing file:
+/// `create_new` makes the existence check and the creation one atomic step,
+/// so a file that appears concurrently is skipped rather than truncated.
+fn create_new_note_file(dir: &Path, natural: &str, contents: &str) -> Result<PathBuf> {
+    use std::io::{ErrorKind, Write};
+
+    for n in 1..=MAX_NAME_ATTEMPTS {
+        let path = dir.join(suffixed_name(natural, n));
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(e).with_context(|| format!("failed to write note {}", path.display()));
+            }
+        };
+        file.write_all(contents.as_bytes())
+            .with_context(|| format!("failed to write note {}", path.display()))?;
+        return Ok(path);
+    }
+    bail!(
+        "no free file name for {natural} in {} after {MAX_NAME_ATTEMPTS} attempts",
+        dir.display()
+    )
+}
+
+/// Candidate file name for the `n`th note with the same natural name:
+/// `n == 1` is the name itself, later ones insert `-n` before the extension
+/// (`2026-10-06-call-the-bank-2.md`).
+fn suffixed_name(natural: &str, n: u32) -> String {
+    if n <= 1 {
+        return natural.to_string();
+    }
+    match natural.rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem}-{n}.{ext}"),
+        None => format!("{natural}-{n}"),
+    }
 }
 
 /// Quick notes are private: the default public scope becomes personal.
@@ -482,5 +526,138 @@ mod tests {
         let gitignore =
             std::fs::read_to_string(cwd_holder.path().join(".gitignore")).unwrap();
         assert!(gitignore.lines().any(|l| l.trim() == ".notez"));
+    }
+
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    fn file_name(path: &Path) -> String {
+        path.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    /// Create the same note twice after the user edited the first one, and
+    /// check that the edit survives and the second note is freshly rendered.
+    fn assert_repeat_does_not_overwrite(
+        title_words: Vec<String>,
+        is_quick: bool,
+        expected_stem: &str,
+    ) {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let first = run(title_words.clone(), None, false, is_quick, Scope::Global, &config)
+            .unwrap()
+            .path;
+        let fresh = std::fs::read_to_string(&first).unwrap();
+        std::fs::write(&first, "user edits, keep me\n").unwrap();
+
+        let second = run(title_words, None, false, is_quick, Scope::Global, &config)
+            .unwrap()
+            .path;
+
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), second.parent());
+        assert!(file_name(&first).ends_with(&format!("-{expected_stem}.md")));
+        assert!(
+            file_name(&second).ends_with(&format!("-{expected_stem}-2.md")),
+            "got {:?}",
+            second
+        );
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "user edits, keep me\n");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), fresh);
+    }
+
+    #[test]
+    fn repeat_title_never_overwrites_edited_note() {
+        assert_repeat_does_not_overwrite(words("call the bank"), false, "call-the-bank");
+    }
+
+    #[test]
+    fn repeat_quick_note_never_overwrites_edited_note() {
+        assert_repeat_does_not_overwrite(words("idea"), true, "idea");
+    }
+
+    #[test]
+    fn repeat_untitled_note_never_overwrites_edited_note() {
+        assert_repeat_does_not_overwrite(vec![], false, "untitled");
+    }
+
+    #[test]
+    fn repeat_note_with_body_never_overwrites_edited_note() {
+        assert_repeat_does_not_overwrite(
+            vec!["title".into(), "this is the body".into()],
+            false,
+            "title",
+        );
+    }
+
+    #[test]
+    fn third_repeat_skips_existing_suffix_two() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let first = run(words("call the bank"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        let name = file_name(&first);
+        let taken = dir
+            .path()
+            .join(name.replace("call-the-bank.md", "call-the-bank-2.md"));
+        std::fs::write(&taken, "pre-existing two\n").unwrap();
+
+        let third = run(words("call the bank"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(file_name(&third).ends_with("-call-the-bank-3.md"), "got {:?}", third);
+        assert_eq!(std::fs::read_to_string(&taken).unwrap(), "pre-existing two\n");
+
+        let fourth = run(words("call the bank"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(file_name(&fourth).ends_with("-call-the-bank-4.md"), "got {:?}", fourth);
+    }
+
+    #[test]
+    fn title_ending_in_number_never_causes_overwrite() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let numbered = run(words("plan 2"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(file_name(&numbered).ends_with("-plan-2.md"));
+        std::fs::write(&numbered, "plan two edits\n").unwrap();
+
+        let plain = run(words("plan"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(file_name(&plain).ends_with("-plan.md"), "got {:?}", plain);
+        std::fs::write(&plain, "plan edits\n").unwrap();
+
+        let repeat = run(words("plan"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(file_name(&repeat).ends_with("-plan-3.md"), "got {:?}", repeat);
+        assert!(std::fs::read_to_string(&repeat).unwrap().starts_with("# plan\n"));
+
+        let numbered_again = run(words("plan 2"), None, false, false, Scope::Global, &config)
+            .unwrap()
+            .path;
+        assert!(
+            file_name(&numbered_again).ends_with("-plan-2-2.md"),
+            "got {:?}",
+            numbered_again
+        );
+
+        assert_eq!(std::fs::read_to_string(&numbered).unwrap(), "plan two edits\n");
+        assert_eq!(std::fs::read_to_string(&plain).unwrap(), "plan edits\n");
+    }
+
+    #[test]
+    fn suffixed_name_inserts_number_before_extension() {
+        assert_eq!(suffixed_name("2026-10-06-a.md", 1), "2026-10-06-a.md");
+        assert_eq!(suffixed_name("2026-10-06-a.md", 2), "2026-10-06-a-2.md");
+        assert_eq!(suffixed_name("2026-10-06-a.md", 10), "2026-10-06-a-10.md");
     }
 }
