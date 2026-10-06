@@ -159,6 +159,19 @@ not released.
     the UI tickets ("you may ship changes. merge as you go along"), on the
     reading that he asked for them during the same building session. The
     lead said so in its reply.
+- 2026-10-06 18:31 CEST, Andreas, in the lead session: "wrap this up,
+  complete the current workers, write handoff and round tonights work off.
+  if there's any news on the UI then ,let me know, otherwise we'll keep
+  working on this another day". The lead's reading: STOP for tonight. Let
+  the two agents already running finish (the NZ-8 continuation worker and
+  the NZ-10 reviewer) and dispatch nothing new, including no reviewer for
+  NZ-8 and no fix cycle. A ticket whose review was already running and
+  comes back accepted may still be merged, since that is finishing work in
+  hand under the delegation; anything else waits. Then write this file,
+  release the baton and tell him what, if anything, changed in the UI.
+  The standing scope and the delegation are NOT withdrawn: they are
+  paused, and a lead continues them only when Andreas says so on another
+  day.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -210,8 +223,17 @@ NZ-10, dispatched 2026-10-06 18:28 CEST in the second worker slot:
   `crates/notez-cli/src/commands/log.rs`,
   `crates/notez-core/src/core/project.rs`. Disjoint from NZ-8's files.
 - Method: bounded ticket, regression tests first, no locked tests.
-- Worker: `nz-worker`, model `opus`, running.
-- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+- Worker: `nz-worker`, model `opus`, reported 18:29 CEST and is stopped.
+  Three regression tests shown failing on the old code, then the fix: only
+  `ErrorKind::NotFound` falls back to the default. 4 new tests, build
+  clean, tests green (notez-cli 164, notez-core 145), no existing test
+  changed, no `pub` line touched in `notez-core`. Usage: about 37k tokens,
+  2 minutes.
+- Uncommitted change: the three files, 92 insertions, 4 deletions, nothing
+  untracked. `git diff 6292515 | shasum -a 256` gives
+  `217f6b13fadc59cc2950c4e8cb6e7e4044b51b0cf3cdf6472d2ff024dba89640`.
+- Review 1: `nz-reviewer`, model `opus`, dispatched 18:30 CEST on that
+  hash, running. No verdict yet.
 
 Queue after NZ-8, UI first because Andreas wants to demo it soon: NZ-4
 (panes), NZ-5 (search), NZ-3 (header). The lead put NZ-4 and NZ-5 ahead of
