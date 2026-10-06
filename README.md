@@ -55,6 +55,16 @@ under `[paths]` in config.toml).
 project including `docs`, tag strip + `#tag` filtering, preview pane,
 open-in-editor). Tag changes write only `.tags` roots that actually changed.
 
+**Keys.** In both the board and the tree, the footer shows the keys for the
+current mode (browsing, filter, tags, focus, text entry such as rename or a
+new todo, `:` command) and lights the ones whose mode is on, such as `f`
+while a section is focused. In tag, text-entry and `:` command modes the
+tag legend, prompt or command comes first and the keys follow in the space
+left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
+it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. `?` opens a help overlay
+listing every key of that view; `?` or `Esc` closes it, and `j`/`k` scroll
+it on a short terminal.
+
 **notez add** writes a public note to the repo's `notez/` (`-p` for a
 private one under `~/notez/personal/<project>/`). **notez quick** (or
 `notez add quick ...`) writes a private quick note to `00_quick-notes/`.
