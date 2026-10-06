@@ -141,6 +141,24 @@ not released.
   NZ-9 (never overwrite a note) was opened and run by the lead at 18:05
   CEST without Andreas naming it. The lead's grounds and limits are on the
   ticket. Andreas was told in the same turn and can have it reverted.
+- 2026-10-06 18:26 CEST, Andreas, in the lead session, answering three
+  open points the lead had listed: "quiet like pinz, and yes to the
+  tickets", then, a moment later while the lead was working: "but i want
+  to demo the new UI features pretty soon". The lead's reading:
+  - NZ-6's open question is settled: the exit sync is fully quiet when the
+    remote cannot be reached, as in Pinz.
+  - Tickets wanted for the three read-error overwrite cases (NZ-10) and
+    for wide characters clipping the quit hint (NZ-11). The lead had told
+    him the `.gitignore` case is in `notez-core` and "needs your approval
+    either way"; his yes is read as approving that one behaviour-only
+    change there, with no signature, type or format change.
+  - Priority: the UI tickets come first. NZ-6, NZ-10 and NZ-11 must not
+    delay them. They run only in the second worker slot, on files the UI
+    ticket in flight does not touch, or after the UI tickets.
+  - They run under the same standing scope and integration delegation as
+    the UI tickets ("you may ship changes. merge as you go along"), on the
+    reading that he asked for them during the same building session. The
+    lead said so in its reply.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -183,7 +201,24 @@ NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
   identify the reviewed revisions; committed ticket diffs can be
   re-derived with `git diff <base> <ticket commit>`.
 
-Queued behind it and not started, in this order: NZ-3, NZ-4, NZ-5.
+NZ-10, dispatched 2026-10-06 18:28 CEST in the second worker slot:
+
+- Base commit: `6292515` (`main` and `origin/main` at dispatch).
+- Branch: `fix/NZ-10-no-overwrite-on-read-error`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-10`.
+- Files: `crates/notez-cli/src/commands/todo.rs`,
+  `crates/notez-cli/src/commands/log.rs`,
+  `crates/notez-core/src/core/project.rs`. Disjoint from NZ-8's files.
+- Method: bounded ticket, regression tests first, no locked tests.
+- Worker: `nz-worker`, model `opus`, running.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+
+Queue after NZ-8, UI first because Andreas wants to demo it soon: NZ-4
+(panes), NZ-5 (search), NZ-3 (header). The lead put NZ-4 and NZ-5 ahead of
+NZ-3 as the more visible ones; Andreas can reorder. NZ-6 and NZ-11 fit
+around them: NZ-6 in the second slot (it touches `main.rs`, `sync.rs`,
+`commands/sync.rs`, `README.md`), NZ-11 as a small `tui/tree.rs` change
+between UI tickets.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -315,13 +350,13 @@ Allowed files: `crates/notez-core/src/sync.rs`,
 the `AutoSync` variants stay as they are unless Andreas approves a change
 (epoz pins `notez-core` by rev).
 
-Open for Andreas, to settle before it runs: git does not tell "offline"
-from "credentials expired" without parsing its error text. Following Pinz,
-every failed fetch would be quiet, so an expired credential would also be
-quiet until something shows sync state on screen (NZ-3's header would).
-Options: (a) fully quiet like Pinz, the lead's recommendation if NZ-3 is
-going ahead; (b) one short line such as "notez: offline, changes kept
-locally" instead of git's error.
+Settled by Andreas on 2026-10-06 18:26 CEST: "quiet like pinz". Every
+failed fetch at session end is quiet, as in Pinz. Known cost: an expired
+credential is then also quiet until something shows sync state on screen,
+which NZ-3's header is meant to do, so NZ-3 should be able to tell
+"could not reach the remote" apart from "synced" (design that with NZ-6
+in view, without changing the public `AutoSync` variants unless Andreas
+approves).
 
 ### NZ-7: the main commands always open the browser; quick notes by flag
 
@@ -499,6 +534,52 @@ existing tests unchanged.
 
 Allowed files: `crates/notez-cli/src/commands/add.rs`, and `README.md` or
 `DESIGN.md` only if they describe file naming. No `notez-core` change.
+
+### NZ-10: never replace a file that exists but could not be read
+
+Status: In flight (see In flight above). Asked for by Andreas on 2026-10-06
+18:26 CEST ("yes to the tickets").
+
+Problem (read by the lead at `6292515`): three places read a file with a
+fallback to empty and then write the whole file. If the file exists but
+cannot be read (not valid UTF-8, a permission or I/O error), it is
+replaced. `commands/todo.rs` quick add: `TODO.md` becomes a fresh header
+plus the new item. `commands/log.rs`: the daily log becomes one entry.
+`notez-core/src/core/project.rs` `ensure_scratch_gitignored`: the
+project's `.gitignore` becomes the line `.notez`.
+
+Decision: only "file not found" means start from the default. Any other
+read error leaves the file untouched. Todo and log then fail with an error
+naming the file and saying nothing was changed. `ensure_scratch_gitignored`
+is best-effort and returns nothing, so it silently does nothing.
+
+Acceptance criteria: a regression test per site with a file of invalid
+UTF-8 bytes, failing on the old code, showing the bytes unchanged (and an
+error for todo and log); missing and readable files behave exactly as
+before; no existing test changed; `notez-core` public API unchanged
+(epoz calls `ensure_scratch_gitignored(&Path)` in two places).
+
+Allowed files: the three named above.
+
+### NZ-11: the warning footer measures display columns
+
+Status: Ready, not started. Asked for by Andreas with NZ-10. Small.
+
+Problem: `warning_layout` in `tui/tree.rs` counts chars, not display
+columns. A long warning that quotes a path with wide characters (CJK,
+emoji) pushes the line past the width and clips the quit hint. Review 4 of
+NZ-1 saw `quit` cut to `qui` with an emoji in the text. The todo board's
+warning lead (`warning_lead` in `tui/todo.rs`, through
+`footer::status_line`) should be checked for the same.
+
+Outcome: truncation and padding use display width (ratatui's
+`Span::width()`, no new dependency), so the quit hint stays whole and on
+its column for any text. Tests with CJK, emoji and combining characters.
+While there, the tree's warning arm can draw its quit hint through
+`footer::hint_spans` instead of hardcoded spans (noted in NZ-2's review).
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/todo.rs`, `crates/notez-cli/src/tui/footer.rs`.
 
 ### NZ-8: create a note from the tree browser
 
