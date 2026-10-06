@@ -40,7 +40,7 @@ branches, no workers running at takeover. Baton held, not released.
   - "3. if you recommend." on pinning `core.hooksPath` in the abort-failure
     test: the lead recommends it, so it is done as part of NZ-1.
   Limit: these two NZ-1 changes only. NZ-1 still stops at Ready to integrate.
-- 2026-10-06 about 16:19 CEST, Andreas, in the lead session (`aa27d2ed`),
+- 2026-10-06, before the 15:51 ticket commit, Andreas, in the lead session (`aa27d2ed`),
   sent while the lead was working: "looks good to me. ship it and instal".
   The lead's reading, put back to him at the time:
   - "looks good to me": he accepts NZ-1's look. This is his acceptance of
@@ -54,12 +54,12 @@ branches, no workers running at takeover. Baton held, not released.
     (`docs/agent-workflow.md`); Andreas runs it.
   On this instruction alone the lead committed the reviewed diff on the
   ticket branch (`922cde2`) and nothing else: no merge, no push, no install.
-- 2026-10-06 about 16:24 CEST, Andreas, in the lead session: "start by
+- 2026-10-06, a few minutes later, Andreas, in the lead session: "start by
   cleaning upp the disk, im guessing there qiute a few rust caches-bianries
   to clean up". Read as: remove Rust build output. The lead ran `cargo
   clean` in six projects and touched nothing else (details under In
   flight). One-off, not a standing permission to delete.
-- 2026-10-06 about 16:47 CEST, Andreas, in the lead session (`aa27d2ed`):
+- 2026-10-06, shortly before the 16:15 merge, Andreas, in the lead session (`aa27d2ed`):
   "you can commit and ship it". This answered a message in which the lead
   had laid out the exact finishing sequence for NZ-1 (`git merge --no-ff
   feat/NZ-1-pull-on-open` into `main`, build and test on `main`, `git push
@@ -68,13 +68,56 @@ branches, no workers running at takeover. Baton held, not released.
   and run that sequence for NZ-1. Limits: NZ-1 only, this once. It is not a
   standing integration delegation; later tickets still stop at Ready to
   integrate. It does not cover installing, tagging or releasing.
+- 2026-10-06 16:29 CEST, Andreas, in the lead session (`aa27d2ed`): "run
+  NZ-2 through NZ-5". STANDING SCOPE. It answered the lead's offer: "say
+  'work through NZ-2 to NZ-5' and I'll run them in order with my
+  recommended answers to the open questions (no spinner, tree keeps its
+  order when searching, `s` cycles scope in the tree only, split size not
+  remembered), still stopping at Ready to integrate on each for you to
+  try", together with the NZ-2 defaults in the same message (help closes
+  with `?` or `Esc`; no up-front refactor of the event loops).
+  - Scope: NZ-2, NZ-3, NZ-4, NZ-5 as briefed under Tickets, in that order,
+    one at a time, with those answers.
+  - Limits: no commit, push or merge of ticket code. Each ticket stops at
+    Ready to integrate and Andreas tries the branch build. The next ticket
+    starts only after the previous one is on `main`, since each is based on
+    it. No new dependency, no `notez-core` public API or file format change,
+    no persisted state file. NZ-6 and the NZ-1 leftovers are not in scope.
+  - Stop and ask when: a ticket needs something outside those limits; two
+    fix cycles fail on the same blocker; the disk fills; the lead reaches
+    its usage limit; or Andreas changes direction after trying a build.
+- 2026-10-06 16:30 CEST, Andreas, in the lead session, sent right after
+  "run NZ-2 through NZ-5": "then commit and push". The lead's reading,
+  stated back to him the same turn: (a) commit and push
+  `docs/agent-handoff.md` now; (b) for NZ-2 to NZ-5, once a ticket is
+  accepted by review and passes the lead's checks, the lead commits exactly
+  the reviewed diff on that ticket's branch and pushes the branch to
+  `origin`. This replaces two limits in the standing scope above: the lead
+  may now commit ticket code, and the next ticket may start from the
+  previous ticket's reviewed commit instead of waiting for it to reach
+  `main`. It does NOT cover merging into `main`: by Andreas's shipping
+  rules a merge needs its own explicit request, he has not tried any of
+  these builds, and their look is his to accept. The lead asked him
+  whether he wants each ticket merged as it passes; until he says so, the
+  tickets stop at Ready to integrate on pushed branches.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-Nothing. No worker or reviewer is running, and there is no ticket worktree
-or ticket branch. `main` and `origin/main` were at `8160295` when NZ-1 was
-integrated; the handoff commit that follows it is docs only.
+NZ-2, dispatched 2026-10-06 16:30 CEST under the standing scope above:
+
+- Base commit: `3864f48` (`main` and `origin/main` at dispatch).
+- Branch: `feat/NZ-2-footer-help`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-2`.
+- Method: bounded ticket, no locked tests. Split into two worker passes on
+  the same worktree to stay inside the 100k token budget per agent, since
+  `tui/tree.rs` and `tui/todo.rs` are 1625 and 1789 lines: pass 1 builds
+  `tui/footer.rs` and `tui/help.rs` and converts the tree; pass 2 converts
+  the todo board. One review of the whole diff after pass 2.
+- Pass 1: `nz-worker`, model `opus`, running.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
+
+NZ-3, NZ-4 and NZ-5 are queued behind it and not started.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -94,8 +137,9 @@ approved by Andreas), Ready, In flight, Ready to integrate, Done.
 
 ### NZ-1: pull the vault when an interactive session opens
 
-Status: Done. Merged into `main` as `8160295` and pushed on 2026-10-06 about
-16:50 CEST. `./install.sh` is Andreas's to run.
+Status: Done. Merged into `main` as `8160295` at 16:15 CEST on 2026-10-06
+and pushed. Andreas ran `./install.sh` at 16:25; the installed binary is
+that build (times here are from `git log` and the binary's timestamp).
 
 Record:
 
@@ -215,9 +259,22 @@ locally" instead of git's error.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
-Drafted by the lead on 2026-10-06 from Andreas's direction below. None is
-approved or authorized. Each needs Andreas to approve the brief, answer its
-open questions and name it before it runs.
+Drafted by the lead on 2026-10-06 from Andreas's direction below, and
+authorized by him the same day as a standing scope ("run NZ-2 through
+NZ-5", see Authorized by the owner). The section title keeps the word
+drafts for history; the status line on each ticket is current.
+
+Answers to the open questions, as accepted with that instruction. They
+override the "Open for Andreas" paragraphs on the tickets:
+
+- NZ-2: help closes with `?` or `Esc` only. No up-front refactor ticket.
+- NZ-3: no loading spinner; it stays out until Andreas asks for it.
+- NZ-4: the split and fold are not remembered between runs. The todo board
+  is left alone.
+- NZ-5: the tree keeps its order while searching and only the matching
+  becomes fuzzy. `s` cycles scope, in the tree only. Not stated by Andreas
+  and assumed by the lead: every subsequence match is shown, with no
+  minimum score, for him to judge from the branch build.
 
 What the code looks like today (surveyed at `85300ef`), which shapes all four:
 
@@ -249,7 +306,7 @@ behaviour-preserving refactor ticket first, it goes before NZ-2.
 
 #### NZ-2: context footer and per-view help overlay
 
-Status: Draft.
+Status: In flight (see In flight above).
 
 Outcome: the tree and the todo board share one footer and one help overlay
 implementation, modelled on fleetz `src/ui/footer.rs` and `src/ui/help.rs`.
@@ -418,24 +475,33 @@ answers the questions listed on it, and names which to run.
 
 ## Next step
 
-NZ-1 is Done. Andreas runs `./install.sh` in the main checkout to get it
-(agents never do), then `notez tree`.
+NZ-1 is Done and installed by Andreas. He is trying it in daily use.
 
-Nothing is authorized to run next. Waiting on Andreas for:
+Standing scope in progress: NZ-2, then NZ-3, NZ-4, NZ-5 (see Authorized by
+the owner for its limits). Per ticket the lead:
 
+1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
+   re-reviewing after any change.
+2. Runs `cargo build --workspace` and `cargo test --workspace` itself.
+3. Commits exactly the reviewed diff on the ticket branch and pushes the
+   branch to `origin` (authorized: "then commit and push").
+4. Records the ticket as Ready to integrate, with the try command.
+5. Starts the next ticket in a new worktree based on that ticket's commit.
+
+It does not merge into `main` unless Andreas says so. A lead resuming from
+this file first checks whether a worker is still running in the worktree
+named under In flight and whether it holds uncommitted work, and does not
+dispatch a second worker onto it.
+
+Waiting on Andreas, none of it blocking the scope above:
+
+- Whether NZ-2 to NZ-5 should each be merged into `main` as they pass, or
+  wait on their branches for him to try.
 - NZ-6 (quiet offline exit): his choice between fully quiet and one short
-  line, and the instruction to run it. It is Ready and unblocked now that
-  NZ-1 is on `main`.
-- NZ-2 to NZ-5 (UI): his answers to the questions on each brief, approval
-  of the briefs, and which to run. They all touch `tui/tree.rs`, so they
-  run one at a time. NZ-6 touches `main.rs`, `sync.rs` and
-  `commands/sync.rs`, so it could run alongside NZ-2, NZ-4 or NZ-5, but not
-  NZ-3, which may add a helper to `sync.rs`.
+  line, and the instruction to run it. It touches `main.rs`, `sync.rs` and
+  `commands/sync.rs`, so it could run alongside NZ-2, NZ-4 or NZ-5, but
+  not NZ-3, which may add a helper to `sync.rs`.
 - Whether the leftovers listed in NZ-1's record become tickets.
-
-Every one of these stops at Ready to integrate unless Andreas says
-otherwise for that ticket; the NZ-1 integration instruction was for NZ-1
-only.
 
 ## Start the lead
 
