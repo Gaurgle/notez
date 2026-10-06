@@ -23,7 +23,9 @@ use notez_core::filter::{self, Filter};
 use notez_core::note_tags;
 use notez_core::tags::FLAG_DEFS;
 
-use super::{VimCommandMode, theme};
+use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle};
+use super::help::{self, HelpState};
+use super::{VimCommandMode, VimKey, theme};
 use crate::commands::rename;
 
 /// What the title bar shows.
@@ -448,6 +450,160 @@ fn status_slot<'a>(
     }
 }
 
+/// The rename prompt that leads the footer in rename mode.
+fn rename_lead(buffer: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(" rename: ", Style::default().fg(theme::MAUVE)),
+        Span::styled(buffer.to_string(), Style::default().fg(theme::TEXT)),
+        Span::styled("_", Style::default().fg(theme::OVERLAY)),
+    ]
+}
+
+/// The `:` command buffer that leads the footer in command mode.
+fn command_lead(buffer: &str) -> Vec<Span<'static>> {
+    vec![Span::styled(buffer.to_string(), theme::command_line())]
+}
+
+/// The tag legend that leads the footer in tag mode; the tags set in `flags`
+/// are coloured.
+fn tag_legend(flags: u8) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled(" tags: ", Style::default().fg(theme::MAUVE))];
+    for (idx, def) in FLAG_DEFS.iter().enumerate() {
+        let active = flags & def.bit != 0;
+        let color = theme::FLAG_COLORS[idx];
+        spans.push(Span::styled(format!("{}", idx + 1), Style::default().fg(color)));
+        spans.push(Span::styled(":", Style::default().fg(theme::OVERLAY)));
+        spans.push(Span::styled(
+            format!("{} ", def.label),
+            Style::default().fg(if active { color } else { theme::OVERLAY }),
+        ));
+        spans.push(Span::raw(" "));
+    }
+    spans
+}
+
+/// `lead` first, then the `TREE_KEYS` hints for `mode` that fit after it.
+fn lead_with_hints(
+    lead: Vec<Span<'static>>,
+    mode: Mode,
+    on: &[Toggle],
+    width: usize,
+) -> Line<'static> {
+    footer::status_line(TREE_KEYS, lead, true, mode, on, Vec::new(), width)
+}
+
+// --- Keys: one table for the footer and the help overlay ---
+
+const BROWSE: &[Mode] = &[Mode::Normal, Mode::Focus];
+const BROWSE_AND_TAG: &[Mode] = &[Mode::Normal, Mode::Focus, Mode::Tag];
+const FILTERING: &[Mode] = &[Mode::Filter];
+const TAGGING: &[Mode] = &[Mode::Tag];
+const RENAMING: &[Mode] = &[Mode::Rename];
+const COMMAND: &[Mode] = &[Mode::VimCommand];
+
+const fn key(
+    key: &'static str,
+    desc: &'static str,
+    help: &'static str,
+    color: Color,
+    group: Group,
+    modes: &'static [Mode],
+    slot: Slot,
+    toggle: Option<Toggle>,
+) -> KeyHint {
+    KeyHint { key, desc, help, color, group, modes, slot, toggle }
+}
+
+/// Every key, mouse action and command the tree browser handles, in footer
+/// order. Kept in step with `event_loop`.
+const TREE_KEYS: &[KeyHint] = &[
+    key("j/k", "move", "move down / up (also Down / Up)", theme::TEXT, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("l", "expand", "expand directory (also Right)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("h", "collapse", "collapse directory / go to parent (also Left)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("J/K", "preview", "scroll preview down / up", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("wheel", "preview", "mouse wheel scrolls the preview", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("click", "select", "click a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("o", "open", "open file / toggle directory (also Enter)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(1), None),
+    key("t", "tags", "tag mode on / off", theme::PEACH, Group::Edit, BROWSE_AND_TAG, Slot::Priority(2), Some(Toggle::Tag)),
+    key("r", "rename", "rename note", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(6), None),
+    key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the note", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(1), None),
+    key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
+    key("click dot", "tag", "click a note's tag dot to toggle that tag", theme::PEACH, Group::Edit, BROWSE, Slot::HelpOnly, None),
+    key("enter", "confirm", "rename: confirm", theme::GREEN, Group::Edit, RENAMING, Slot::Priority(1), None),
+    key("esc", "cancel", "rename: cancel", theme::PEACH, Group::Edit, RENAMING, Slot::Priority(2), None),
+    key("bksp", "delete", "rename: delete the last char", theme::TEXT, Group::Edit, RENAMING, Slot::Priority(3), None),
+    key("/", "filter", "filter: text and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
+    key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
+    key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
+    key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
+    key("bksp", "delete", "filter: delete the char before the cursor; at the start, clear the filter and close", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(4), None),
+    key("esc", "clear", "clear the filter; with no filter, quit", theme::PEACH, Group::Filter, BROWSE, Slot::HelpOnly, None),
+    key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
+    key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
+    key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
+    key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),
+    key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BROWSE, Slot::HelpOnly, None),
+    key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
+    key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
+    key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
+    key("q", "quit", "quit", theme::PEACH, Group::View, BROWSE, Slot::Quit, None),
+];
+
+/// The footer mode for the tree's input state, most specific first.
+fn footer_mode(
+    renaming: bool,
+    vim_active: bool,
+    search_mode: bool,
+    flag_mode: bool,
+    focus_active: bool,
+) -> Mode {
+    if renaming {
+        Mode::Rename
+    } else if vim_active {
+        Mode::VimCommand
+    } else if search_mode {
+        Mode::Filter
+    } else if flag_mode {
+        Mode::Tag
+    } else if focus_active {
+        Mode::Focus
+    } else {
+        Mode::Normal
+    }
+}
+
+/// Toggles that are on; their keys are lit in the footer.
+fn footer_toggles(
+    focus_active: bool,
+    filter_on: bool,
+    flag_mode: bool,
+    all_expanded: bool,
+    help_open: bool,
+) -> Vec<Toggle> {
+    [
+        (focus_active, Toggle::Focus),
+        (filter_on, Toggle::Filter),
+        (flag_mode, Toggle::Tag),
+        (all_expanded, Toggle::ExpandAll),
+        (help_open, Toggle::Help),
+    ]
+    .into_iter()
+    .filter_map(|(on, toggle)| on.then_some(toggle))
+    .collect()
+}
+
+/// True when some top-level section is collapsed: `v` then expands all,
+/// otherwise it collapses all, and its footer hint is lit.
+fn any_top_collapsed(nodes: &[TreeNode]) -> bool {
+    nodes.iter().any(|n| n.is_dir && n.depth == 0 && !n.expanded)
+}
+
+/// Whether `v` is lit: at least one top-level directory exists and none is
+/// collapsed. The `v` key itself only checks `any_top_collapsed`.
+fn view_all_lit(nodes: &[TreeNode]) -> bool {
+    nodes.iter().any(|n| n.is_dir && n.depth == 0) && !any_top_collapsed(nodes)
+}
+
 // --- Event loop ---
 
 #[allow(clippy::too_many_lines)]
@@ -465,7 +621,7 @@ fn event_loop(
     let mut cursor_pos: usize = 0;
     let mut focus_active = false;
     let mut pre_focus_expanded: Vec<(usize, bool)> = Vec::new();
-    let mut show_help = false;
+    let mut help = HelpState::default();
     let mut flag_mode = false;
     let mut rename_buffer: Option<String> = None;
     let mut status_message: Option<String> = None;
@@ -847,43 +1003,35 @@ fn event_loop(
                     flag_mode,
                     ctx.warning.as_deref(),
                 );
+                let width = area.width as usize;
+                let toggles = footer_toggles(
+                    focus_active,
+                    search_mode || !search_buffer.is_empty(),
+                    flag_mode,
+                    view_all_lit(nodes),
+                    help.open,
+                );
                 let status = match slot {
-                    StatusSlot::Rename(buffer) => Line::from(vec![
-                        Span::styled(" rename: ", Style::default().fg(theme::MAUVE)),
-                        Span::styled(buffer.to_string(), Style::default().fg(theme::TEXT)),
-                        Span::styled("_", Style::default().fg(theme::OVERLAY)),
-                    ]),
+                    StatusSlot::Rename(buffer) => {
+                        lead_with_hints(rename_lead(buffer), Mode::Rename, &toggles, width)
+                    }
                     StatusSlot::Message(message) => Line::from(Span::styled(
                         format!(" {message}"),
                         Style::default().fg(theme::PEACH),
                     )),
-                    StatusSlot::VimCommand => Line::from(vec![Span::styled(
-                        vim.buffer.clone(),
-                        theme::command_line(),
-                    )]),
+                    StatusSlot::VimCommand => lead_with_hints(
+                        command_lead(&vim.buffer),
+                        Mode::VimCommand,
+                        &toggles,
+                        width,
+                    ),
                     StatusSlot::Tags => {
                         let cur_flags = if real_idx < nodes.len() {
                             nodes[real_idx].flags
                         } else {
                             0
                         };
-                        let mut spans =
-                            vec![Span::styled(" tags: ", Style::default().fg(theme::MAUVE))];
-                        for (idx, def) in FLAG_DEFS.iter().enumerate() {
-                            let active = cur_flags & def.bit != 0;
-                            let color = theme::FLAG_COLORS[idx];
-                            spans.push(Span::styled(
-                                format!("{}", idx + 1),
-                                Style::default().fg(color),
-                            ));
-                            spans.push(Span::styled(":", Style::default().fg(theme::OVERLAY)));
-                            spans.push(Span::styled(
-                                format!("{} ", def.label),
-                                Style::default().fg(if active { color } else { theme::OVERLAY }),
-                            ));
-                            spans.push(Span::raw(" "));
-                        }
-                        Line::from(spans)
+                        lead_with_hints(tag_legend(cur_flags), Mode::Tag, &toggles, width)
                     }
                     StatusSlot::Warning(warning) => {
                         let (text, padding) = warning_layout(warning, area.width as usize);
@@ -902,35 +1050,20 @@ fn event_loop(
                         ])
                     }
                     StatusSlot::Hints => {
-                        let bold = Modifier::BOLD;
-                        let width = area.width as usize;
-                        let left = " open  tags  rename  focus  view all";
-                        let padding = width.saturating_sub(left.len() + 4);
-                        Line::from(vec![
-                            Span::raw(" "),
-                            Span::styled("o", Style::default().fg(theme::GREEN).add_modifier(bold)),
-                            Span::styled("pen  ", Style::default().fg(theme::OVERLAY)),
-                            Span::styled("t", Style::default().fg(theme::PEACH).add_modifier(bold)),
-                            Span::styled("ags  ", Style::default().fg(theme::OVERLAY)),
-                            Span::styled("r", Style::default().fg(theme::MAUVE).add_modifier(bold)),
-                            Span::styled("ename  ", Style::default().fg(theme::OVERLAY)),
-                            Span::styled("f", Style::default().fg(theme::GREEN).add_modifier(bold)),
-                            Span::styled("ocus  ", Style::default().fg(theme::OVERLAY)),
-                            Span::styled(
-                                "v",
-                                Style::default().fg(theme::SAPPHIRE).add_modifier(bold),
-                            ),
-                            Span::styled("iew all", Style::default().fg(theme::OVERLAY)),
-                            Span::raw(" ".repeat(padding)),
-                            Span::styled("q", Style::default().fg(theme::PEACH).add_modifier(bold)),
-                            Span::styled("uit ", Style::default().fg(theme::OVERLAY)),
-                        ])
+                        let mode = footer_mode(
+                            rename_buffer.is_some(),
+                            vim.active,
+                            search_mode,
+                            flag_mode,
+                            focus_active,
+                        );
+                        footer::line(TREE_KEYS, mode, &toggles, width)
                     }
                 };
                 frame.render_widget(Paragraph::new(status), rows[1]);
 
-                if show_help {
-                    render_help(frame, full);
+                if help.open {
+                    help::render(frame, full, TREE_KEYS, &mut help);
                 }
             })
             .context("failed to draw")?;
@@ -1003,8 +1136,7 @@ fn event_loop(
             break;
         }
 
-        if show_help {
-            show_help = false;
+        if help.handle_key(key) {
             continue;
         }
 
@@ -1107,14 +1239,10 @@ fn event_loop(
             continue;
         }
 
-        if let Some(cmd) = vim.handle_key(key) {
-            if VimCommandMode::is_quit(&cmd) {
-                break;
-            }
-            continue;
-        }
-        if vim.active {
-            continue;
+        match vim.handle_key(key) {
+            VimKey::Command(cmd) if VimCommandMode::is_quit(&cmd) => break,
+            VimKey::Command(_) | VimKey::Consumed => continue,
+            VimKey::NotConsumed => {}
         }
 
         let visible = compute_visible(nodes, &search_buffer);
@@ -1211,9 +1339,7 @@ fn event_loop(
             }
             KeyCode::Char('v') => {
                 let current_top = find_top_dir(nodes, real_idx).unwrap_or(0);
-                let any_collapsed = nodes
-                    .iter()
-                    .any(|n| n.is_dir && n.depth == 0 && !n.expanded);
+                let any_collapsed = any_top_collapsed(nodes);
                 for node in nodes.iter_mut() {
                     if node.is_dir && node.depth == 0 {
                         node.expanded = any_collapsed;
@@ -1246,7 +1372,7 @@ fn event_loop(
                 preview_scroll = preview_scroll.saturating_sub(1);
             }
             KeyCode::Char('?') => {
-                show_help = true;
+                help.open();
             }
             _ => {}
         }
@@ -1294,66 +1420,14 @@ fn navigate(
     state.select(Some(next_sel));
 }
 
-fn render_help(frame: &mut Frame, full: Rect) {
-    let rows: [(&str, Color, &str); 12] = [
-        ("o / enter", theme::GREEN, "open file / toggle dir"),
-        ("l", theme::MAUVE, "expand directory"),
-        ("h", theme::MAUVE, "collapse / go to parent"),
-        ("f", theme::GREEN, "focus section"),
-        ("/", theme::YELLOW, "filter: text + #tag, or click a dot"),
-        ("t", theme::PEACH, "tag mode (1-5 toggle, t to close)"),
-        ("r", theme::MAUVE, "rename note (enter confirms, esc cancels)"),
-        ("v", theme::SAPPHIRE, "view all / collapse all"),
-        ("j/k", theme::TEXT, "navigate"),
-        ("J/K", theme::TEXT, "scroll preview"),
-        (":q", theme::MAUVE, "vim-style quit"),
-        ("q", theme::PEACH, "quit"),
-    ];
-    let mut help_text = vec![
-        Line::from(Span::styled(
-            "  keybindings",
-            Style::default()
-                .fg(theme::MAUVE)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-    ];
-    for (key, color, desc) in rows {
-        help_text.push(Line::from(vec![
-            Span::styled(format!("  {:<10}", key), Style::default().fg(color)),
-            Span::styled(desc.to_string(), Style::default().fg(theme::TEXT)),
-        ]));
-    }
-    help_text.push(Line::from(""));
-    help_text.push(Line::from(Span::styled(
-        "  press any key to close",
-        Style::default().fg(theme::OVERLAY),
-    )));
-
-    let help_h = help_text.len() as u16 + 2;
-    let help_w = 50_u16;
-    let hx = full.x + (full.width.saturating_sub(help_w)) / 2;
-    let hy = full.y + (full.height.saturating_sub(help_h)) / 2;
-    let help_area = Rect::new(hx, hy, help_w, help_h);
-    let help_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::SURFACE))
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .style(Style::default().bg(theme::BASE));
-    frame.render_widget(ratatui::widgets::Clear, help_area);
-    frame.render_widget(Paragraph::new(help_text).block(help_block), help_area);
-}
-
 /// Columns taken by the " ! " prefix of the warning footer.
 const WARNING_PREFIX_COLS: usize = 3;
-/// Columns reserved for the right-aligned "quit " hint. It is 4, not 5: the
-/// trailing space is clipped at the edge, exactly as in the Hints footer arm.
-const QUIT_HINT_RESERVED_COLS: usize = 4;
 
 /// Lays out the warning footer for `width` columns: returns the warning text,
 /// truncated by chars if needed, and the padding that puts the quit hint on the
-/// same column as the Hints footer. At least one space always separates text
-/// and hint.
+/// same column as the hints footer (`footer::QUIT_HINT_RESERVED_COLS` from the
+/// right edge, the column `footer::quit_column` gives). At least one space
+/// always separates text and hint.
 fn warning_layout(warning: &str, width: usize) -> (String, usize) {
     let max_chars = width.saturating_sub(WARNING_PREFIX_COLS + QUIT_HINT_RESERVED_COLS + 1);
     let text: String = warning.chars().take(max_chars).collect();
@@ -1376,20 +1450,26 @@ mod tests {
 
     #[test]
     fn warning_footer_quit_hint_lines_up_with_the_normal_footer() {
-        // 36 is the char count of the Hints arm's `left` string
-        // " open  tags  rename  focus  view all", a local in the draw closure.
-        const HINTS_LEFT_COLS: usize = 36;
+        // Compare with the column where the real hints footer draws `q`, in
+        // the modes in which the warning can share the line with hints.
         let short = "pull failed";
         let long = "x".repeat(300);
-        for width in [40usize, 60, 120] {
-            for warning in [short, long.as_str()] {
-                let (text, padding) = warning_layout(warning, width);
-                assert_eq!(
-                    WARNING_PREFIX_COLS + text.chars().count() + padding,
-                    HINTS_LEFT_COLS + width.saturating_sub(40),
-                    "width {width}, warning of {} chars",
-                    warning.len()
-                );
+        for width in [40usize, 60, 100, 120] {
+            for mode in [Mode::Normal, Mode::Focus] {
+                let line = footer::line(TREE_KEYS, mode, &[], width);
+                let rendered: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                let hints_q_col = rendered.chars().position(|c| c == 'q').unwrap();
+                let quit_col = footer::select(TREE_KEYS, mode, &[], width).quit_col;
+                assert_eq!(quit_col, Some(hints_q_col), "width {width}, {mode:?}");
+                for warning in [short, long.as_str()] {
+                    let (text, padding) = warning_layout(warning, width);
+                    assert_eq!(
+                        WARNING_PREFIX_COLS + text.chars().count() + padding,
+                        hints_q_col,
+                        "width {width}, {mode:?}, warning of {} chars",
+                        warning.len()
+                    );
+                }
             }
             let (text, padding) = warning_layout(&long, width);
             assert_eq!(text.chars().count(), width - 8);
@@ -1416,6 +1496,211 @@ mod tests {
     #[test]
     fn warning_layout_survives_zero_width() {
         assert_eq!(warning_layout("anything", 0), (String::new(), 0));
+    }
+
+    fn shown_keys(mode: Mode, on: &[Toggle], width: usize) -> Vec<&'static str> {
+        let sel = footer::select(TREE_KEYS, mode, on, width);
+        sel.left
+            .iter()
+            .chain(sel.quit.iter())
+            .map(|&(i, _)| TREE_KEYS[i].key)
+            .collect()
+    }
+
+    fn lit_keys(mode: Mode, on: &[Toggle]) -> Vec<&'static str> {
+        let sel = footer::select(TREE_KEYS, mode, on, 200);
+        sel.left
+            .iter()
+            .chain(sel.quit.iter())
+            .filter(|&&(_, lit)| lit)
+            .map(|&(i, _)| TREE_KEYS[i].key)
+            .collect()
+    }
+
+    #[test]
+    fn footer_mode_follows_the_input_state_most_specific_first() {
+        assert_eq!(footer_mode(false, false, false, false, false), Mode::Normal);
+        assert_eq!(footer_mode(false, false, false, false, true), Mode::Focus);
+        assert_eq!(footer_mode(false, false, false, true, true), Mode::Tag);
+        assert_eq!(footer_mode(false, false, true, false, true), Mode::Filter);
+        assert_eq!(footer_mode(false, true, true, false, false), Mode::VimCommand);
+        assert_eq!(footer_mode(true, true, true, true, true), Mode::Rename);
+    }
+
+    #[test]
+    fn normal_and_focus_footers_hint_the_browse_keys() {
+        let expected = vec!["o", "t", "r", "/", "f", "v", "?", "q"];
+        assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
+        assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
+    }
+
+    #[test]
+    fn filter_footer_hints_the_filter_input_keys_and_no_quit() {
+        assert_eq!(
+            shown_keys(Mode::Filter, &[], 200),
+            vec!["enter", "esc", "\u{2190}/\u{2192}", "bksp"]
+        );
+    }
+
+    #[test]
+    fn tag_rename_and_command_footers_hint_their_own_keys() {
+        assert_eq!(shown_keys(Mode::Tag, &[], 200), vec!["t", "1-5", "esc", "/"]);
+        assert_eq!(shown_keys(Mode::Rename, &[], 200), vec!["enter", "esc", "bksp"]);
+        assert_eq!(shown_keys(Mode::VimCommand, &[], 200), vec!["enter", "esc", "bksp"]);
+    }
+
+    #[test]
+    fn footer_lights_the_keys_whose_state_is_on() {
+        assert!(lit_keys(Mode::Normal, &[]).is_empty());
+        assert_eq!(lit_keys(Mode::Focus, &[Toggle::Focus]), vec!["f"]);
+        assert_eq!(lit_keys(Mode::Normal, &[Toggle::Filter]), vec!["/"]);
+        assert_eq!(lit_keys(Mode::Tag, &[Toggle::Tag]), vec!["t"]);
+        assert_eq!(lit_keys(Mode::Normal, &[Toggle::ExpandAll]), vec!["v"]);
+        assert_eq!(lit_keys(Mode::Normal, &[Toggle::Help]), vec!["?"]);
+    }
+
+    #[test]
+    fn footer_toggles_map_each_state_to_its_toggle() {
+        assert!(footer_toggles(false, false, false, false, false).is_empty());
+        assert_eq!(
+            footer_toggles(true, true, true, true, true),
+            vec![Toggle::Focus, Toggle::Filter, Toggle::Tag, Toggle::ExpandAll, Toggle::Help]
+        );
+    }
+
+    #[test]
+    fn narrow_footer_drops_low_priority_hints_but_keeps_help_and_quit() {
+        assert_eq!(shown_keys(Mode::Normal, &[], 59), vec!["o", "t", "r", "/", "f", "v", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 58), vec!["o", "t", "/", "f", "v", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 50), vec!["o", "t", "/", "f", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 40), vec!["o", "t", "f", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 18), vec!["o", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 17), vec!["?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 0), vec!["?", "q"]);
+        for width in 0..120 {
+            let line = footer::line(TREE_KEYS, Mode::Normal, &[], width);
+            let cols: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+            // From 12 columns (" ? help" plus a space and "quit") the line
+            // fills the width exactly, with `q` four columns from the edge.
+            if width >= 12 {
+                assert_eq!(cols, width, "width {width}");
+            }
+        }
+    }
+
+    #[test]
+    fn help_lists_every_tree_key_exactly_once() {
+        let rows = help::rows(TREE_KEYS);
+        for i in 0..TREE_KEYS.len() {
+            let count = rows.iter().filter(|r| **r == help::Row::Key(i)).count();
+            assert_eq!(count, 1, "key {} ({})", TREE_KEYS[i].key, TREE_KEYS[i].help);
+        }
+        for group in Group::ALL {
+            assert!(rows.contains(&help::Row::Heading(group)), "{group:?}");
+        }
+    }
+
+    fn dir_node(depth: usize) -> TreeNode {
+        TreeNode {
+            name: "dir".into(),
+            path: PathBuf::from("dir"),
+            origin: PathBuf::from("dir"),
+            is_dir: true,
+            depth,
+            expanded: false,
+            child_count: 0,
+            parent_idx: None,
+            flags: 0,
+            scope_icon: "",
+            tag_root: 0,
+        }
+    }
+
+    #[test]
+    fn any_top_collapsed_decides_the_view_all_toggle() {
+        let mut nodes = vec![dir_node(0), dir_node(0)];
+        nodes[0].expanded = true;
+        assert!(any_top_collapsed(&nodes));
+        nodes[1].expanded = true;
+        assert!(!any_top_collapsed(&nodes));
+    }
+
+    #[test]
+    fn view_all_is_lit_only_with_a_top_dir_and_none_collapsed() {
+        assert!(!view_all_lit(&[]));
+        let mut file = dir_node(0);
+        file.is_dir = false;
+        assert!(!view_all_lit(&[file]));
+        assert!(!view_all_lit(&[dir_node(1)]));
+        let mut nodes = vec![dir_node(0), dir_node(0)];
+        nodes[0].expanded = true;
+        assert!(!view_all_lit(&nodes));
+        nodes[1].expanded = true;
+        assert!(view_all_lit(&nodes));
+    }
+
+    fn text_of(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn tag_footer_draws_the_legend_then_its_hints_with_t_lit() {
+        let legend = tag_legend(0b1);
+        let legend_text = text_of(&Line::from(legend.clone()));
+        let line = lead_with_hints(legend, Mode::Tag, &[Toggle::Tag], 100);
+        let rendered = text_of(&line);
+        assert!(rendered.starts_with(&legend_text), "{rendered:?}");
+        let rest = &rendered[legend_text.len()..];
+        for hint in ["tags", "1-5 toggle", "esc close"] {
+            assert!(rest.contains(hint), "{hint}: {rendered:?}");
+        }
+        let lead_spans = tag_legend(0b1).len();
+        let t = line.spans[lead_spans..].iter().find(|s| s.content == "t").unwrap();
+        assert_eq!(t.style.fg, Some(theme::GREEN));
+        assert!(rendered.chars().count() <= 100);
+    }
+
+    #[test]
+    fn rename_footer_draws_the_prompt_then_its_hints() {
+        let rendered = text_of(&lead_with_hints(rename_lead("draft"), Mode::Rename, &[], 100));
+        assert!(rendered.starts_with(" rename: draft_ "), "{rendered:?}");
+        for hint in ["enter confirm", "esc cancel", "bksp delete"] {
+            assert!(rendered.contains(hint), "{hint}: {rendered:?}");
+        }
+        assert!(!rendered.contains("quit"));
+    }
+
+    #[test]
+    fn command_footer_draws_the_buffer_then_its_hints() {
+        let rendered = text_of(&lead_with_hints(command_lead(":wq"), Mode::VimCommand, &[], 100));
+        assert!(rendered.starts_with(":wq "), "{rendered:?}");
+        for hint in ["enter run", "esc cancel", "bksp delete"] {
+            assert!(rendered.contains(hint), "{hint}: {rendered:?}");
+        }
+    }
+
+    #[test]
+    fn narrow_lead_footers_keep_the_lead_and_drop_hints_first() {
+        let cases = [
+            (tag_legend(0), Mode::Tag),
+            (rename_lead("a fairly long note name"), Mode::Rename),
+            (command_lead(":something"), Mode::VimCommand),
+        ];
+        for (lead, mode) in cases {
+            let lead_text = text_of(&Line::from(lead.clone()));
+            let lead_cols = lead_text.chars().count();
+            let full = text_of(&lead_with_hints(lead.clone(), mode, &[], 200));
+            let mut previous = full.chars().count();
+            for width in (0..=lead_cols + 40).rev() {
+                let rendered = text_of(&lead_with_hints(lead.clone(), mode, &[], width));
+                assert!(rendered.starts_with(&lead_text), "{mode:?} width {width}: {rendered:?}");
+                assert!(rendered.chars().count() <= width.max(lead_cols), "{mode:?} width {width}");
+                assert!(rendered.chars().count() <= previous, "{mode:?} width {width}");
+                previous = rendered.chars().count();
+            }
+            assert_eq!(text_of(&lead_with_hints(lead.clone(), mode, &[], lead_cols)), lead_text);
+            assert!(full.chars().count() > lead_cols, "{mode:?} shows hints when wide");
+        }
     }
 
     fn spec(root: &str, label: &str, files: &[&str]) -> SectionSpec {

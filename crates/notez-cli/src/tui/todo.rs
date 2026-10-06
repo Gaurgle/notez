@@ -22,7 +22,189 @@ use notez_core::tags::FLAG_DEFS;
 use notez_core::todo::{self, CheckState, Task};
 use notez_core::util::tilde;
 
-use super::{VimCommandMode, theme};
+use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
+use super::help::{self, HelpState};
+use super::{VimCommandMode, VimKey, theme};
+
+const BOARD: &[Mode] = &[Mode::Normal, Mode::Focus];
+const BOARD_AND_TAG: &[Mode] = &[Mode::Normal, Mode::Focus, Mode::Tag];
+const TAGGING: &[Mode] = &[Mode::Tag];
+const FILTERING: &[Mode] = &[Mode::Filter];
+const TEXT_ENTRY: &[Mode] = &[Mode::NewItem, Mode::NewCategory, Mode::AddSubtask, Mode::EditText];
+const COMMAND: &[Mode] = &[Mode::VimCommand];
+const CONFIRMING: &[Mode] = &[Mode::ConfirmDelete];
+
+const fn key(
+    key: &'static str,
+    desc: &'static str,
+    help: &'static str,
+    color: Color,
+    group: Group,
+    modes: &'static [Mode],
+    slot: Slot,
+    toggle: Option<Toggle>,
+) -> KeyHint {
+    KeyHint { key, desc, help, color, group, modes, slot, toggle }
+}
+
+/// Every key, mouse action and command the todo board handles, in footer
+/// order. Kept in step with `event_loop`.
+const TODO_KEYS: &[KeyHint] = &[
+    key("j/k", "move", "move down / up (also Down / Up)", theme::TEXT, Group::Navigate, BOARD_AND_TAG, Slot::HelpOnly, None),
+    key("h/l", "fold", "collapse / expand (also Left / Right)", theme::TEXT, Group::Navigate, BOARD_AND_TAG, Slot::HelpOnly, None),
+    key("J/K", "reorder", "move todo down / up", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("wheel", "move", "mouse wheel moves the selection", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("click", "select", "click a row to select it and fold a header or parent", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("drag", "reorder", "mouse drag to reorder", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("x", "check", "check / uncheck (also Space, Enter)", theme::SAPPHIRE, Group::Edit, BOARD, Slot::Priority(1), None),
+    key("n", "new", "new todo", theme::GREEN, Group::Edit, BOARD, Slot::Priority(2), None),
+    key("e", "edit", "edit text", theme::MAUVE, Group::Edit, BOARD, Slot::Priority(3), None),
+    key("t", "tags", "tag mode on / off", theme::PEACH, Group::Edit, BOARD_AND_TAG, Slot::Priority(4), Some(Toggle::Tag)),
+    key("s", "subtask", "add subtask", theme::LAVENDER, Group::Edit, BOARD, Slot::Priority(7), None),
+    key("d", "delete", "delete (asks to confirm)", theme::RED, Group::Edit, BOARD, Slot::Priority(8), None),
+    key("a", "almost", "almost done [/]", theme::YELLOW, Group::Edit, BOARD, Slot::Priority(9), None),
+    key("N", "category", "new category (global board only)", theme::GREEN, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the todo", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(12), None),
+    key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
+    key("click dot", "tag", "click a todo's tag dot to toggle that tag", theme::PEACH, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("y", "yes", "delete: confirm (also Enter)", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
+    key("n", "no", "delete: cancel (any other key)", theme::SAPPHIRE, Group::Edit, CONFIRMING, Slot::Priority(2), None),
+    key("enter", "save", "new / subtask / edit / category: save", theme::GREEN, Group::Edit, TEXT_ENTRY, Slot::Priority(1), None),
+    key("esc", "cancel", "new / subtask / edit / category: cancel", theme::PEACH, Group::Edit, TEXT_ENTRY, Slot::Priority(2), None),
+    key("\u{2190}/\u{2192}", "cursor", "text input: move the cursor", theme::TEXT, Group::Edit, TEXT_ENTRY, Slot::Priority(3), None),
+    key("bksp", "delete", "text input: delete the char before the cursor", theme::TEXT, Group::Edit, TEXT_ENTRY, Slot::Priority(4), None),
+    key("/", "filter", "filter: fuzzy text + #tagname (starts a new filter)", theme::SAPPHIRE, Group::Filter, BOARD_AND_TAG, Slot::Priority(6), Some(Toggle::Filter)),
+    key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
+    key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
+    key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
+    key("bksp", "delete", "filter: delete the char before the cursor; at the start, clear the filter and close", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(4), None),
+    key("esc", "clear", "clear the filter; with no filter, quit", theme::PEACH, Group::Filter, BOARD, Slot::HelpOnly, None),
+    key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::SAPPHIRE, Group::Filter, BOARD, Slot::HelpOnly, None),
+    key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BOARD, Slot::Priority(5), Some(Toggle::Focus)),
+    key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
+    key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BOARD, Slot::Pinned, Some(Toggle::Help)),
+    key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BOARD, Slot::HelpOnly, None),
+    key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
+    key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
+    key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
+    key("q", "quit", "quit", theme::PEACH, Group::View, BOARD, Slot::Quit, None),
+];
+
+/// The board's input flags, read each frame to pick the footer mode.
+#[derive(Debug, Default, Clone, Copy)]
+struct InputFlags {
+    confirm_delete: bool,
+    flag_mode: bool,
+    search_mode: bool,
+    edit_mode: bool,
+    subtask_mode: bool,
+    category_mode: bool,
+    input_mode: bool,
+    vim_active: bool,
+    focus_active: bool,
+}
+
+impl InputFlags {
+    /// The footer mode, most specific first, in the order `event_loop`
+    /// checks the flags when handling a key.
+    fn footer_mode(&self) -> Mode {
+        if self.confirm_delete {
+            Mode::ConfirmDelete
+        } else if self.flag_mode {
+            Mode::Tag
+        } else if self.search_mode {
+            Mode::Filter
+        } else if self.category_mode {
+            Mode::NewCategory
+        } else if self.input_mode {
+            Mode::NewItem
+        } else if self.subtask_mode {
+            Mode::AddSubtask
+        } else if self.edit_mode {
+            Mode::EditText
+        } else if self.vim_active {
+            Mode::VimCommand
+        } else if self.focus_active {
+            Mode::Focus
+        } else {
+            Mode::Normal
+        }
+    }
+}
+
+/// Toggles that are on; their keys are lit in the footer.
+fn footer_toggles(
+    focus_active: bool,
+    filter_on: bool,
+    flag_mode: bool,
+    all_expanded: bool,
+    help_open: bool,
+) -> Vec<Toggle> {
+    [
+        (focus_active, Toggle::Focus),
+        (filter_on, Toggle::Filter),
+        (flag_mode, Toggle::Tag),
+        (all_expanded, Toggle::ExpandAll),
+        (help_open, Toggle::Help),
+    ]
+    .into_iter()
+    .filter_map(|(on, toggle)| on.then_some(toggle))
+    .collect()
+}
+
+/// True when any header or parent is collapsed: the condition `v` uses to
+/// choose between expanding and collapsing everything.
+fn any_collapsed(items: &[Task]) -> bool {
+    items
+        .iter()
+        .any(|i| (i.is_header || i.has_subtasks) && i.collapsed)
+}
+
+/// Whether `v` is lit: at least one header or parent exists and none is
+/// collapsed. The `v` key itself only checks `any_collapsed`.
+fn view_all_lit(items: &[Task]) -> bool {
+    items.iter().any(|i| i.is_header || i.has_subtasks) && !any_collapsed(items)
+}
+
+/// The board's footer line: `footer::status_line` over `TODO_KEYS`.
+fn status_line(
+    lead: Vec<Span<'static>>,
+    hints: bool,
+    mode: Mode,
+    on: &[Toggle],
+    right: Vec<Span<'static>>,
+    width: usize,
+) -> Line<'static> {
+    footer::status_line(TODO_KEYS, lead, hints, mode, on, right, width)
+}
+
+/// The warning prefix (" ! ") and the warning text, truncated so the right
+/// part and the quit hint still fit with at least one space before them.
+fn warning_lead(warning: &str, right_cols: usize, width: usize) -> Vec<Span<'static>> {
+    let max_chars =
+        width.saturating_sub(WARNING_PREFIX.len() + right_cols + QUIT_HINT_RESERVED_COLS + 1);
+    let text: String = warning.chars().take(max_chars).collect();
+    vec![
+        Span::styled(
+            WARNING_PREFIX,
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(text, Style::default().fg(theme::YELLOW)),
+    ]
+}
+
+const WARNING_PREFIX: &str = " ! ";
+
+/// The right part (scroll info) to show beside `warning`: dropped when the
+/// whole warning would not fit with it, since the warning matters more.
+fn warning_right(warning: &str, right: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+    let needed = WARNING_PREFIX.len()
+        + warning.chars().count()
+        + span_cols(&right)
+        + QUIT_HINT_RESERVED_COLS
+        + 1;
+    if needed > width { Vec::new() } else { right }
+}
 
 /// What the title bar shows and which global-only features are enabled.
 pub struct BoardContext {
@@ -272,7 +454,7 @@ fn event_loop(
     let mut confirm_delete = false;
     let mut focus_active = false;
     let mut pre_focus_collapsed: Vec<(usize, bool)> = Vec::new();
-    let mut show_help = false;
+    let mut help = HelpState::default();
     let mut category_mode = false;
     let mut category_error: Option<String> = None;
 
@@ -669,21 +851,34 @@ fn event_loop(
                 frame.render_stateful_widget(list, list_area, &mut state);
 
                 // Status bar.
-                let bold = Modifier::BOLD;
+                let width = chunks[1].width as usize;
+                let mode = InputFlags {
+                    confirm_delete,
+                    flag_mode,
+                    search_mode,
+                    edit_mode,
+                    subtask_mode,
+                    category_mode,
+                    input_mode,
+                    vim_active: vim.active,
+                    focus_active,
+                }
+                .footer_mode();
+                let toggles = footer_toggles(
+                    focus_active,
+                    search_mode || !search_buffer.is_empty(),
+                    flag_mode,
+                    view_all_lit(&items),
+                    help.open,
+                );
+                let hint_line = |lead: Vec<Span<'static>>| {
+                    status_line(lead, true, mode, &toggles, Vec::new(), width)
+                };
                 let status = if confirm_delete {
-                    Line::from(vec![
-                        Span::styled(
-                            " delete this todo? ",
-                            Style::default().fg(theme::TEXT),
-                        ),
-                        Span::styled("y", Style::default().fg(theme::RED).add_modifier(bold)),
-                        Span::styled("es  ", Style::default().fg(theme::OVERLAY)),
-                        Span::styled(
-                            "n",
-                            Style::default().fg(theme::SAPPHIRE).add_modifier(bold),
-                        ),
-                        Span::styled("o", Style::default().fg(theme::OVERLAY)),
-                    ])
+                    hint_line(vec![Span::styled(
+                        " delete this todo?",
+                        Style::default().fg(theme::TEXT),
+                    )])
                 } else if flag_mode {
                     let vis = compute_visible(&items, &search_buffer);
                     let vs = state.selected().unwrap_or(0);
@@ -707,7 +902,7 @@ fn event_loop(
                         ));
                         spans.push(Span::styled(" ", Style::default()));
                     }
-                    Line::from(spans)
+                    hint_line(spans)
                 } else if input_mode || subtask_mode || edit_mode || category_mode {
                     let (label, label_color) = if edit_mode {
                         (" edit: ", Color::Rgb(165, 133, 202))
@@ -745,14 +940,13 @@ fn event_loop(
                             Style::default().fg(theme::RED),
                         ));
                     }
-                    Line::from(spans)
+                    hint_line(spans)
                 } else if vim.active {
-                    Line::from(vec![Span::styled(
-                        vim.buffer.as_str(),
+                    hint_line(vec![Span::styled(
+                        vim.buffer.clone(),
                         Style::default().fg(theme::MAUVE),
                     )])
                 } else {
-                    let width = chunks[1].width as usize;
                     let list_height = chunks[0].height.saturating_sub(4) as usize;
                     let scroll_info = if visible.len() > list_height {
                         format!(" {}/{} ", state.selected().unwrap_or(0) + 1, visible.len())
@@ -764,49 +958,24 @@ fn event_loop(
                     let prose_warn =
                         prose_warning_sections(&items, &dirty, prose_sources);
                     let warning = footer_warning(ctx.warning.as_deref(), &prose_warn);
-                    let left = match warning {
-                        None => Vec::new(),
-                        Some(text) => vec![
-                            Span::styled(" ! ", Style::default().fg(theme::RED).add_modifier(bold)),
-                            Span::styled(text, Style::default().fg(theme::YELLOW)),
-                        ],
-                    };
-                    let left_len = if left.is_empty() {
-                        " ? help".len()
+                    let right = if scroll_info.is_empty() {
+                        Vec::new()
                     } else {
-                        left.iter().map(|s| s.content.chars().count()).sum()
+                        vec![Span::styled(scroll_info, Style::default().fg(theme::OVERLAY))]
                     };
-                    let right_len = " q quit ".len() + scroll_info.len();
-                    let padding = width.saturating_sub(left_len + right_len);
-                    let mut spans = if left.is_empty() {
-                        vec![
-                            Span::styled(" ", Style::default()),
-                            Span::styled(
-                                "?",
-                                Style::default().fg(theme::YELLOW).add_modifier(bold),
-                            ),
-                            Span::styled(" help", Style::default().fg(theme::OVERLAY)),
-                        ]
-                    } else {
-                        left
-                    };
-                    spans.push(Span::styled(" ".repeat(padding), Style::default()));
-                    spans.push(Span::styled(
-                        scroll_info,
-                        Style::default().fg(theme::OVERLAY),
-                    ));
-                    spans.push(Span::styled(" ", Style::default()));
-                    spans.push(Span::styled(
-                        "q",
-                        Style::default().fg(theme::PEACH).add_modifier(bold),
-                    ));
-                    spans.push(Span::styled(" quit ", Style::default().fg(theme::OVERLAY)));
-                    Line::from(spans)
+                    match warning {
+                        Some(text) => {
+                            let right = warning_right(&text, right, width);
+                            let lead = warning_lead(&text, span_cols(&right), width);
+                            status_line(lead, false, mode, &toggles, right, width)
+                        }
+                        None => status_line(Vec::new(), true, mode, &toggles, right, width),
+                    }
                 };
                 frame.render_widget(Paragraph::new(status), chunks[1]);
 
-                if show_help {
-                    render_help(frame, full);
+                if help.open {
+                    help::render(frame, full, TODO_KEYS, &mut help);
                 }
             })
             .context("failed to draw")?;
@@ -950,9 +1119,8 @@ fn event_loop(
             break;
         }
 
-        // Help overlay: any key closes it.
-        if show_help {
-            show_help = false;
+        // Help overlay: only `?` and Esc close it; it swallows other keys.
+        if help.handle_key(key) {
             continue;
         }
 
@@ -1273,14 +1441,10 @@ fn event_loop(
             continue;
         }
 
-        if let Some(cmd) = vim.handle_key(key) {
-            if VimCommandMode::is_quit(&cmd) {
-                break;
-            }
-            continue;
-        }
-        if vim.active {
-            continue;
+        match vim.handle_key(key) {
+            VimKey::Command(cmd) if VimCommandMode::is_quit(&cmd) => break,
+            VimKey::Command(_) | VimKey::Consumed => continue,
+            VimKey::NotConsumed => {}
         }
 
         let visible = compute_visible(&items, &search_buffer);
@@ -1347,9 +1511,7 @@ fn event_loop(
                     .rev()
                     .find(|&i| items[i].is_header)
                     .unwrap_or(0);
-                let any_collapsed = items
-                    .iter()
-                    .any(|i| (i.is_header || i.has_subtasks) && i.collapsed);
+                let any_collapsed = any_collapsed(&items);
                 todo::set_all_collapsed(&mut items, !any_collapsed);
                 let new_vis = compute_visible(&items, &search_buffer);
                 if let Some(pos) = new_vis.iter().position(|&i| i == current_header) {
@@ -1514,7 +1676,7 @@ fn event_loop(
             }
 
             KeyCode::Char('?') => {
-                show_help = true;
+                help.open();
             }
 
             _ => {}
@@ -1553,58 +1715,6 @@ fn navigate(
         }
     }
     state.select(Some(fallback_vis));
-}
-
-fn render_help(frame: &mut Frame, full: Rect) {
-    let key_line = |k: &str, color: Color, desc: &str| {
-        Line::from(vec![
-            Span::styled(format!("  {}", k), Style::default().fg(color)),
-            Span::styled(
-                format!("{}{}", " ".repeat(19_usize.saturating_sub(k.len())), desc),
-                Style::default().fg(theme::TEXT),
-            ),
-        ])
-    };
-    let help_text = vec![
-        Line::from(Span::styled(
-            "  keybindings",
-            Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        key_line("x / space / enter", theme::SAPPHIRE, "check/uncheck"),
-        key_line("a", theme::YELLOW, "almost done [/]"),
-        key_line("n", theme::GREEN, "new todo"),
-        key_line("N", theme::GREEN, "new category"),
-        key_line("s", theme::LAVENDER, "add subtask"),
-        key_line("e", theme::MAUVE, "edit text"),
-        key_line("d", theme::RED, "delete"),
-        key_line("t", theme::PEACH, "tags (1-5 to toggle)"),
-        key_line("f", theme::GREEN, "focus section"),
-        key_line("/", theme::SAPPHIRE, "filter: fuzzy text + #tagname"),
-        key_line("v", theme::SAPPHIRE, "view all / collapse all"),
-        key_line("j/k", theme::TEXT, "navigate"),
-        key_line("h/l", theme::TEXT, "collapse / expand"),
-        key_line("J/K", theme::TEXT, "move todo up / down"),
-        key_line("drag", theme::TEXT, "mouse drag to reorder"),
-        key_line("q", theme::PEACH, "quit"),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  press any key to close",
-            Style::default().fg(theme::OVERLAY),
-        )),
-    ];
-    let help_h = help_text.len() as u16 + 2;
-    let help_w = 42_u16;
-    let hx = full.x + (full.width.saturating_sub(help_w)) / 2;
-    let hy = full.y + (full.height.saturating_sub(help_h)) / 2;
-    let help_area = Rect::new(hx, hy, help_w, help_h);
-    let help_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::SURFACE))
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .style(Style::default().bg(theme::BASE));
-    frame.render_widget(ratatui::widgets::Clear, help_area);
-    frame.render_widget(Paragraph::new(help_text).block(help_block), help_area);
 }
 
 #[cfg(test)]
@@ -1785,5 +1895,262 @@ mod tests {
             both.contains("non-todo text in ALPHA will be dropped on save"),
             "prose warning must not be hidden: {both}"
         );
+    }
+
+    fn text_of(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    fn footer_keys(mode: Mode, on: &[Toggle], width: usize) -> Vec<&'static str> {
+        footer::select(TODO_KEYS, mode, on, width)
+            .left
+            .iter()
+            .map(|&(i, _)| TODO_KEYS[i].key)
+            .collect()
+    }
+
+    fn quit_shown(mode: Mode) -> bool {
+        footer::select(TODO_KEYS, mode, &[], 200).quit.is_some()
+    }
+
+    #[test]
+    fn footer_mode_follows_the_input_flags_most_specific_first() {
+        let none = InputFlags::default();
+        assert_eq!(none.footer_mode(), Mode::Normal);
+        let focus = InputFlags { focus_active: true, ..none };
+        assert_eq!(focus.footer_mode(), Mode::Focus);
+        assert_eq!(InputFlags { vim_active: true, ..focus }.footer_mode(), Mode::VimCommand);
+        assert_eq!(InputFlags { edit_mode: true, ..focus }.footer_mode(), Mode::EditText);
+        assert_eq!(InputFlags { subtask_mode: true, ..focus }.footer_mode(), Mode::AddSubtask);
+        assert_eq!(InputFlags { input_mode: true, ..focus }.footer_mode(), Mode::NewItem);
+        assert_eq!(InputFlags { category_mode: true, ..focus }.footer_mode(), Mode::NewCategory);
+        assert_eq!(InputFlags { search_mode: true, ..focus }.footer_mode(), Mode::Filter);
+        assert_eq!(InputFlags { flag_mode: true, search_mode: true, ..focus }.footer_mode(), Mode::Tag);
+        let all = InputFlags {
+            confirm_delete: true,
+            flag_mode: true,
+            search_mode: true,
+            edit_mode: true,
+            subtask_mode: true,
+            category_mode: true,
+            input_mode: true,
+            vim_active: true,
+            focus_active: true,
+        };
+        assert_eq!(all.footer_mode(), Mode::ConfirmDelete);
+    }
+
+    #[test]
+    fn footer_hints_follow_the_mode() {
+        let normal = footer_keys(Mode::Normal, &[], 200);
+        assert_eq!(normal, vec!["x", "n", "e", "t", "s", "d", "a", "/", "f", "v", "?"]);
+        assert_eq!(footer_keys(Mode::Focus, &[], 200), normal);
+        assert!(quit_shown(Mode::Normal) && quit_shown(Mode::Focus));
+
+        assert_eq!(footer_keys(Mode::Tag, &[], 200), vec!["t", "1-5", "esc", "/"]);
+        assert_eq!(footer_keys(Mode::Filter, &[], 200), vec!["enter", "esc", "\u{2190}/\u{2192}", "bksp"]);
+        for mode in [Mode::NewItem, Mode::NewCategory, Mode::AddSubtask, Mode::EditText] {
+            assert_eq!(footer_keys(mode, &[], 200), vec!["enter", "esc", "\u{2190}/\u{2192}", "bksp"], "{mode:?}");
+        }
+        assert_eq!(footer_keys(Mode::VimCommand, &[], 200), vec!["enter", "esc", "bksp"]);
+        assert_eq!(footer_keys(Mode::ConfirmDelete, &[], 200), vec!["y", "n"]);
+        // `q` and `?` are typed text or swallowed outside the board modes.
+        for mode in [Mode::Tag, Mode::Filter, Mode::NewItem, Mode::VimCommand, Mode::ConfirmDelete] {
+            assert!(!quit_shown(mode), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn footer_lights_the_keys_whose_mode_is_on() {
+        let lit = |mode: Mode, on: &[Toggle]| -> Vec<&'static str> {
+            footer::select(TODO_KEYS, mode, on, 200)
+                .left
+                .iter()
+                .filter(|&&(_, lit)| lit)
+                .map(|&(i, _)| TODO_KEYS[i].key)
+                .collect()
+        };
+        assert!(lit(Mode::Normal, &[]).is_empty());
+        assert_eq!(lit(Mode::Focus, &footer_toggles(true, false, false, false, false)), vec!["f"]);
+        assert_eq!(lit(Mode::Normal, &footer_toggles(false, true, false, false, false)), vec!["/"]);
+        assert_eq!(lit(Mode::Tag, &footer_toggles(false, false, true, false, false)), vec!["t"]);
+        assert_eq!(lit(Mode::Normal, &footer_toggles(false, false, false, true, false)), vec!["v"]);
+        assert_eq!(lit(Mode::Normal, &footer_toggles(false, false, false, false, true)), vec!["?"]);
+
+        // `v` is lit exactly when its handler would collapse everything.
+        let mut items = vec![header("A"), task("one", 0, 0)];
+        assert!(!any_collapsed(&items));
+        items[0].collapsed = true;
+        assert!(any_collapsed(&items));
+    }
+
+    #[test]
+    fn view_all_is_lit_only_with_a_collapsible_row_and_none_collapsed() {
+        assert!(!view_all_lit(&[]));
+        assert!(!view_all_lit(&[task("one", 0, 0), task("two", 0, 0)]));
+        let mut items = vec![header("A"), task("one", 0, 0)];
+        assert!(view_all_lit(&items));
+        items[0].collapsed = true;
+        assert!(!view_all_lit(&items));
+        let mut parent = task("parent", 0, 0);
+        parent.has_subtasks = true;
+        assert!(view_all_lit(&[parent.clone()]));
+        parent.collapsed = true;
+        assert!(!view_all_lit(&[parent]));
+    }
+
+    #[test]
+    fn footer_drops_low_priority_hints_and_keeps_help_and_quit() {
+        let wide = footer_keys(Mode::Normal, &[], 200);
+        let mut previous = wide.len();
+        for width in (0..=120).rev() {
+            let keys = footer_keys(Mode::Normal, &[], width);
+            assert!(keys.contains(&"?"), "width {width}");
+            assert!(quit_shown(Mode::Normal));
+            assert!(keys.len() <= previous, "width {width}");
+            previous = keys.len();
+            let sel = footer::select(TODO_KEYS, Mode::Normal, &[], width);
+            assert!(sel.quit.is_some(), "width {width}");
+            if sel.left.len() > 1 {
+                assert!(sel.left_cols + QUIT_HINT_RESERVED_COLS + 1 <= width, "width {width}");
+            }
+            for mode in [Mode::Normal, Mode::Tag, Mode::Filter, Mode::NewItem, Mode::ConfirmDelete] {
+                let _ = status_line(Vec::new(), true, mode, &[Toggle::Help], Vec::new(), width);
+                let lead = warning_lead("pull failed", 7, width);
+                let _ = status_line(lead, false, mode, &[], Vec::new(), width);
+            }
+        }
+        // The scroll info gives way before `?` or quit would be cut off.
+        for width in 12..=120 {
+            let line = status_line(Vec::new(), true, Mode::Normal, &[], vec![Span::raw(" 12/240 ")], width);
+            let rendered = text_of(&line);
+            assert!(rendered.chars().count() <= width, "width {width}: {rendered:?}");
+            assert!(rendered.contains("? help") && rendered.ends_with("quit"), "width {width}: {rendered:?}");
+        }
+        // Check, new and edit outlast the low-priority keys.
+        let narrow = footer_keys(Mode::Normal, &[], 40);
+        assert_eq!(narrow, vec!["x", "n", "e", "t", "?"]);
+        assert_eq!(footer_keys(Mode::Normal, &[], 0), vec!["?"]);
+    }
+
+    #[test]
+    fn status_line_matches_the_shared_footer_without_extras() {
+        for width in [0usize, 20, 40, 100, 160] {
+            for mode in [Mode::Normal, Mode::Focus, Mode::Filter, Mode::Tag] {
+                assert_eq!(
+                    text_of(&status_line(Vec::new(), true, mode, &[], Vec::new(), width)),
+                    text_of(&footer::line(TODO_KEYS, mode, &[], width)),
+                    "width {width}, {mode:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn warning_and_scroll_info_keep_the_quit_hint_on_the_shared_column() {
+        let q_col = |line: &Line| {
+            let rendered = text_of(line);
+            rendered.chars().count() - rendered.chars().rev().position(|c| c == 'q').unwrap() - 1
+        };
+        let short = "pull failed";
+        let long = "x".repeat(300);
+        for width in [40usize, 60, 100, 120] {
+            for mode in [Mode::Normal, Mode::Focus] {
+                let shared = footer::line(TODO_KEYS, mode, &[], width);
+                let shared_col = q_col(&shared);
+                assert_eq!(footer::select(TODO_KEYS, mode, &[], width).quit_col, Some(shared_col));
+                assert_eq!(shared_col, width - QUIT_HINT_RESERVED_COLS);
+                for scroll in ["", " 12/240 "] {
+                    let right = || {
+                        if scroll.is_empty() { Vec::new() } else { vec![Span::raw(scroll)] }
+                    };
+                    let hints = status_line(Vec::new(), true, mode, &[], right(), width);
+                    assert_eq!(q_col(&hints), shared_col, "width {width}, {mode:?}, scroll {scroll:?}");
+                    assert!(text_of(&hints).contains(scroll));
+                    for warning in [short, long.as_str()] {
+                        let lead = warning_lead(warning, scroll.len(), width);
+                        let line = status_line(lead, false, mode, &[], right(), width);
+                        let rendered = text_of(&line);
+                        assert_eq!(q_col(&line), shared_col, "width {width}, {mode:?}, scroll {scroll:?}");
+                        assert!(rendered.starts_with(" ! "));
+                        assert!(rendered.contains(scroll));
+                        assert_eq!(rendered.chars().count(), width);
+                    }
+                }
+            }
+        }
+        // The warning outranks the scroll info: when both do not fit, the
+        // scroll info goes and the warning stays whole.
+        let warning = "non-todo text in HOME will be dropped on save";
+        let scroll = || vec![Span::raw(" 3/36 ")];
+        assert_eq!(warning_right(warning, scroll(), 100).len(), 1);
+        assert_eq!(warning_right(warning, scroll(), 59).len(), 1);
+        for width in [53usize, 58] {
+            let right = warning_right(warning, scroll(), width);
+            assert!(right.is_empty(), "width {width}");
+            let lead = warning_lead(warning, span_cols(&right), width);
+            let rendered = text_of(&status_line(lead, false, Mode::Normal, &[], right, width));
+            assert!(rendered.contains(warning), "width {width}: {rendered:?}");
+            assert!(rendered.ends_with("quit"), "width {width}: {rendered:?}");
+        }
+        // A short warning is shown whole, exactly as `footer_warning` built it.
+        let line = status_line(warning_lead(short, 0, 100), false, Mode::Normal, &[], Vec::new(), 100);
+        assert!(text_of(&line).starts_with(" ! pull failed "));
+    }
+
+    #[test]
+    fn status_line_never_overflows_and_scroll_info_ends_on_the_edge_without_quit() {
+        let modes = [
+            Mode::Normal,
+            Mode::Filter,
+            Mode::Tag,
+            Mode::Rename,
+            Mode::Focus,
+            Mode::VimCommand,
+            Mode::NewItem,
+            Mode::NewCategory,
+            Mode::AddSubtask,
+            Mode::EditText,
+            Mode::ConfirmDelete,
+        ];
+        let scroll = " 13/120 ";
+        for width in 12usize..=200 {
+            for mode in modes {
+                for with_scroll in [false, true] {
+                    let right = if with_scroll { vec![Span::raw(scroll)] } else { Vec::new() };
+                    let rendered = text_of(&status_line(Vec::new(), true, mode, &[], right, width));
+                    let cols = rendered.chars().count();
+                    assert!(cols <= width, "width {width}, {mode:?}, scroll {with_scroll}: {rendered:?}");
+                    if with_scroll && !quit_shown(mode) && rendered.contains(scroll) {
+                        assert_eq!(cols, width, "width {width}, {mode:?}: {rendered:?}");
+                        assert!(rendered.ends_with(scroll), "width {width}, {mode:?}: {rendered:?}");
+                    }
+                }
+            }
+        }
+        // The reported widths keep the scroll info whole on the right edge.
+        for width in [19usize, 30, 42, 55] {
+            let right = vec![Span::raw(scroll)];
+            let rendered = text_of(&status_line(Vec::new(), true, Mode::Filter, &[], right, width));
+            assert!(rendered.ends_with(scroll), "width {width}: {rendered:?}");
+            assert_eq!(rendered.chars().count(), width, "width {width}");
+        }
+    }
+
+    #[test]
+    fn help_lists_every_todo_key_exactly_once() {
+        let rows = help::rows(TODO_KEYS);
+        for i in 0..TODO_KEYS.len() {
+            let n = rows.iter().filter(|r| **r == help::Row::Key(i)).count();
+            assert_eq!(n, 1, "key {} ({})", TODO_KEYS[i].key, TODO_KEYS[i].help);
+        }
+        let headings: Vec<Group> = rows
+            .iter()
+            .filter_map(|r| match r {
+                help::Row::Heading(g) => Some(*g),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(headings, Group::ALL.to_vec());
     }
 }
