@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::cli::{Cli, Commands};
+use crate::commands::tree::View;
 use notez_core::config::Config;
 use notez_core::core::{Project, Scope};
 
@@ -40,6 +41,21 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let in_project = Project::try_detect().is_some();
+    let scope = Scope::from_flags(parsed.global, parsed.private, parsed.local, in_project);
+    let has_scope_flag = parsed.has_scope_flag();
+    let (nav, sync) = (parsed.nav, !parsed.no_sync);
+
+    // Decided before the config loads, so a mistyped subcommand fails
+    // without touching anything.
+    let action = match decide(has_scope_flag, scope, in_project, parsed.command, parsed.words) {
+        Ok(action) => action,
+        Err(hint) => {
+            eprintln!("notez: {hint}");
+            return ExitCode::from(2);
+        }
+    };
+
     let config = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -48,23 +64,22 @@ fn main() -> ExitCode {
         }
     };
 
-    if parsed.nav {
+    if nav {
         return finish(commands::nav::run(&config));
     }
 
-    let in_project = Project::try_detect().is_some();
-    let scope = Scope::from_flags(parsed.global, parsed.private, parsed.local, in_project);
-
-    // No subcommand: open the tree browser. notez-cli made a bare `notez`,
-    // `notez -g` or `notez -p` open a browser on the resolved scope, and
-    // `tree` is that command's successor here. Without this, the habit of
-    // typing `notez -g` hits a dead end.
-    let sync = !parsed.no_sync;
-    let Some(cmd) = parsed.command else {
-        let stop = pulled_before(&config, sync);
-        let warning = footer_warning(stop.as_deref());
-        let result = commands::tree::run(scope, &config, warning.as_deref());
-        return finish(synced_after(result, &config, sync, stop.as_deref()));
+    // No subcommand: a bare `notez` (or `tree`) opens the browser on the
+    // current project, `-g` / `-p` / `-l` narrow it to that scope, and a
+    // scope flag followed by words makes a quick note there. See `decide`.
+    let cmd = match action {
+        Action::Browse(view) => return finish(browse(view, &config, sync)),
+        Action::QuickNote(title) => {
+            return finish(
+                create_quick(title, scope, &config)
+                    .map(|created| report_created(&created, &config, sync)),
+            );
+        }
+        Action::Run(cmd) => cmd,
     };
 
     let result: anyhow::Result<()> = match cmd {
@@ -74,7 +89,7 @@ fn main() -> ExitCode {
             commands::add::run(title, r#in, in_local, is_quick, scope, &config)
                 .map(|created| report_created(&created, &config, sync))
         }
-        Commands::Quick { title } => commands::add::run(title, None, false, true, scope, &config)
+        Commands::Quick { title } => create_quick(title, scope, &config)
             .map(|created| report_created(&created, &config, sync)),
         Commands::Log { message } | Commands::Zlog { message } => {
             commands::log::run(message, scope, &config).map(|p| {
@@ -90,12 +105,13 @@ fn main() -> ExitCode {
         Commands::Search { term } | Commands::Findz { term } => {
             commands::search::run(term, &config)
         }
-        Commands::Tree | Commands::Treez => {
-            let stop = pulled_before(&config, sync);
-            let warning = footer_warning(stop.as_deref());
-            let result = commands::tree::run(scope, &config, warning.as_deref());
-            synced_after(result, &config, sync, stop.as_deref())
-        }
+        // `decide` turns these into `Action::Browse`; kept so the match stays
+        // exhaustive without a panic.
+        Commands::Tree | Commands::Treez => browse(
+            View::for_flags(has_scope_flag, scope, in_project),
+            &config,
+            sync,
+        ),
         Commands::Setup => commands::setup::run(),
         Commands::Demo { view: _ } => Err(anyhow::anyhow!(
             "demo is not implemented; it was a screenshot helper in the legacy CLI"
@@ -146,6 +162,59 @@ fn main() -> ExitCode {
     };
 
     finish(result)
+}
+
+/// What an invocation asks for, decided from the parsed arguments alone.
+#[derive(Debug)]
+enum Action {
+    /// Open the tree browser on this view.
+    Browse(View),
+    /// Create a quick note with these title words, as `notez quick` does.
+    QuickNote(Vec<String>),
+    /// Run this subcommand.
+    Run(Commands),
+}
+
+/// Decide what to do with the parsed flags, the optional subcommand and the
+/// free words. Free words with no scope flag are refused with a hint rather
+/// than made into a note, so a mistyped subcommand never creates one.
+fn decide(
+    has_scope_flag: bool,
+    scope: Scope,
+    in_project: bool,
+    command: Option<Commands>,
+    words: Vec<String>,
+) -> Result<Action, String> {
+    let view = View::for_flags(has_scope_flag, scope, in_project);
+    match command {
+        Some(Commands::Tree | Commands::Treez) => Ok(Action::Browse(view)),
+        Some(cmd) => Ok(Action::Run(cmd)),
+        None if words.is_empty() => Ok(Action::Browse(view)),
+        None if has_scope_flag => Ok(Action::QuickNote(words)),
+        None => Err(format!(
+            "unknown command `{}`. For a quick note use `notez quick <title>` \
+             or a scope flag: `notez -p <title>` (also -g, -l)",
+            words[0]
+        )),
+    }
+}
+
+/// Open the browser with the vault pulled before and synced after.
+fn browse(view: View, config: &Config, sync: bool) -> anyhow::Result<()> {
+    let stop = pulled_before(config, sync);
+    let warning = footer_warning(stop.as_deref());
+    let result = commands::tree::run(view, config, warning.as_deref());
+    synced_after(result, config, sync, stop.as_deref())
+}
+
+/// Create a quick note. Shared by `notez quick` and a scope flag followed by
+/// words, so both land in the same folder under the same file name.
+fn create_quick(
+    title: Vec<String>,
+    scope: Scope,
+    config: &Config,
+) -> anyhow::Result<commands::add::Created> {
+    commands::add::run(title, None, false, true, scope, config)
 }
 
 /// Pull the vault before an interactive session opens, so it shows the merged
@@ -298,6 +367,7 @@ fn print_help() {
     cmd("notez -p add [title]", "create private note");
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
+    cmd("notez -g|-p|-l <title>", "quick note in that scope (same as -g quick <title>)");
     cmd("notez edit [term]", "open an existing note (fuzzy match)");
     cmd("--no-sync", "skip pull on open (tree, todo, edit) and sync on exit (also logz, add)");
     cmd("notez rename [term] [title]", "retitle a note, keeping its date prefix");
@@ -314,8 +384,8 @@ fn print_help() {
     println!();
 
     println!("  {}", mauve.apply_to("Tree Browser"));
-    cmd("notez", "open the browser on the current scope");
-    cmd("notez tree / treez", "interactive tree browser (TUI)");
+    cmd("notez", "open the browser on this project (global outside one)");
+    cmd("notez tree / treez", "same browser; -g global, -p personal, -l scratch");
     cmd("notez nav", "pick a vault directory and open it");
     cmd("notez search <term>", "search content");
     cmd("notez mkdir <name>", "create a subdirectory");
@@ -436,6 +506,170 @@ mod tests {
         assert!(result.is_ok());
         assert!(!git(&vault, &["status", "--porcelain"]).is_empty(), "nothing committed");
         assert_eq!(git(&remote, &["rev-parse", "main"]), before, "nothing pushed");
+    }
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("notez").chain(args.iter().copied()))
+    }
+
+    fn words(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `decide` for a parsed invocation, the way `main` calls it.
+    fn decide_for(cli: Cli, in_project: bool) -> Result<Action, String> {
+        let scope = Scope::from_flags(cli.global, cli.private, cli.local, in_project);
+        decide(cli.has_scope_flag(), scope, in_project, cli.command, cli.words)
+    }
+
+    #[test]
+    fn cli_definition_passes_clap_debug_asserts() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn scope_flag_then_words_parse_as_free_words() {
+        let cli = parse(&["-g", "call", "the", "bank"]).unwrap();
+        assert!(cli.global && cli.command.is_none());
+        assert_eq!(cli.words, words(&["call", "the", "bank"]));
+
+        let cli = parse(&["-g", "call the bank"]).unwrap();
+        assert_eq!(cli.words, words(&["call the bank"]));
+    }
+
+    #[test]
+    fn words_before_the_flag_parse_like_the_flag_first_form() {
+        let cli = parse(&["call", "the", "bank", "-g"]).unwrap();
+        assert!(cli.global && cli.command.is_none());
+        assert_eq!(cli.words, words(&["call", "the", "bank"]));
+    }
+
+    #[test]
+    fn a_subcommand_name_after_a_flag_runs_the_subcommand() {
+        let cli = parse(&["-g", "tree"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Tree)));
+        assert!(cli.words.is_empty());
+
+        let cli = parse(&["-g", "quick", "tree"]).unwrap();
+        assert!(matches!(&cli.command, Some(Commands::Quick { title }) if *title == words(&["tree"])));
+    }
+
+    #[test]
+    fn dashed_words_need_a_double_dash() {
+        assert!(parse(&["-g", "-x"]).is_err());
+        let cli = parse(&["-g", "--", "-x", "marks"]).unwrap();
+        assert_eq!(cli.words, words(&["-x", "marks"]));
+    }
+
+    #[test]
+    fn existing_flags_and_subcommands_parse_as_before() {
+        for args in [&["-h"][..], &["--help"], &["tree", "-h"], &["add", "--help"]] {
+            assert!(parse(args).unwrap().help, "{args:?}");
+        }
+        let cli = parse(&["todo", "--no-sync", "-g"]).unwrap();
+        assert!(cli.no_sync && cli.global && matches!(cli.command, Some(Commands::Todo { item: None })));
+        assert!(parse(&["-n"]).unwrap().nav);
+        assert!(parse(&["--nav"]).unwrap().nav);
+        let cli = parse(&["log", "hello", "-p"]).unwrap();
+        assert!(cli.private && matches!(&cli.command, Some(Commands::Log { message }) if *message == words(&["hello"])));
+        assert!(matches!(
+            parse(&["completions", "zsh"]).unwrap().command,
+            Some(Commands::Completions { .. })
+        ));
+    }
+
+    #[test]
+    fn completions_still_generate() {
+        use clap::CommandFactory;
+        let mut out = Vec::new();
+        clap_complete::generate(clap_complete::Shell::Zsh, &mut Cli::command(), "notez", &mut out);
+        assert!(String::from_utf8(out).unwrap().contains("treez"));
+    }
+
+    #[test]
+    fn alias_binaries_select_their_subcommand() {
+        let alias = |argv: &[&str]| {
+            let argv = rewrite_for_symlink(argv.iter().map(|s| s.to_string()).collect());
+            Cli::try_parse_from(argv).unwrap().command
+        };
+        assert!(matches!(alias(&["/bin/todoz"]), Some(Commands::Todoz { item: None })));
+        assert!(matches!(alias(&["/bin/zlog", "hi"]), Some(Commands::Zlog { .. })));
+        assert!(matches!(alias(&["/bin/logz"]), Some(Commands::Logz)));
+        assert!(matches!(alias(&["/bin/zlogs"]), Some(Commands::Logs)));
+        assert!(matches!(alias(&["/bin/znote", "idea"]), Some(Commands::Znote { .. })));
+        assert!(matches!(alias(&["/bin/treez", "-g"]), Some(Commands::Treez)));
+        assert!(matches!(alias(&["/bin/editz"]), Some(Commands::Editz { term: None })));
+        assert!(matches!(alias(&["/bin/findz", "x"]), Some(Commands::Findz { .. })));
+    }
+
+    #[test]
+    fn no_flag_opens_the_project_view_inside_a_project() {
+        for args in [&[][..], &["tree"], &["treez"]] {
+            let action = decide_for(parse(args).unwrap(), true).unwrap();
+            assert!(matches!(action, Action::Browse(View::Project)), "{args:?}");
+            let action = decide_for(parse(args).unwrap(), false).unwrap();
+            assert!(matches!(action, Action::Browse(View::Global)), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn a_scope_flag_alone_opens_that_scope() {
+        let cases = [
+            ("-g", View::Global),
+            ("-p", View::Only(Scope::Personal)),
+            ("-l", View::Only(Scope::Local)),
+        ];
+        for (flag, view) in cases {
+            for args in [&[flag][..], &[flag, "tree"]] {
+                let action = decide_for(parse(args).unwrap(), true).unwrap();
+                assert!(matches!(action, Action::Browse(v) if v == view), "{args:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn words_without_a_scope_flag_are_refused_with_a_hint() {
+        let err = decide_for(parse(&["somthing"]).unwrap(), true).unwrap_err();
+        assert!(err.contains("`somthing`"), "{err}");
+        assert!(err.contains("notez quick <title>"), "{err}");
+        assert!(err.contains("notez -p <title>"), "{err}");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_scope_flag_with_words_makes_the_same_note_as_quick() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        let config = config_for(root.path());
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(repo.path()).unwrap();
+
+        let created = |args: &[&str]| {
+            let cli = parse(args).unwrap();
+            let scope = Scope::from_flags(cli.global, cli.private, cli.local, true);
+            let title = match decide_for(cli, true).unwrap() {
+                Action::QuickNote(title) => title,
+                Action::Run(Commands::Quick { title }) => title,
+                other => panic!("{args:?} gave {other:?}"),
+            };
+            create_quick(title, scope, &config).unwrap().path
+        };
+        let mut pairs = Vec::new();
+        for flag in ["-g", "-p", "-l"] {
+            let by_flag = created(&[flag, "call", "the", "bank"]);
+            std::fs::remove_file(&by_flag).unwrap();
+            let by_quick = created(&[flag, "quick", "call", "the", "bank"]);
+            pairs.push((flag, by_flag, by_quick));
+        }
+        std::env::set_current_dir(saved).unwrap();
+
+        for (flag, by_flag, by_quick) in pairs {
+            assert_eq!(by_flag, by_quick, "{flag}");
+            assert!(by_quick.exists(), "{flag}");
+            assert!(by_quick.parent().unwrap().ends_with("00_quick-notes"), "{flag}");
+        }
     }
 
     #[test]

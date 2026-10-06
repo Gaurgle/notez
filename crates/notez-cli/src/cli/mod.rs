@@ -38,8 +38,22 @@ pub struct Cli {
     #[arg(long = "no-sync", global = true)]
     pub no_sync: bool,
 
+    /// With a scope flag and no subcommand: title of a quick note in that
+    /// scope (`notez -g call the bank`). A first word that names a
+    /// subcommand runs that subcommand instead; `quick` titles a note with
+    /// such a word.
+    #[arg(value_name = "TITLE")]
+    pub words: Vec<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
+}
+
+impl Cli {
+    /// Whether any of `-g`, `-p`, `-l` was given.
+    pub fn has_scope_flag(&self) -> bool {
+        self.global || self.private || self.local
+    }
 }
 
 #[derive(Subcommand, Debug)]

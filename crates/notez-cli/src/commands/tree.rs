@@ -19,11 +19,37 @@ use crate::tui::tree::{SectionSpec, TreeContext, run_tree};
 /// Nerdfont book icon for docs sections (scopes use `Scope::icon`).
 const ICON_DOCS: &str = "\u{f02d}";
 
-/// Open the tree browser on `scope`. `warning`, if any, shows in the status
+/// Which notes the browser opens on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// Every scope of the current project: personal, public, docs, scratch.
+    /// Falls back to [`View::Global`] outside a project.
+    Project,
+    /// The notez root plus every registered project.
+    Global,
+    /// One scope of the current project. Personal falls back to
+    /// [`View::Global`] outside a project, as the personal scope itself does.
+    Only(Scope),
+}
+
+impl View {
+    /// The view for a browser invocation. Without a scope flag that is the
+    /// project view inside a project and the global view outside one;
+    /// a flag narrows it to the scope `scope` resolved to.
+    pub fn for_flags(has_scope_flag: bool, scope: Scope, in_project: bool) -> Self {
+        match (has_scope_flag, scope) {
+            (false, _) if in_project => Self::Project,
+            (false, _) | (true, Scope::Global) => Self::Global,
+            (true, scope) => Self::Only(scope),
+        }
+    }
+}
+
+/// Open the tree browser on `view`. `warning`, if any, shows in the status
 /// bar as the browser opens.
-pub fn run(scope: Scope, config: &Config, warning: Option<&str>) -> Result<()> {
+pub fn run(view: View, config: &Config, warning: Option<&str>) -> Result<()> {
     let registry = ProjectRegistry::load().unwrap_or_default();
-    let (sections, mut ctx) = build_view(scope, config, &registry)?;
+    let (sections, mut ctx) = build_view(view, config, &registry)?;
     ctx.warning = warning.map(str::to_string);
 
     if sections.iter().all(|s| s.files.is_empty()) {
@@ -149,15 +175,15 @@ fn sections_from_entries(
 }
 
 fn build_view(
-    scope: Scope,
+    view: View,
     config: &Config,
     registry: &ProjectRegistry,
 ) -> Result<(Vec<SectionSpec>, TreeContext)> {
     let notez_root = config.notez_root_path();
     let metadata = NotezMetadata::default();
 
-    match scope {
-        Scope::Global => {
+    match view {
+        View::Global => {
             let entries = aggregate::collect_all(config, registry, &metadata)?;
             let sections = sections_from_entries(entries, config, registry);
             Ok((
@@ -169,12 +195,9 @@ fn build_view(
                 },
             ))
         }
-        Scope::Personal => {
-            // Default view: every scope of the current project. Falls back
-            // to the global view outside a project (mirroring how the
-            // personal scope itself falls back).
+        View::Project => {
             let Some(project) = Project::try_detect() else {
-                return build_view(Scope::Global, config, registry);
+                return build_view(View::Global, config, registry);
             };
             let attached = registry
                 .iter_resolved()
@@ -201,28 +224,45 @@ fn build_view(
                 },
             ))
         }
-        Scope::Public | Scope::Local => {
+        View::Only(Scope::Global) => build_view(View::Global, config, registry),
+        View::Only(scope) => {
             let project = Project::try_detect();
-            let entries = aggregate::collect_in_scope(scope, config, project.as_ref());
-            let sections = sections_from_entries(entries, config, registry);
-            let name = project
-                .as_ref()
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| scope.to_string());
-            Ok((
-                sections,
-                TreeContext {
-                    title: format!("{} notez ({})", scope.icon(), name),
-                    path_display: if scope == Scope::Public {
-                        "./notez".to_string()
-                    } else {
-                        "./.notez".to_string()
-                    },
-                    warning: None,
-                },
-            ))
+            if project.is_none() && scope == Scope::Personal {
+                return build_view(View::Global, config, registry);
+            }
+            Ok(single_scope_view(scope, project.as_ref(), config, registry))
         }
     }
+}
+
+/// The view of one project scope. Without a project only scratch and public
+/// reach here, and both are empty then, as before this view existed.
+fn single_scope_view(
+    scope: Scope,
+    project: Option<&Project>,
+    config: &Config,
+    registry: &ProjectRegistry,
+) -> (Vec<SectionSpec>, TreeContext) {
+    let entries = aggregate::collect_in_scope(scope, config, project);
+    let sections = sections_from_entries(entries, config, registry);
+    let name = project
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| scope.to_string());
+    let path_display = match (scope, project) {
+        (Scope::Personal, Some(p)) => tilde::contract(
+            &config.notez_root_path().join("personal").join(&p.name),
+        ),
+        (Scope::Public, _) => "./notez".to_string(),
+        _ => "./.notez".to_string(),
+    };
+    (
+        sections,
+        TreeContext {
+            title: format!("{} notez ({})", scope.icon(), name),
+            path_display,
+            warning: None,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -268,6 +308,97 @@ mod tests {
         let labels: Vec<&str> = sections.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(labels, vec!["NOTEZ", "proj (personal)", "proj (docs)"]);
         assert!(sections[2].is_doc);
+    }
+
+    /// Builds `view` with the cwd in a temp git project that has one personal
+    /// note, one scratch note and an empty `notez/`, and a temp notez root
+    /// holding one global note. Returns the section labels with their file
+    /// counts, the view title and the project name.
+    fn view_in_project(view: View) -> (Vec<(String, usize)>, String, String) {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        let name = Project::try_detect_from(repo.path()).unwrap().name;
+        let personal = root.path().join("personal").join(&name);
+        std::fs::create_dir_all(&personal).unwrap();
+        std::fs::write(personal.join("mine.md"), "# mine\n").unwrap();
+        std::fs::write(root.path().join("top.md"), "# top\n").unwrap();
+        std::fs::create_dir_all(repo.path().join("notez")).unwrap();
+        std::fs::create_dir_all(repo.path().join(".notez")).unwrap();
+        std::fs::write(repo.path().join(".notez").join("scratch.md"), "# s\n").unwrap();
+
+        let mut config = Config::defaults();
+        config.paths.notez_root = root.path().to_string_lossy().into_owned();
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(repo.path()).unwrap();
+        let built = build_view(view, &config, &ProjectRegistry::default());
+        std::env::set_current_dir(saved).unwrap();
+
+        let (sections, ctx) = built.unwrap();
+        let labels = sections
+            .iter()
+            .map(|s| (s.label.clone(), s.files.len()))
+            .collect();
+        (labels, ctx.title, name)
+    }
+
+    #[test]
+    fn no_flag_picks_the_project_view_inside_a_project_and_global_outside() {
+        assert_eq!(View::for_flags(false, Scope::Public, true), View::Project);
+        assert_eq!(View::for_flags(false, Scope::Global, false), View::Global);
+    }
+
+    #[test]
+    fn a_scope_flag_narrows_the_view_to_that_scope() {
+        assert_eq!(View::for_flags(true, Scope::Global, true), View::Global);
+        assert_eq!(View::for_flags(true, Scope::Global, false), View::Global);
+        assert_eq!(
+            View::for_flags(true, Scope::Personal, true),
+            View::Only(Scope::Personal)
+        );
+        assert_eq!(
+            View::for_flags(true, Scope::Local, true),
+            View::Only(Scope::Local)
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn project_view_shows_personal_notes_when_the_public_store_is_empty() {
+        let (labels, _, name) = view_in_project(View::Project);
+        assert_eq!(
+            labels,
+            vec![
+                (format!("{name} (personal)"), 1),
+                (format!("{name} (scratch)"), 1),
+            ]
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn personal_view_shows_only_the_project_personal_notes() {
+        let (labels, _, name) = view_in_project(View::Only(Scope::Personal));
+        assert_eq!(labels, vec![(format!("{name} (personal)"), 1)]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn scratch_view_shows_only_the_project_scratch_notes() {
+        let (labels, _, name) = view_in_project(View::Only(Scope::Local));
+        assert_eq!(labels, vec![(format!("{name} (scratch)"), 1)]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn global_view_is_unchanged_inside_a_project() {
+        let (labels, title, _) = view_in_project(View::Global);
+        assert_eq!(title, "notez (global)");
+        assert_eq!(labels, vec![("NOTEZ".to_string(), 1)]);
     }
 
     #[test]
