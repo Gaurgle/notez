@@ -11,12 +11,11 @@ Claude `nz-coordinator` (model `claude-fable-5-1`), session
 CEST. First lead since setup: no previous lead, no ticket worktrees or
 branches, no workers running at takeover.
 
-PAUSED at 17:20 CEST on 2026-10-06 at Andreas's request ("i must go now,
-can we paus now and continue when i get bakc home?"). Baton RELEASED at the
-pause. This session dispatches nothing more until Andreas says to continue;
-if it is still open then, it retakes the baton and records the time here.
-If it is gone, a new lead takes over from this file after Andreas confirms.
-Read In flight first: one worker was still running at the pause.
+Paused from 17:20 to 17:56 CEST on 2026-10-06 at Andreas's request, baton
+released for that time. RESUMED at 17:56 CEST on his "continue": the same
+session retook the baton after checking that `main`, the NZ-7 worktree and
+its diff hash matched this file and that no agent was running. Baton held,
+not released.
 
 ## Authorized by the owner
 
@@ -138,47 +137,23 @@ Read In flight first: one worker was still running at the pause.
   ship changes. merge as you go along") is applied to NZ-7 and NZ-8 too, on
   the reading that he can only test them once they are on `main`; the lead
   told him so in the same turn. Same limits and stop conditions.
+- NOT an owner instruction, recorded here so it is not mistaken for one:
+  NZ-9 (never overwrite a note) was opened and run by the lead at 18:05
+  CEST without Andreas naming it. The lead's grounds and limits are on the
+  ticket. Andreas was told in the same turn and can have it reverted.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-NZ-7, dispatched 2026-10-06 17:14 CEST under the standing scope:
+NZ-9, dispatched 2026-10-06 18:05 CEST:
 
-- Base commit: `b08e798` (`main` and `origin/main` at dispatch, the NZ-2
+- Base commit: `7cc29ad` (`main` and `origin/main` at dispatch, the NZ-7
   merge).
-- Branch: `feat/NZ-7-always-open-browser`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-7`.
-- Method: bounded ticket, one worker pass, no locked tests.
-- Worker: `nz-worker`, model `opus`. It was still running at the 17:20
-  pause; the lead let it finish. It REPORTED at 17:53 CEST and is stopped,
-  so the worktree holds a complete worker result, not partial edits. No
-  agent is running.
-- Worker's claims, not yet reviewed or checked by the lead: all seven
-  criteria satisfied (criterion 6 by reading the code, not by a test); the
-  lead's reading of the cause confirmed by a failing test against the base;
-  18 new tests; build clean, tests green (notez-cli 155, notez-core 143);
-  no existing test changed. Usage: about 86k tokens.
-- How it was done: an optional positional `words: Vec<String>` on `Cli`
-  beside the optional subcommand; a pure `decide(...)` in `main.rs` picks
-  browse, quick note, subcommand or the hint; `commands/tree.rs` chooses
-  the view through a `View { Project, Global, Only(Scope) }` enum; all
-  browser paths go through one `browse()`.
-- Uncommitted change in the worktree: 5 files (`DESIGN.md`, `README.md`,
-  `crates/notez-cli/src/cli/mod.rs`, `crates/notez-cli/src/commands/tree.rs`,
-  `crates/notez-cli/src/main.rs`), 455 insertions, 54 deletions, nothing
-  untracked. `git diff b08e798 | shasum -a 256` gives
-  `60f92fa6f9ebb7552908af6cd481f6735596e3a76b07d84de30136844af67b40`.
-- Points for the reviewer and for Andreas, from the worker: a mistyped
-  subcommand (`notez tre`) now gets the quick-note hint instead of clap's
-  "did you mean"; `notez -g -n foo` now runs nav where it was a parse
-  error; project detection and the decision run before the config loads;
-  the `Commands::Tree | Treez` match arm is now unreachable but kept;
-  flags typed after the words count (`notez call the bank -g`); a word
-  starting with a dash needs `--`.
-- NEXT, on resume and not before: dispatch `nz-reviewer` on that hash with
-  the NZ-7 ticket, then the lead's checks, commit, merge and push under the
-  recorded delegation.
-- Nothing of NZ-7 is committed, merged or pushed.
+- Branch: `fix/NZ-9-never-overwrite-note`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-9`.
+- Method: bounded ticket, regression test first, no locked tests.
+- Worker: `nz-worker`, model `opus`, running.
+- Reviewer: `nz-reviewer`, model `opus`, not yet dispatched.
 
 Queued behind it and not started, in this order: NZ-8, NZ-3, NZ-4, NZ-5.
 
@@ -322,9 +297,49 @@ locally" instead of git's error.
 
 ### NZ-7: the main commands always open the browser; quick notes by flag
 
-Status: In flight (see In flight above). Authorized by Andreas on
-2026-10-06 16:48 CEST ("i think you can decide on these, and I'll test it
-out"), decisions by the lead. Runs before NZ-8 and NZ-3 to NZ-5.
+Status: Done. Merged into `main` as `7cc29ad` at 18:03 CEST on 2026-10-06
+and pushed. Not yet installed by Andreas. Authorized by him at 16:48 CEST
+("i think you can decide on these, and I'll test it out"), decisions by
+the lead.
+
+Record:
+
+- Base `b08e798`, branch `feat/NZ-7-always-open-browser`, ticket commit
+  `5f06b1b` (5 files, 455 insertions, 54 deletions), merge commit `7cc29ad`
+  made with `git merge --no-ff` under the integration delegation. To undo
+  the ticket: `git revert -m 1 7cc29ad`.
+- Agents: one `nz-worker` (opus) run and one `nz-reviewer` (opus)
+  invocation, no fix cycle. About 154k agent tokens. The worker ran across
+  the 17:20 to 17:56 pause.
+- Review: accepted first time, no blockers. The reviewer compared the old
+  and new parser over 51 inputs: everything that parsed before parses the
+  same, and every input whose result changed was a parse error before. The
+  committed diff hashes to
+  `60f92fa6f9ebb7552908af6cd481f6735596e3a76b07d84de30136844af67b40`
+  (`git diff b08e798 5f06b1b | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and again on `main`
+  after the merge: build clean, notez-cli 155 passed, notez-core 143
+  passed. Code on `main` is identical to `5f06b1b`.
+- How it works: `Cli` has an optional positional `words` beside the
+  optional subcommand; a pure `decide(...)` in `main.rs` returns browse,
+  quick note, subcommand or the hint; `commands/tree.rs` picks the view
+  through `View { Project, Global, Only(Scope) }`; every browser path goes
+  through one `browse()`.
+- Behaviour to know: `-p` alone now shows the project's personal notes
+  only (the whole project view is the no-flag default); a scope flag counts
+  wherever it is typed (`notez call the bank -g`); a title word starting
+  with a dash needs `--`; `notez tre` gets the quick-note hint instead of
+  clap's "did you mean"; `notez -g tre` creates a quick note called "tre",
+  by design.
+- Left alone, none authorized: `notez -g -n foo` runs nav and drops `foo`
+  silently; no "did you mean" in the hint; the flag-versus-quick test does
+  not go through `main`'s own match arm.
+- Found by the reviewer and older than the ticket: note creation
+  overwrites an existing file of the same name. That is NZ-9.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+
+The ticket as it was run:
 
 Problem, reported by Andreas: `notez` inside `~/Repos/notez` prints "No
 notes here." and exits instead of opening the browser. Cause (checked at
@@ -381,6 +396,42 @@ Allowed files: `crates/notez-cli/src/main.rs`,
 `crates/notez-cli/src/commands/add.rs`, `README.md`, `DESIGN.md`. Nothing
 under `crates/notez-cli/src/tui/`. No new dependency, no `notez-core`
 change.
+
+### NZ-9: creating a note never overwrites an existing file
+
+Status: In flight (see In flight above). Opened by the lead on 2026-10-06
+18:05 CEST from a finding in the NZ-7 review, and run before NZ-8.
+
+Authority, as the lead reads it: Andreas did not name this ticket. NZ-8,
+which he authorized, already requires that a name collision "never
+overwrites" (its criterion 2), and that cannot hold while the shared
+creation path overwrites. NZ-9 is that requirement carved out and done
+first, because it is a data-loss defect in his own notes and NZ-7 just
+made the path to it shorter. The lead told him in the same turn. It runs
+under the same standing scope, limits and integration delegation as NZ-8.
+If he objects, it is reverted on its own.
+
+Problem (verified by the lead at `7cc29ad`): `commands::add::run` ends with
+`std::fs::write(&path, note.rendered())`, and the file name is the date
+plus the sanitized title. A second note with the same title in the same
+folder on the same day silently replaces the first, including what was
+written into it. This covers `add`, `znote`, `quick`, untitled notes and
+the new flag form.
+
+Decision: the second note gets the first free name with a numeric suffix
+(`...-call-the-bank-2.md`, then `-3`); the first keeps its name. The file
+is created with `create_new`, so the check and the write cannot be split.
+The alternative, opening the existing note instead of making a new one,
+was not chosen: `add` should always give a new note.
+
+Acceptance criteria: a regression test that fails on the old code and
+shows the first file's content intact after a second creation; `-3` on the
+third; an existing `-2` skipped; the same for quick, untitled and body
+notes; a title already ending in a number never causes an overwrite;
+existing tests unchanged.
+
+Allowed files: `crates/notez-cli/src/commands/add.rs`, and `README.md` or
+`DESIGN.md` only if they describe file naming. No `notez-core` change.
 
 ### NZ-8: create a note from the tree browser
 
@@ -718,18 +769,14 @@ answers the questions listed on it, and names which to run.
 
 NZ-1 is Done and installed by Andreas. He is trying it in daily use.
 
-PAUSED since 17:20 CEST (see Current lead). On resume, with Andreas's go:
-finish NZ-7 from the state under In flight (worker report or leftover
-edits, then review, checks, commit, merge, push), then carry on down the
-queue. The standing scope and the integration delegation recorded above
-still stand for NZ-7, NZ-8, NZ-3, NZ-4 and NZ-5; the pause did not widen or
-withdraw them. Andreas installed the NZ-2 build at 17:15 and saw that bare
-`notez` in `~/Repos/notez` still says "No notes here."; that is NZ-7's fix
-and he knows it has not landed. `notez -p` opens the browser there
-meanwhile.
+Running since 17:56 CEST after a pause. NZ-7 is on `main`; Andreas was told
+he can run `./install.sh` to get the fix for "No notes here." (his
+installed build is from 17:15, NZ-2). Finish NZ-9 from the state under In
+flight, then carry on down the queue.
 
-Standing scope: NZ-2 (done), then NZ-7, NZ-8, NZ-3, NZ-4, NZ-5 (see
-Authorized by the owner for its limits). Per ticket the lead:
+Standing scope: NZ-2 (done), NZ-7 (done), then NZ-9 (see its ticket for
+the lead's grounds), NZ-8, NZ-3, NZ-4, NZ-5 (see Authorized by the owner
+for the limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
