@@ -78,7 +78,9 @@ is `notez -g quick call the bank`, and likewise for `-p` and `-l`. A first
 word that names a subcommand runs it (`notez -g tree`); use `quick` to title
 a note with such a word. Words without a scope flag are an error, so a
 mistyped subcommand never becomes a note. Words starting with `-` go after
-`--` (`notez -g -- -x marks`).
+`--` (`notez -g -- -x marks`). A new note never overwrites an existing
+file: if today's `YYYY-MM-DD-<title>.md` is taken, it gets `-2`, `-3` and so
+on before the extension.
 
 `notez add --in <dir>` targets a subdirectory (global root by default,
 the current scope's root with `--in-local`); bare `--in` opens an fzf
