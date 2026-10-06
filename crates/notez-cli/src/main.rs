@@ -61,7 +61,10 @@ fn main() -> ExitCode {
     // typing `notez -g` hits a dead end.
     let sync = !parsed.no_sync;
     let Some(cmd) = parsed.command else {
-        return finish(synced_after(commands::tree::run(scope, &config), &config, sync));
+        let stop = pulled_before(&config, sync);
+        let warning = footer_warning(stop.as_deref());
+        let result = commands::tree::run(scope, &config, warning.as_deref());
+        return finish(synced_after(result, &config, sync, stop.as_deref()));
     };
 
     let result: anyhow::Result<()> = match cmd {
@@ -79,7 +82,7 @@ fn main() -> ExitCode {
             })
         }
         Commands::Logz | Commands::Logs => {
-            synced_after(commands::logz::run(scope, &config), &config, sync)
+            synced_after(commands::logz::run(scope, &config), &config, sync, None)
         }
         Commands::Mkdir { name } => commands::mkdir::run(name, scope, &config).map(|p| {
             println!("Created: {}", p.display());
@@ -88,7 +91,10 @@ fn main() -> ExitCode {
             commands::search::run(term, &config)
         }
         Commands::Tree | Commands::Treez => {
-            synced_after(commands::tree::run(scope, &config), &config, sync)
+            let stop = pulled_before(&config, sync);
+            let warning = footer_warning(stop.as_deref());
+            let result = commands::tree::run(scope, &config, warning.as_deref());
+            synced_after(result, &config, sync, stop.as_deref())
         }
         Commands::Setup => commands::setup::run(),
         Commands::Demo { view: _ } => Err(anyhow::anyhow!(
@@ -98,11 +104,17 @@ fn main() -> ExitCode {
         Commands::Init { shell } => commands::init::run(&shell),
         Commands::Todo { item } | Commands::Todoz { item } => {
             let interactive = item.is_none();
-            let result = commands::todo::run(item, scope, &config);
-            synced_after(result, &config, sync && interactive)
+            let stop = pulled_before(&config, sync && interactive);
+            let warning = footer_warning(stop.as_deref());
+            let result = commands::todo::run(item, scope, &config, warning.as_deref());
+            synced_after(result, &config, sync && interactive, stop.as_deref())
         }
         Commands::Edit { term } | Commands::Editz { term } => {
-            synced_after(commands::edit::run(term, scope, &config), &config, sync)
+            // No footer to warn in: the editor owns the screen, so a stopped
+            // pull is only reported on stderr once it exits.
+            let stop = pulled_before(&config, sync);
+            let result = commands::edit::run(term, scope, &config);
+            synced_after(result, &config, sync, stop.as_deref())
         }
         Commands::Rename { term, title } => {
             commands::rename::run(term, title, scope, &config).map(|path| {
@@ -136,10 +148,47 @@ fn main() -> ExitCode {
     finish(result)
 }
 
+/// Pull the vault before an interactive session opens, so it shows the merged
+/// notes. Silent unless the pull stopped; then returns a one-line reason for
+/// the session's footer and for [`synced_after`]. Stderr is no use here: the
+/// alternate screen wipes it moments later.
+fn pulled_before(config: &Config, enabled: bool) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    match notez_core::sync::pull_on_open(&config.notez_root_path()) {
+        notez_core::sync::AutoSync::Stopped(why) => Some(
+            why.lines()
+                .next()
+                .unwrap_or("vault pull stopped")
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+/// The footer text for a session whose opening pull stopped.
+fn footer_warning(pull_stop: Option<&str>) -> Option<String> {
+    pull_stop.map(|why| format!("{why} - local-only this run"))
+}
+
 /// Sync the vault once an interactive session has ended cleanly. Quiet unless
 /// something happened or went wrong, and never fails the command: the notes are
 /// saved either way, and `notez sync` shows git's own output for a stopped sync.
-fn synced_after(result: anyhow::Result<()>, config: &Config, enabled: bool) -> anyhow::Result<()> {
+///
+/// `pull_stop` is the reason the opening pull stopped, if it did. Then nothing
+/// syncs, so the push cannot go over a pull that needs a human, and the reason
+/// is repeated on stderr now that the terminal is back.
+fn synced_after(
+    result: anyhow::Result<()>,
+    config: &Config,
+    enabled: bool,
+    pull_stop: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(why) = pull_stop {
+        eprintln!("notez: {why}; nothing was pushed this run, resolve it and run `notez sync`");
+        return result;
+    }
     if result.is_ok() && enabled {
         match notez_core::sync::auto_sync(&config.notez_root_path()) {
             notez_core::sync::AutoSync::Idle => {}
@@ -158,7 +207,7 @@ fn report_created(created: &commands::add::Created, config: &Config, sync: bool)
     // the fresh note. With a body, stay silent.
     if !created.had_body {
         commands::add::open_created(&created.path, config);
-        let _ = synced_after(Ok(()), config, sync);
+        let _ = synced_after(Ok(()), config, sync, None);
     }
 }
 
@@ -250,7 +299,7 @@ fn print_help() {
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
     cmd("notez edit [term]", "open an existing note (fuzzy match)");
-    cmd("--no-sync", "skip the automatic vault sync after tree, todo, edit, logz and add");
+    cmd("--no-sync", "skip pull on open (tree, todo, edit) and sync on exit (also logz, add)");
     cmd("notez rename [term] [title]", "retitle a note, keeping its date prefix");
     println!();
 
@@ -322,4 +371,82 @@ fn print_help() {
         overlay.apply_to("scratch:          ./.notez/ (gitignored, this machine only, never syncs)"),
     );
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    /// A temp vault with one pending note, tracking a local bare remote.
+    fn vault_with_pending_note() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = tmp.path().join("remote.git");
+        let vault = tmp.path().join("vault");
+        std::fs::create_dir(&remote).unwrap();
+        std::fs::create_dir(&vault).unwrap();
+        git(&remote, &["init", "-q", "--bare", "-b", "main"]);
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            git(&vault, args);
+        }
+        std::fs::write(vault.join("a.md"), "base\n").unwrap();
+        git(&vault, &["add", "-A"]);
+        git(&vault, &["commit", "-q", "-m", "seed"]);
+        git(&vault, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(&vault, &["push", "-q", "-u", "origin", "main"]);
+        std::fs::write(vault.join("new.md"), "pending\n").unwrap();
+        (tmp, vault, remote)
+    }
+
+    fn config_for(vault: &Path) -> Config {
+        let mut config = Config::defaults();
+        config.paths.notez_root = vault.to_str().unwrap().to_string();
+        config
+    }
+
+    #[test]
+    fn a_stopped_pull_skips_the_exit_sync() {
+        let (_tmp, vault, remote) = vault_with_pending_note();
+        let before = git(&remote, &["rev-parse", "main"]);
+
+        let result = synced_after(
+            Ok(()),
+            &config_for(&vault),
+            true,
+            Some("vault pull hit a conflict, rebase aborted"),
+        );
+
+        assert!(result.is_ok());
+        assert!(!git(&vault, &["status", "--porcelain"]).is_empty(), "nothing committed");
+        assert_eq!(git(&remote, &["rev-parse", "main"]), before, "nothing pushed");
+    }
+
+    #[test]
+    fn without_a_pull_stop_the_exit_sync_pushes() {
+        let (_tmp, vault, remote) = vault_with_pending_note();
+        let before = git(&remote, &["rev-parse", "main"]);
+
+        let result = synced_after(Ok(()), &config_for(&vault), true, None);
+
+        assert!(result.is_ok());
+        assert!(git(&vault, &["status", "--porcelain"]).is_empty());
+        assert_ne!(git(&remote, &["rev-parse", "main"]), before);
+    }
 }

@@ -30,6 +30,9 @@ pub struct BoardContext {
     pub global: bool,
     pub title: String,
     pub path_display: String,
+    /// Shown in the footer's warning slot for the whole session, ahead of
+    /// the prose warning when both apply.
+    pub warning: Option<String>,
 }
 
 /// The edited board plus the source files whose persisted state actually
@@ -94,6 +97,23 @@ fn prose_warning_sections(
     }
     out.sort();
     out
+}
+
+/// The footer's warning text: the session warning (a stopped pull) first,
+/// then the prose loss warning for `prose_sections`. When both apply they
+/// share the line, so neither hides the other.
+fn footer_warning(session: Option<&str>, prose_sections: &[String]) -> Option<String> {
+    let prose = (!prose_sections.is_empty()).then(|| {
+        format!(
+            "non-todo text in {} will be dropped on save",
+            prose_sections.join(", ")
+        )
+    });
+    match (session, prose) {
+        (Some(session), Some(prose)) => Some(format!("{session}; {prose}")),
+        (Some(session), None) => Some(session.to_string()),
+        (None, prose) => prose,
+    }
 }
 
 /// Filter-aware visible indices: collapse-aware order, then the filter's
@@ -743,22 +763,13 @@ fn event_loop(
                     // save; keep the warning up so the loss is never silent.
                     let prose_warn =
                         prose_warning_sections(&items, &dirty, prose_sources);
-                    let left = if prose_warn.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![
-                            Span::styled(
-                                " ! ",
-                                Style::default().fg(theme::RED).add_modifier(bold),
-                            ),
-                            Span::styled(
-                                format!(
-                                    "non-todo text in {} will be dropped on save",
-                                    prose_warn.join(", ")
-                                ),
-                                Style::default().fg(theme::YELLOW),
-                            ),
-                        ]
+                    let warning = footer_warning(ctx.warning.as_deref(), &prose_warn);
+                    let left = match warning {
+                        None => Vec::new(),
+                        Some(text) => vec![
+                            Span::styled(" ! ", Style::default().fg(theme::RED).add_modifier(bold)),
+                            Span::styled(text, Style::default().fg(theme::YELLOW)),
+                        ],
                     };
                     let left_len = if left.is_empty() {
                         " ? help".len()
@@ -1754,5 +1765,25 @@ mod tests {
         // A dirty file without prose stays silent.
         let clean_dirty: HashSet<PathBuf> = [PathBuf::from("/tmp/clean/TODO.md")].into();
         assert!(prose_warning_sections(&items, &clean_dirty, &prose).is_empty());
+    }
+
+    #[test]
+    fn footer_shows_the_pull_warning_and_the_prose_warning_together() {
+        let pull = "vault pull hit a conflict, rebase aborted";
+        let prose = vec!["ALPHA".to_string()];
+
+        assert_eq!(footer_warning(None, &[]), None);
+        assert_eq!(footer_warning(Some(pull), &[]).as_deref(), Some(pull));
+        assert_eq!(
+            footer_warning(None, &prose).as_deref(),
+            Some("non-todo text in ALPHA will be dropped on save")
+        );
+
+        let both = footer_warning(Some(pull), &prose).unwrap();
+        assert!(both.starts_with(pull), "pull warning first: {both}");
+        assert!(
+            both.contains("non-todo text in ALPHA will be dropped on save"),
+            "prose warning must not be hidden: {both}"
+        );
     }
 }
