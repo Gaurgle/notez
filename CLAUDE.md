@@ -5,6 +5,8 @@ Local-first notes and todos: `crates/notez-core` (engine), `crates/notez-cli`
 `Gaurgle/epoz` and depends on `notez-core` by pinned git rev, so file-format
 changes here must stay compatible with it.
 Design and scope model: `DESIGN.md`.
+Agent work runs on Relay: `docs/agent-workflow.md` (roles, checks, safe-merge),
+`docs/agent-handoff.md` (the baton), `.claude/agents/nz-*.md`.
 
 <!-- house-rules:start v1 -->
 ## House rules
@@ -36,6 +38,8 @@ where the session runs.
 ## Ship policy
 
 Direct commits to `main`, no PR step. No CI: a push triggers nothing.
+Relay leads present commit commands and stop at Ready to integrate unless the
+owner records a delegation in `docs/agent-handoff.md`.
 
 ## Checks
 
