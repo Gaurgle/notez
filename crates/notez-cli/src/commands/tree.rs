@@ -19,9 +19,12 @@ use crate::tui::tree::{SectionSpec, TreeContext, run_tree};
 /// Nerdfont book icon for docs sections (scopes use `Scope::icon`).
 const ICON_DOCS: &str = "\u{f02d}";
 
-pub fn run(scope: Scope, config: &Config) -> Result<()> {
+/// Open the tree browser on `scope`. `warning`, if any, shows in the status
+/// bar as the browser opens.
+pub fn run(scope: Scope, config: &Config, warning: Option<&str>) -> Result<()> {
     let registry = ProjectRegistry::load().unwrap_or_default();
-    let (sections, ctx) = build_view(scope, config, &registry)?;
+    let (sections, mut ctx) = build_view(scope, config, &registry)?;
+    ctx.warning = warning.map(str::to_string);
 
     if sections.iter().all(|s| s.files.is_empty()) {
         println!("\n  - No notes here.\n");
@@ -162,6 +165,7 @@ fn build_view(
                 TreeContext {
                     title: "notez (global)".to_string(),
                     path_display: tilde::contract(&notez_root),
+                    warning: None,
                 },
             ))
         }
@@ -193,6 +197,7 @@ fn build_view(
                 TreeContext {
                     title: format!("notez ({})", project.name),
                     path_display: tilde::contract(&project.root),
+                    warning: None,
                 },
             ))
         }
@@ -213,6 +218,7 @@ fn build_view(
                     } else {
                         "./.notez".to_string()
                     },
+                    warning: None,
                 },
             ))
         }

@@ -71,6 +71,15 @@ pull aborts its rebase, leaves your notes as local commits and prints a one-line
 warning. Pass `--no-sync` to skip it. Only `~/notez` syncs; a project's public
 `notez/` folder is never touched.
 
+**Pull on open.** `notez tree` (and bare `notez`), `notez todo` with no item
+and `notez edit` also pull before they open, so you see the merged vault:
+pending changes are committed, then `git pull --rebase` runs, without a push.
+Offline or no upstream opens the local notes silently. A conflict aborts the
+rebase, opens the local notes with a warning in the footer (repeated on stderr
+when you quit, or after the editor for `edit`), and skips the exit sync so
+nothing is pushed over it; resolve it with `notez sync`. `add`, `quick`, `log`,
+`logz` and `todo "item"` never pull, and `--no-sync` skips the pull too.
+
 **notez edit [term]** (alias `editz`) opens an existing note. Candidates come
 from the scope model, so it sees exactly the notes the rest of the tool
 considers in scope; a term matching one note skips the picker.

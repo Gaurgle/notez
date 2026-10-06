@@ -30,6 +30,9 @@ use crate::commands::rename;
 pub struct TreeContext {
     pub title: String,
     pub path_display: String,
+    /// Shown in the status bar for the whole session, whenever nothing
+    /// transient is using the line.
+    pub warning: Option<String>,
 }
 
 /// One top-level section of the forest: a walk root, its display label and
@@ -407,6 +410,42 @@ fn flags_slots(flags: u8) -> Vec<Span<'static>> {
     }
     spans.push(Span::raw(" "));
     spans
+}
+
+/// What the status bar shows, highest priority first.
+#[derive(Debug, PartialEq, Eq)]
+enum StatusSlot<'a> {
+    Rename(&'a str),
+    Message(&'a str),
+    VimCommand,
+    Tags,
+    Warning(&'a str),
+    Hints,
+}
+
+/// Pick the status bar's content. The session warning ranks below every
+/// transient use of the line, so it comes back once they end, and it is kept
+/// apart from the one-off `message` that each key press clears.
+fn status_slot<'a>(
+    rename: Option<&'a str>,
+    message: Option<&'a str>,
+    vim_active: bool,
+    flag_mode: bool,
+    warning: Option<&'a str>,
+) -> StatusSlot<'a> {
+    if let Some(buffer) = rename {
+        StatusSlot::Rename(buffer)
+    } else if let Some(message) = message {
+        StatusSlot::Message(message)
+    } else if vim_active {
+        StatusSlot::VimCommand
+    } else if flag_mode {
+        StatusSlot::Tags
+    } else if let Some(warning) = warning {
+        StatusSlot::Warning(warning)
+    } else {
+        StatusSlot::Hints
+    }
 }
 
 // --- Event loop ---
@@ -801,69 +840,92 @@ fn event_loop(
                 );
 
                 // Status bar.
-                let status = if let Some(buffer) = &rename_buffer {
-                    Line::from(vec![
+                let slot = status_slot(
+                    rename_buffer.as_deref(),
+                    status_message.as_deref(),
+                    vim.active,
+                    flag_mode,
+                    ctx.warning.as_deref(),
+                );
+                let status = match slot {
+                    StatusSlot::Rename(buffer) => Line::from(vec![
                         Span::styled(" rename: ", Style::default().fg(theme::MAUVE)),
-                        Span::styled(buffer.clone(), Style::default().fg(theme::TEXT)),
+                        Span::styled(buffer.to_string(), Style::default().fg(theme::TEXT)),
                         Span::styled("_", Style::default().fg(theme::OVERLAY)),
-                    ])
-                } else if let Some(message) = &status_message {
-                    Line::from(Span::styled(
+                    ]),
+                    StatusSlot::Message(message) => Line::from(Span::styled(
                         format!(" {message}"),
                         Style::default().fg(theme::PEACH),
-                    ))
-                } else if vim.active {
-                    Line::from(vec![Span::styled(
+                    )),
+                    StatusSlot::VimCommand => Line::from(vec![Span::styled(
                         vim.buffer.clone(),
                         theme::command_line(),
-                    )])
-                } else if flag_mode {
-                    let cur_flags = if real_idx < nodes.len() {
-                        nodes[real_idx].flags
-                    } else {
-                        0
-                    };
-                    let mut spans =
-                        vec![Span::styled(" tags: ", Style::default().fg(theme::MAUVE))];
-                    for (idx, def) in FLAG_DEFS.iter().enumerate() {
-                        let active = cur_flags & def.bit != 0;
-                        let color = theme::FLAG_COLORS[idx];
-                        spans.push(Span::styled(
-                            format!("{}", idx + 1),
-                            Style::default().fg(color),
-                        ));
-                        spans.push(Span::styled(":", Style::default().fg(theme::OVERLAY)));
-                        spans.push(Span::styled(
-                            format!("{} ", def.label),
-                            Style::default().fg(if active { color } else { theme::OVERLAY }),
-                        ));
-                        spans.push(Span::raw(" "));
+                    )]),
+                    StatusSlot::Tags => {
+                        let cur_flags = if real_idx < nodes.len() {
+                            nodes[real_idx].flags
+                        } else {
+                            0
+                        };
+                        let mut spans =
+                            vec![Span::styled(" tags: ", Style::default().fg(theme::MAUVE))];
+                        for (idx, def) in FLAG_DEFS.iter().enumerate() {
+                            let active = cur_flags & def.bit != 0;
+                            let color = theme::FLAG_COLORS[idx];
+                            spans.push(Span::styled(
+                                format!("{}", idx + 1),
+                                Style::default().fg(color),
+                            ));
+                            spans.push(Span::styled(":", Style::default().fg(theme::OVERLAY)));
+                            spans.push(Span::styled(
+                                format!("{} ", def.label),
+                                Style::default().fg(if active { color } else { theme::OVERLAY }),
+                            ));
+                            spans.push(Span::raw(" "));
+                        }
+                        Line::from(spans)
                     }
-                    Line::from(spans)
-                } else {
-                    let bold = Modifier::BOLD;
-                    let width = area.width as usize;
-                    let left = " open  tags  rename  focus  view all";
-                    let padding = width.saturating_sub(left.len() + 4);
-                    Line::from(vec![
-                        Span::raw(" "),
-                        Span::styled("o", Style::default().fg(theme::GREEN).add_modifier(bold)),
-                        Span::styled("pen  ", Style::default().fg(theme::OVERLAY)),
-                        Span::styled("t", Style::default().fg(theme::PEACH).add_modifier(bold)),
-                        Span::styled("ags  ", Style::default().fg(theme::OVERLAY)),
-                        Span::styled("r", Style::default().fg(theme::MAUVE).add_modifier(bold)),
-                        Span::styled("ename  ", Style::default().fg(theme::OVERLAY)),
-                        Span::styled("f", Style::default().fg(theme::GREEN).add_modifier(bold)),
-                        Span::styled("ocus  ", Style::default().fg(theme::OVERLAY)),
-                        Span::styled(
-                            "v",
-                            Style::default().fg(theme::SAPPHIRE).add_modifier(bold),
-                        ),
-                        Span::styled("iew all", Style::default().fg(theme::OVERLAY)),
-                        Span::raw(" ".repeat(padding)),
-                        Span::styled("q", Style::default().fg(theme::PEACH).add_modifier(bold)),
-                        Span::styled("uit ", Style::default().fg(theme::OVERLAY)),
-                    ])
+                    StatusSlot::Warning(warning) => {
+                        let (text, padding) = warning_layout(warning, area.width as usize);
+                        Line::from(vec![
+                            Span::styled(
+                                " ! ",
+                                Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(text, Style::default().fg(theme::YELLOW)),
+                            Span::raw(" ".repeat(padding)),
+                            Span::styled(
+                                "q",
+                                Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled("uit ", Style::default().fg(theme::OVERLAY)),
+                        ])
+                    }
+                    StatusSlot::Hints => {
+                        let bold = Modifier::BOLD;
+                        let width = area.width as usize;
+                        let left = " open  tags  rename  focus  view all";
+                        let padding = width.saturating_sub(left.len() + 4);
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("o", Style::default().fg(theme::GREEN).add_modifier(bold)),
+                            Span::styled("pen  ", Style::default().fg(theme::OVERLAY)),
+                            Span::styled("t", Style::default().fg(theme::PEACH).add_modifier(bold)),
+                            Span::styled("ags  ", Style::default().fg(theme::OVERLAY)),
+                            Span::styled("r", Style::default().fg(theme::MAUVE).add_modifier(bold)),
+                            Span::styled("ename  ", Style::default().fg(theme::OVERLAY)),
+                            Span::styled("f", Style::default().fg(theme::GREEN).add_modifier(bold)),
+                            Span::styled("ocus  ", Style::default().fg(theme::OVERLAY)),
+                            Span::styled(
+                                "v",
+                                Style::default().fg(theme::SAPPHIRE).add_modifier(bold),
+                            ),
+                            Span::styled("iew all", Style::default().fg(theme::OVERLAY)),
+                            Span::raw(" ".repeat(padding)),
+                            Span::styled("q", Style::default().fg(theme::PEACH).add_modifier(bold)),
+                            Span::styled("uit ", Style::default().fg(theme::OVERLAY)),
+                        ])
+                    }
                 };
                 frame.render_widget(Paragraph::new(status), rows[1]);
 
@@ -1282,10 +1344,79 @@ fn render_help(frame: &mut Frame, full: Rect) {
     frame.render_widget(Paragraph::new(help_text).block(help_block), help_area);
 }
 
+/// Columns taken by the " ! " prefix of the warning footer.
+const WARNING_PREFIX_COLS: usize = 3;
+/// Columns reserved for the right-aligned "quit " hint. It is 4, not 5: the
+/// trailing space is clipped at the edge, exactly as in the Hints footer arm.
+const QUIT_HINT_RESERVED_COLS: usize = 4;
+
+/// Lays out the warning footer for `width` columns: returns the warning text,
+/// truncated by chars if needed, and the padding that puts the quit hint on the
+/// same column as the Hints footer. At least one space always separates text
+/// and hint.
+fn warning_layout(warning: &str, width: usize) -> (String, usize) {
+    let max_chars = width.saturating_sub(WARNING_PREFIX_COLS + QUIT_HINT_RESERVED_COLS + 1);
+    let text: String = warning.chars().take(max_chars).collect();
+    let used = WARNING_PREFIX_COLS + text.chars().count() + QUIT_HINT_RESERVED_COLS;
+    (text, width.saturating_sub(used))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use notez_core::tags::{FLAG_IMPORTANT, FLAG_PRIO};
+
+    #[test]
+    fn warning_layout_puts_the_quit_hint_four_columns_from_the_right_edge() {
+        let (text, padding) = warning_layout("pull failed", 40);
+        assert_eq!(text, "pull failed");
+        assert_eq!(WARNING_PREFIX_COLS + text.chars().count() + padding, 40 - 4);
+        assert!(padding >= 1);
+    }
+
+    #[test]
+    fn warning_footer_quit_hint_lines_up_with_the_normal_footer() {
+        // 36 is the char count of the Hints arm's `left` string
+        // " open  tags  rename  focus  view all", a local in the draw closure.
+        const HINTS_LEFT_COLS: usize = 36;
+        let short = "pull failed";
+        let long = "x".repeat(300);
+        for width in [40usize, 60, 120] {
+            for warning in [short, long.as_str()] {
+                let (text, padding) = warning_layout(warning, width);
+                assert_eq!(
+                    WARNING_PREFIX_COLS + text.chars().count() + padding,
+                    HINTS_LEFT_COLS + width.saturating_sub(40),
+                    "width {width}, warning of {} chars",
+                    warning.len()
+                );
+            }
+            let (text, padding) = warning_layout(&long, width);
+            assert_eq!(text.chars().count(), width - 8);
+            assert!(padding >= 1);
+        }
+    }
+
+    #[test]
+    fn warning_layout_truncates_on_a_char_boundary_and_keeps_the_hint() {
+        let warning = "vault pull failed \u{e5}\u{e4}\u{f6} \u{1f4a5} and then some more text";
+        let (text, padding) = warning_layout(warning, 24);
+        assert!(warning.starts_with(&text));
+        assert_eq!(
+            text.chars().count(),
+            24 - WARNING_PREFIX_COLS - QUIT_HINT_RESERVED_COLS - 1
+        );
+        assert_eq!(padding, 1);
+        assert_eq!(WARNING_PREFIX_COLS + text.chars().count() + padding, 24 - 4);
+
+        let (cut, _) = warning_layout("ab\u{1f4a5}cd", 3 + 3 + 1 + 4);
+        assert_eq!(cut, "ab\u{1f4a5}");
+    }
+
+    #[test]
+    fn warning_layout_survives_zero_width() {
+        assert_eq!(warning_layout("anything", 0), (String::new(), 0));
+    }
 
     fn spec(root: &str, label: &str, files: &[&str]) -> SectionSpec {
         SectionSpec {
@@ -1296,6 +1427,51 @@ mod tests {
             is_doc: false,
             files: files.iter().map(|f| PathBuf::from(root).join(f)).collect(),
         }
+    }
+
+    #[test]
+    fn a_pull_warning_stays_up_while_one_off_statuses_come_and_go() {
+        let warning = Some("vault pull hit a conflict, rebase aborted");
+        // The event loop clears the one-off message on every key press; the
+        // warning lives in the context and must survive that.
+        let mut message: Option<&str> = None;
+        assert_eq!(
+            status_slot(None, message, false, false, warning),
+            StatusSlot::Warning(warning.unwrap()),
+            "the warning shows as the session opens"
+        );
+        message = Some("rename failed: exists");
+        assert_eq!(
+            status_slot(None, message, false, false, warning),
+            StatusSlot::Message("rename failed: exists")
+        );
+        message = None;
+        assert_eq!(
+            status_slot(None, message, false, false, warning),
+            StatusSlot::Warning(warning.unwrap()),
+            "a one-off status clearing must not take the warning with it"
+        );
+        assert_eq!(
+            status_slot(Some("new"), message, false, false, warning),
+            StatusSlot::Rename("new")
+        );
+        assert_eq!(
+            status_slot(None, message, true, false, warning),
+            StatusSlot::VimCommand
+        );
+        assert_eq!(
+            status_slot(None, message, false, true, warning),
+            StatusSlot::Tags
+        );
+        assert_eq!(
+            status_slot(None, message, false, false, warning),
+            StatusSlot::Warning(warning.unwrap()),
+            "the warning comes back once rename, vim and tag mode end"
+        );
+        assert_eq!(
+            status_slot(None, None, false, false, None),
+            StatusSlot::Hints
+        );
     }
 
     #[test]
