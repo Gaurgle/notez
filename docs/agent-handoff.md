@@ -6,9 +6,10 @@ ticket status, in-flight work, decisions and the next authorized step.
 
 ## Current lead
 
-None. Relay was set up on 2026-10-06 and no lead has taken the baton. The
-first lead starts with `claude --agent nz-coordinator` and records its
-session and takeover time here.
+Claude `nz-coordinator` (model `claude-fable-5-1`), session
+`aa27d2ed-a3e9-498c-ae61-db84f43eae7c`, took the baton on 2026-10-06 15:01
+CEST. First lead since setup: no previous lead, no ticket worktrees or
+branches, no workers running at takeover. Baton held, not released.
 
 ## Authorized by the owner
 
@@ -17,19 +18,32 @@ session and takeover time here.
   no board, default models (lead `fable`, worker and reviewer `opus`, small
   `sonnet`). Integration: the lead presents commands; no commit, push or merge
   permission is granted.
-- Ticket execution is NOT yet authorized. Andreas named a direction (below)
-  but has not named tickets. The lead proposes tickets, Andreas names which
-  to run.
+- 2026-10-06, Andreas, in the lead session (`aa27d2ed`), answering the lead's
+  three questions:
+  - "you may start": run NZ-1. Limit: this ticket only. Stop condition: Ready
+    to integrate, with commands presented. No commit, push or merge of ticket
+    code is granted.
+  - "can you commit the handoff?": the lead commits `docs/agent-handoff.md`
+    once, for the takeover and NZ-1 dispatch record. It is not a standing
+    permission, and it does not cover a push.
+  - "3. yes": the lead drafts briefs for the four UI areas while NZ-1 runs.
+    Drafting only; none of them is authorized to run.
+- No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-Nothing.
+NZ-1, dispatched 2026-10-06 about 15:10 CEST:
 
-Base-commit warning: the `notez rename` command and the tree browser `r`
-key (added 2026-10-06) were uncommitted at setup time. Worktrees branch from a
-commit, so Andreas must commit that work before the first ticket, or workers
-will not see it and will conflict with it. The lead checks `git status
---short` and stops if it is dirty.
+- Base commit: `85300ef` (`main` and `origin/main` at dispatch).
+- Branch: `feat/NZ-1-pull-on-open`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-1`.
+- Worker: `nz-worker`, model `opus`. Reviewer: `nz-reviewer`, model `opus`,
+  not yet dispatched.
+- Method: bounded ticket, no locked tests.
+
+The rename work flagged at setup is committed (`f754bbf`). Worktrees branch
+from a commit, so the lead checks `git status --short` before each dispatch
+and stops if source files are dirty.
 
 ## Tickets
 
@@ -38,9 +52,9 @@ integrate, Done.
 
 ### NZ-1: pull the vault when an interactive session opens
 
-Status: Ready. Queued by Andreas on 2026-10-06. Queuing is not an instruction
-to run it: the lead confirms with Andreas at start, and the ticket stops at
-Ready to integrate.
+Status: In flight. Queued by Andreas on 2026-10-06 and authorized by him the
+same day in the lead session ("you may start"). The ticket stops at Ready to
+integrate. Base, branch, worktree and model are under In flight above.
 
 Outcome: `notez tree` (and bare `notez`), `notez todo` with no item and
 `notez edit` sync the vault before they open, matching Pinz (`~/Repos/pinz`,
@@ -105,9 +119,19 @@ then search.
 
 ## Next step
 
-Andreas starts `claude --agent nz-coordinator`. The lead reports state,
-confirms with him whether to run NZ-1 first, and proposes briefs for the four
-UI areas before dispatching anything.
+NZ-1: wait for the worker's report, dispatch `nz-reviewer` on the exact diff
+as a separate invocation, re-review any later change, then run the checks on
+the result against current `main` and stop at Ready to integrate with commit
+and merge commands for Andreas. He tries the branch build for the footer
+warning before accepting.
+
+UI areas: the lead drafts briefs as Draft tickets in this file. Andreas
+approves the briefs and names which to run. They all touch `tui/tree.rs`, so
+they run one at a time and only after NZ-1 is integrated.
+
+A lead resuming from this file checks first whether the NZ-1 worker is still
+running and whether the worktree holds uncommitted work, and does not
+dispatch a second worker onto it.
 
 ## Start the lead
 
