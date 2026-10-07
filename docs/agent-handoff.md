@@ -282,6 +282,11 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   else that publishes. On his confirmation the lead edits
   `docs/agent-workflow.md` to say so and NZ-17's record; the coordinator
   definition is his file to change.
+  SETTLED 2026-10-07 about 17:55 CEST, Andreas in the lead session
+  (`52bd7aa5`): "lets skip tagging until we have a first version then."
+  Agents still never tag or release; the relayed permission is NOT in
+  force. Revisit when NZ-17 has produced a first version; until then the
+  standing rule in `docs/agent-workflow.md` is unchanged.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
