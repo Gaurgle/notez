@@ -1204,13 +1204,34 @@ Board, as settled by the advisor on 2026-10-07 about 18:20 CEST: the
 project board is `https://github.com/users/Gaurgle/projects/2` (private,
 linked to the repo), 17 draft items NZ-1 to NZ-17 with Status options
 Draft, Ready, In flight, Ready to integrate, Done. No repository issues
-back it; the ones the advisor had opened were deleted again, so ghost
-rows in GitHub's listing for a while are index lag, not items. The lead
-does not edit the board: it reports state changes to Andreas or the
-advisor, who update it with `gh project item-edit`, until Andreas says
-the lead may do so. Wiring the URL and read command into
-`docs/agent-workflow.md` also waits for his word. This file stays the
-record of ticket status.
+back it; the ones the advisor had opened were deleted again, so rows
+with a null title in GitHub's listing (nine at 18:30 CEST) are index
+lag, not items. This file stays the record of ticket status and the
+board mirrors it.
+
+Lead edits the board: relayed at about 18:30 CEST, Andreas's words via
+the advisor, "lead should edit the board, tell him, he is already
+leading the session". Keeping board status current is already the lead's
+role in the coordinator definition, so the lead applies it: status
+changes only, no creating or deleting items or issues, no visibility
+change (those still need Andreas). The lead listed the board at 18:32
+CEST and found every status matching this file. Wiring the URL and read
+command into `docs/agent-workflow.md` still waits for Andreas's word.
+
+How to edit: project id `PVT_kwHOCU842c4BmE5Z`, Status field
+`PVTSSF_lAHOCU842c4BmE5ZzhkvTJM`, option ids Draft `3d75ddf4`, Ready
+`9e7798e2`, In flight `b984e77c`, Ready to integrate `abf1c81e`, Done
+`82c5faed`. List items with `gh api graphql` on the project node
+(`items(first: 50) { nodes { id content { ... on DraftIssue { title } }
+fieldValueByName(name: "Status") { ... on
+ProjectV2ItemFieldSingleSelectValue { name } } } }`); `gh project
+item-list` lags. Update with `gh project item-edit --id <item>
+--project-id PVT_kwHOCU842c4BmE5Z --field-id
+PVTSSF_lAHOCU842c4BmE5ZzhkvTJM --single-select-option-id <option>`.
+Item ids at 18:32 CEST: NZ-13 `PVTI_lAHOCU842c4BmE5Zzg_KXJg`, NZ-14
+`..._KXLw`, NZ-15 `..._KXOw`, NZ-16 `..._KXRY`, NZ-17 `..._KbOk`, NZ-4
+`..._KW1E`, NZ-5 `..._KW4I`, NZ-3 `..._KWyo`, NZ-6 `..._KW6U`, NZ-11
+`..._KXEY` (prefix `PVTI_lAHOCU842c4BmE5Zzg`).
 
 Open for Andreas: should epoz later pin the tag instead of a rev; should
 cli and core versions always move together (proposed: yes, one workspace
