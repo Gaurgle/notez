@@ -291,21 +291,22 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-12 (delete a note from the tree browser), dispatched 2026-10-07 17:25
-CEST under the standing scope confirmed at takeover:
+NZ-13 (unified default view), dispatched 2026-10-07 18:10 CEST under the
+standing scope confirmed at takeover:
 
-- Base commit: `bf8f2ca` (`main` and `origin/main` at dispatch, the NZ-8
-  merge). `git status --short` at dispatch: only `docs/agent-handoff.md`
-  modified (this file), no source changes.
-- Branch: `fix/NZ-12-delete-note`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-12`.
-- Method: bounded ticket, one `nz-worker` (opus) pass, one `nz-reviewer`
-  (opus) on the whole diff. Ticket brief under Tickets, NZ-12.
-- WORKER RUNNING. No reviewer yet.
+- Base commit: `ff33de0` (`main` and `origin/main` at dispatch, the NZ-12
+  merge). `git status --short` at dispatch: clean apart from this file.
+- Branch: `feat/NZ-13-unified-view`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-13`.
+- Method: bounded ticket, two `nz-worker` (opus) passes on one worktree
+  (pass 1 `aggregate.rs` and `commands/tree.rs`; pass 2 `tui/tree.rs`,
+  `theme.rs`, docs), one `nz-reviewer` (opus) on the whole diff. Brief
+  under Tickets, NZ-13.
+- PASS 1 WORKER RUNNING. No reviewer yet.
 
-Queue after NZ-12, as confirmed by Andreas at takeover: NZ-13 (unified
-view, Ready), NZ-14 (folders), NZ-15 (move, set scope), NZ-16
-(multi-select), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and NZ-6 in
+Queue after NZ-13, as confirmed by Andreas at takeover: NZ-14 (folders),
+NZ-15 (move, set scope), NZ-16 (multi-select), then the UI tickets NZ-4,
+NZ-5, NZ-3. NZ-11 and NZ-6 in
 the second worker slot when their files are free (NZ-11 touches
 `tui/tree.rs`, so only between tree tickets; NZ-6 touches `main.rs`,
 `sync.rs`, `commands/sync.rs`, `README.md`).
@@ -819,7 +820,57 @@ behaviour change to `add`), `README.md`. No new dependency, no
 
 ### NZ-12: delete a note from the tree browser
 
-Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+Status: Done. Merged into `main` as `ff33de0` at 18:05 CEST on 2026-10-07
+and pushed. Not yet installed by Andreas.
+
+Record:
+
+- Base `bf8f2ca`, branch `fix/NZ-12-delete-note`, ticket commit `45ad89d`
+  (2 files, 704 insertions, 25 deletions: `tui/tree.rs`, `README.md`),
+  merge commit `ff33de0` made with `git merge --no-ff` under the
+  integration delegation. To undo the ticket: `git revert -m 1 ff33de0`.
+- Agents: one `nz-worker` (opus, about 143k tokens, 9 minutes including
+  one fix cycle) and one `nz-reviewer` (opus, 59k tokens, 2 minutes).
+- Fix cycle 1, from the lead before review: the worker had put `d` in the
+  help overlay only; the lead required it in the footer (lowest priority,
+  first to drop at narrow widths), accepting the re-measured widths in
+  `narrow_footer_drops_low_priority_hints_but_keeps_help_and_quit` and
+  `d` added to `normal_and_focus_footers_hint_the_browse_keys`. Every
+  pre-existing drop step is still asserted at its old width.
+- Review: accepted first time, no blockers. The committed diff hashes to
+  `133a4a91bde4701b14849ccd89106c7b2422a03c99f3d8d5557207628d1f5fff`
+  (`git diff bf8f2ca 45ad89d | shasum -a 256`), the hash it accepted. The
+  reviewer traced the key dispatch order (a `d` inside tag, filter,
+  rename, new-note or `:` mode never reaches delete; a stray `y` is a
+  no-op), the retiring path end to end including rename-then-delete, the
+  tag-root alignment after `Forest::replace`, and that
+  `std::fs::remove_file` is the only removal call and only ever gets a
+  listed note path.
+- Lead verification: `cargo build --workspace` and `cargo test
+  --workspace` on `main` after the merge: build clean, notez-cli 199
+  passed, notez-core 145 passed.
+- Worker decisions accepted by the lead: the cancel hint reads `n/esc`
+  (a second `n` row would break the one-`n` help test); retired keys are
+  owned by `run_tree` as `Vec<(PathBuf, String)>` and passed to
+  `changed_tag_maps_retiring`, with the old `changed_tag_maps` kept as a
+  test-only wrapper; the prompt stores the tag root as a path; an emptied
+  folder disappears (folders come from their files), so the cursor goes
+  to the nearest listed ancestor.
+- Left alone, none authorized: (1) the permission-denied test fails when
+  run as root and restores permissions without a drop guard; (2) mouse
+  clicks still act while the confirm prompt is open (`y` still deletes
+  the named file); (3) rustfmt drift grew in the new test code.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+- What Andreas sees after `./install.sh`: `d` on a note shows
+  `delete <path> from <scope>? y/n` in the footer (local scratch adds
+  "not recoverable"), `y` deletes and the cursor lands on the next note,
+  `deleted <path>` shows briefly; `d` on a folder says folder delete is
+  not available yet.
+
+The ticket as it was run:
+
+Confirmed by Andreas on 2026-10-07 in the lead session
 (his pasted queue: "NZ-12 (delete a note)"); the hard-delete decision and
 the `d` key were relayed on 2026-10-07 and stand. Runs after NZ-8 is on
 `main`, based on it, because both touch the key table, the footer lead
