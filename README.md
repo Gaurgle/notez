@@ -55,11 +55,20 @@ under `[paths]` in config.toml).
 **notez tree** is the interactive tree browser (sections per scope and
 project including `docs`, tag strip + `#tag` filtering, preview pane,
 open-in-editor). Tag changes write only `.tags` roots that actually changed.
-A bare `notez` opens it too. With no scope flag it shows the whole current
-project (personal, public, docs and scratch sections), or the global view
-outside a project; `-g` opens the global view, `-p` only the project's
-personal notes, `-l` only its scratch notes. It opens even when the view
-has no notes yet, with an empty-state line pointing at `n`.
+A bare `notez` opens it too. With no scope flag it shows everything in one
+view: the current repository's sections first (personal, public, docs and
+scratch), expanded, then the vault's global notes, then every other
+project, collapsed; outside a repository the first group is absent. A flag
+narrows the view: `-g` the vault's global notes only (not the `personal/`
+folders), `-p` only the project's personal notes, `-l` only its scratch
+notes. It opens even when the view has no notes yet, with an empty-state
+line pointing at `n` that names the scope in a narrowed view.
+
+Every row carries a scope badge in the column after its tag dots: the
+section's scope icon (the docs icon for a `docs` section) in that scope's
+colour, so rows from different sections tell apart at a glance. Section
+headers show the scope icon and the scope word (`personal`, `public`,
+`scratch`, `notez`) in the same colour.
 
 **New notes in the tree.** `n` creates a note in the folder under the
 cursor, in that row's scope. The footer prompt names the target before

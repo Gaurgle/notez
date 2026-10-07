@@ -124,6 +124,9 @@ pub fn collect_in_scope(
 /// Walks:
 /// - Every project in `registry`: collects its Local (`.notez/`) and Public
 ///   (`notez/`) trees plus its Personal subtree at `<notez_root>/personal/<name>/`
+/// - Every other `<notez_root>/personal/<name>/` folder, as Personal notes of
+///   project `<name>`, so a project not registered on this machine is still
+///   listed
 /// - The global notez root for cross-project notes (excluding the `personal/`
 ///   subtree, which is already attributed to projects above)
 ///
@@ -170,6 +173,11 @@ pub fn collect_all(
 
     let global_root = config.notez_root_path();
     let personal_root = global_root.join("personal");
+    for (name, dir) in unregistered_personal_dirs(&personal_root, registry) {
+        for path in walk_markdown(&dir) {
+            push_entry(&mut out, path, Scope::Personal, Some(&name));
+        }
+    }
     for path in walk_markdown(&global_root) {
         // The personal/ subtree is attributed to its owning project above;
         // surfacing those files as global notes too would double-count them.
@@ -186,6 +194,32 @@ pub fn collect_all(
     out.retain(|e| seen.insert(e.path.clone()));
 
     Ok(out)
+}
+
+/// The `personal/<name>/` folders whose project is not in `registry`, sorted
+/// by name. Their notes are personal notes of a project this machine has no
+/// repository for, so they are listed under that project's name. Anything
+/// under `personal/` that is not a readable directory (a loose file, a
+/// dangling symlink) and hidden names are skipped, as the walk skips them.
+fn unregistered_personal_dirs(
+    personal_root: &Path,
+    registry: &ProjectRegistry,
+) -> Vec<(String, PathBuf)> {
+    let Ok(read) = std::fs::read_dir(personal_root) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<(String, PathBuf)> = read
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.to_string();
+            let path = e.path();
+            let listed =
+                !name.starts_with('.') && !registry.projects.contains_key(&name) && path.is_dir();
+            listed.then_some((name, path))
+        })
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 fn push_entry(out: &mut Vec<NoteEntry>, path: PathBuf, scope: Scope, project: Option<&str>) {
@@ -428,6 +462,44 @@ mod tests {
         let entries = collect_all(&config, &registry, &metadata).unwrap();
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"scratch.md"));
+    }
+
+    /// A `personal/<name>/` folder whose project is not registered on this
+    /// machine is still listed, as that project's personal notes.
+    #[test]
+    fn collect_all_lists_unregistered_personal_folders() {
+        let notez_root = tempdir().unwrap();
+        let config = config_with_root(notez_root.path());
+        let personal = notez_root.path().join("personal");
+
+        let project_dir = tempdir().unwrap();
+        touch(&project_dir.path().join(".notez").join("scratch.md"));
+        touch(&project_dir.path().join("notez").join("pub.md"));
+        touch(&personal.join("a").join("x.md"));
+        touch(&personal.join("b").join("y.md"));
+        touch(&notez_root.path().join("z.md"));
+        // A plain file where a project folder would be, and a loose file
+        // directly under personal/: neither is a project.
+        std::fs::write(personal.join("c"), "not a folder").unwrap();
+        touch(&personal.join("loose.md"));
+
+        let mut registry = ProjectRegistry::default();
+        registry.attach("a", project_dir.path());
+
+        let entries = collect_all(&config, &registry, &NotezMetadata::default()).unwrap();
+        let mut found: Vec<(&str, Scope, Option<&str>)> = entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.scope, e.project.as_deref()))
+            .collect();
+        found.sort_by_key(|(name, _, _)| *name);
+        let expected = vec![
+            ("pub.md", Scope::Public, Some("a")),
+            ("scratch.md", Scope::Local, Some("a")),
+            ("x.md", Scope::Personal, Some("a")),
+            ("y.md", Scope::Personal, Some("b")),
+            ("z.md", Scope::Global, None),
+        ];
+        assert_eq!(found, expected);
     }
 
     #[test]

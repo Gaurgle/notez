@@ -71,11 +71,13 @@ scope flag are refused with a hint, so a mistyped subcommand never creates a
 note.
 
 The browser (bare `notez`, `notez tree`, `treez`) does not follow the table
-for its no-flag case. Without a flag it opens the project view, every scope of
-the current project (personal, public, docs, scratch), and the global view
-outside a project. A flag narrows it: `-g` the global view, `-p` the
-project's personal notes only, `-l` its scratch notes only. Outside a project
-`-p` falls back to the global view and `-l` finds nothing.
+for its no-flag case. Without a flag it opens one view of everything, inside
+or outside a project: every scope of the current repository first (personal,
+public, docs, scratch), expanded, then the vault's global notes, then every
+other project, collapsed. A flag narrows it: `-g` the vault's global notes
+only (the root minus `personal/`), `-p` the project's personal notes only,
+`-l` its scratch notes only. Outside a project `-p` falls back to the whole
+view and `-l` finds nothing.
 
 ## Config files
 
@@ -141,7 +143,7 @@ This synced file holds project metadata that should be the same across machines:
 
 ## TUI aggregation
 
-When the user opens the global tree (`notez -g tree`) or global todoz (`todoz -g`), the TUI:
+The aggregated tree is the browser's default view: bare `notez` (also `notez tree`, `treez`) lists every project and the vault's global notes, with the current repository's sections first, then the global notes, then every other project (including `personal/<name>/` folders whose project is not registered on this machine). `notez -g tree` is not aggregated: it lists the vault's global notes only, the root minus `personal/`. For the aggregated tree and for global todoz (`todoz -g`), the TUI:
 
 1. Loads `registry.toml` to get the local paths for each project
 2. For each registered project, scans `<path>/.notez/` and `<path>/notez/`
