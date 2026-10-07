@@ -3,8 +3,28 @@
 How agents work on notez. This file is vendor-neutral: Claude reads it
 through `CLAUDE.md` and `.claude/agents/`, Codex through `AGENTS.md`. It does
 not by itself authorize implementation, dependencies, CI changes or external
-publication. The board (none) is authoritative for live status.
-When there is no board, `docs/agent-handoff.md` also holds ticket status.
+publication. The board is the GitHub Project
+`https://github.com/users/Gaurgle/projects/2` (owner `Gaurgle`, number 2,
+private), one draft item per ticket titled `NZ-n: ...` with a Status
+field (Draft, Ready, In flight, Ready to integrate, Done). It is
+authoritative for live status; `docs/agent-handoff.md` holds the ticket
+briefs, records, in-flight details and the baton, and the two must agree.
+
+Read it with the GraphQL API, because `gh project item-list` lags behind
+by minutes (rows with a null title are index lag from deleted items):
+
+```sh
+gh api graphql -f query='query { node(id: "PVT_kwHOCU842c4BmE5Z") { ... on ProjectV2 { items(first: 50) { nodes { id content { ... on DraftIssue { title } } fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }'
+```
+
+The lead keeps each item's Status current as tickets move (owner
+instruction, 2026-10-07, recorded in `docs/agent-handoff.md`). Status
+changes only: creating or deleting items or issues, and changing the
+board's visibility, stay with the owner. Update with `gh project
+item-edit --id <item> --project-id PVT_kwHOCU842c4BmE5Z --field-id
+PVTSSF_lAHOCU842c4BmE5ZzhkvTJM --single-select-option-id <option>`, option
+ids Draft `3d75ddf4`, Ready `9e7798e2`, In flight `b984e77c`, Ready to
+integrate `abf1c81e`, Done `82c5faed`.
 
 ## Owner-approved integration policy
 

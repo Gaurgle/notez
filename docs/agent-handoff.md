@@ -1,8 +1,12 @@
 # Relay handoff
 
 The baton between leads. Read this file, `CLAUDE.md` and
-`docs/agent-workflow.md` before acting. There is no board; this file holds
-ticket status, in-flight work, decisions and the next authorized step.
+`docs/agent-workflow.md` before acting. The board is the GitHub Project
+`https://github.com/users/Gaurgle/projects/2` (owner `Gaurgle`, number 2;
+read command and ids in `docs/agent-workflow.md`). This file holds the
+ticket briefs and records, in-flight work, decisions and the next
+authorized step; the board mirrors each ticket's Status and the lead
+keeps it current as tickets move.
 
 ## Current lead
 
@@ -348,7 +352,8 @@ stops and asks; it does not delete anything on its own.
 
 ## Tickets
 
-No board, so tickets live here. Status values: Draft (brief written, not yet
+Ticket briefs and records live here; the board at `projects/2` carries
+the same Status per ticket. Status values: Draft (brief written, not yet
 approved by Andreas), Ready, In flight, Ready to integrate, Done.
 
 ### NZ-1: pull the vault when an interactive session opens
