@@ -14,7 +14,7 @@ in this conversation.
 
 Read `docs/agent-handoff.md` and `docs/agent-workflow.md`. Check
 `git status --short`, the current `main` commit, `git worktree list` and the
-board (read docs/agent-handoff.md). Then tell Andreas in a few lines where things stand
+board (read it with the GraphQL command in docs/agent-workflow.md). Then tell Andreas in a few lines where things stand
 and what the next step is.
 
 Before taking ownership, confirm the previous lead stopped or Andreas
