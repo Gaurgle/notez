@@ -21,12 +21,34 @@ record below says it released the baton the night before. RETIRED at
 and this lead confirmed with `ps` that no process of that session remains.
 Only this session leads.
 
-Dispatched at takeover: `nz-reviewer` (opus) on the NZ-8 worktree diff,
-hash `9edb7c70...` (see In flight), at 16:35 CEST.
+STOPPED FOR THE DAY at about 19:25 CEST on 2026-10-07 on Andreas's
+instruction. BATON RELEASED. No lead is active. No worker or reviewer is
+running. A new lead may take over from this file once Andreas says to
+continue; nothing here authorizes starting on its own.
 
-Pending from Andreas, relayed by the advisor session and NOT an
-instruction: he wants a GitHub Project board for notez and a Linear
-evaluation; he will say so himself.
+State at the stop, in short:
+
+- Done and merged today by this lead: NZ-8 (`bf8f2ca`), NZ-12
+  (`ff33de0`), NZ-13 (`ee6a6fd`). Local `main` is at the NZ-13 merge
+  plus handoff commits.
+- No ticket worktree holds work. The `.claude/worktrees/NZ-13` worktree
+  and `feat/NZ-13-unified-view` branch are removed once the push lands
+  (see the push note under In flight); if a lead finds them still
+  present, the branch is fully merged and may be removed with `git
+  worktree remove` and `git branch -d`.
+- Board (`projects/2`): NZ-13 must read Done and NZ-14 Ready; the edit
+  failed on a GitHub server error at 17:14 UTC and was retried; a lead
+  checks the board on takeover and corrects it with the ids recorded
+  under NZ-12.
+- Andreas's installed binary is from 18:07 CEST on 2026-10-06 (NZ-1,
+  NZ-2, NZ-7). NZ-9, NZ-10, NZ-8, NZ-12 and NZ-13 all need
+  `./install.sh`, his to run. NZ-13 changes the default view and adds
+  badges; it is the one to look at.
+- Next: NZ-14 (brief Ready), then NZ-15, NZ-16, the UI tickets.
+- Standing scope and the integration delegation are paused, not
+  withdrawn; a lead continues them only when Andreas says so.
+- A Linear evaluation was mentioned by Andreas to the advisor; not an
+  instruction.
 
 Previous lead, for history:
 
@@ -291,61 +313,27 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-13 (unified default view), dispatched 2026-10-07 18:10 CEST under the
-standing scope confirmed at takeover:
+Nothing is in flight. STOPPED FOR THE DAY at about 19:25 CEST on
+2026-10-07 on Andreas's instruction ("we start looking for a place to
+stop for the day now. finish all relevant running workers, update docs
+and handovers, then we'll stop"). No worker or reviewer is running: the
+last agent (the NZ-13 reviewer) reported and NZ-13 was merged. NZ-14 was
+about to be dispatched (its brief is Ready) but was NOT: no NZ-14
+branch, worktree or worker exists.
 
-- Base commit: `ff33de0` (`main` and `origin/main` at dispatch, the NZ-12
-  merge). `git status --short` at dispatch: clean apart from this file.
-- Branch: `feat/NZ-13-unified-view`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-13`.
-- Method: bounded ticket, two `nz-worker` (opus) passes on one worktree
-  (pass 1 `aggregate.rs` and `commands/tree.rs`; pass 2 `tui/tree.rs`,
-  `theme.rs`, docs), one `nz-reviewer` (opus) on the whole diff. Brief
-  under Tickets, NZ-13.
-- Pass 1 REPORTED at 18:40 CEST (opus, about 114k tokens, 8 minutes):
-  `collect_all` lists unregistered `personal/<name>/` folders (hidden
-  names and loose files skipped); `View { All, Only(Scope) }`;
-  `SectionSpec.is_current`; order current, global, others in
-  `sections_from_entries` (`BUCKET_CURRENT/GLOBAL/OTHER`); `-g` is vault
-  global notes only and `single_scope_view` collects them without a
-  project so they are not grouped under the current one; tests in
-  `aggregate.rs`, `commands/tree.rs`, `main.rs`; `tui/tree.rs` touched
-  only for the struct field and two test helpers. Worker checks: build
-  clean, notez-cli 208, notez-core 146. Existing tests renamed or
-  re-targeted for the new decisions are listed in its report (view names
-  and `-g` expectations); the reviewer checks them.
-- Lead decision on pass 1's deviation: personal sections of unregistered
-  projects keep the VAULT ROOT as `tag_root` (keys `personal/<name>/...`),
-  not `<vault>/personal/<name>` as the brief said, because that is the
-  `.tags` layout every personal section uses and epoz reads; the brief's
-  wording was wrong. `root` and `new_note_root` are the folder itself.
-- Pass 2 `nz-worker` (opus) dispatched 18:45 CEST on the same worktree:
-  initial expansion (current sections open, others collapsed, all open
-  when nothing is current), `theme::scope_color`, badges on rows and
-  scope words on headers, narrowed empty-state wording, README and
-  DESIGN.md. Pass 2 REPORTED at 18:55 CEST (opus, about 122k tokens
-  including one fix cycle for the `-g` empty-state wording and the stale
-  "TUI aggregation" paragraph in DESIGN.md). Lead decision on pass 2's
-  finding that every section opened COLLAPSED at the base (the brief had
-  assumed expanded): current sections open expanded, everything else as
-  built, so a single `-p`/`-l` section inside a project now opens
-  expanded and views with nothing current open collapsed as before.
-  Colours chosen: personal LAVENDER, public TEAL, scratch FLAMINGO,
-  global GREEN (TEAL and FLAMINGO added to `theme.rs` from the same
-  palette; PEACH and SAPPHIRE are tag colours).
-- Whole diff: 7 files, 866 insertions, 195 deletions, `git diff ff33de0
-  | shasum -a 256` = `0265d388e822f5e0b1eedcba64dbea8303e80510c2aec42142004a4f6be6ad70`.
-  Worker checks: build clean, notez-cli 218, notez-core 146.
-- `nz-reviewer` (opus) dispatched 19:00 CEST on that hash with ten
-  probes (notez-core API unchanged, dedup, symlinks under `personal/`,
-  `is_current` in narrowed views, `NewNoteRoots` for personal-only
-  projects, expansion versus focus and rebuild, badge widths and mouse
-  columns, title-keyed empty state, the re-targeted tests, `decide`).
-  REVIEW RUNNING.
+GitHub returned "Internal Server Error" on `git push origin main` and on
+a `gh project item-edit` at 17:14 UTC while GitHub status said all
+systems operational; the lead retried the push in a loop. See the
+Current lead section for whether `origin/main` ended up at the NZ-13
+merge; if it did not, the first thing a lead does is `git push origin
+main` and the board edits listed there.
 
-Queue after NZ-13, as confirmed by Andreas at takeover: NZ-14 (folders),
-NZ-15 (move, set scope), NZ-16 (multi-select), then the UI tickets NZ-4,
-NZ-5, NZ-3. NZ-11 and NZ-6 in
+Queue when work resumes, as confirmed by Andreas at takeover: NZ-14
+(folders, brief Ready), NZ-15 (move, set scope), NZ-16 (multi-select),
+then the UI tickets NZ-4, NZ-5, NZ-3; NZ-11 and NZ-6 in the second slot
+when their files are free (NZ-11 touches `tui/tree.rs`, so only between
+tree tickets; NZ-6 touches `main.rs`, `sync.rs`, `commands/sync.rs`,
+`README.md`). NZ-11 and NZ-6 in
 the second worker slot when their files are free (NZ-11 touches
 `tui/tree.rs`, so only between tree tickets; NZ-6 touches `main.rs`,
 `sync.rs`, `commands/sync.rs`, `README.md`).
@@ -1044,7 +1032,51 @@ rest; the lead confirms them with him at the start.
 
 #### NZ-13: unified default view
 
-Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+Status: Done. Merged into `main` as `ee6a6fd` at 19:15 CEST on 2026-10-07
+and pushed. Not yet installed by Andreas. This one changes what he sees
+on every launch, so it is the build to install and look at.
+
+Record:
+
+- Base `ff33de0`, branch `feat/NZ-13-unified-view`, ticket commit
+  `fbc0481` (7 files, 866 insertions, 195 deletions), merge commit
+  `ee6a6fd` made with `git merge --no-ff` under the integration
+  delegation. To undo the ticket: `git revert -m 1 ee6a6fd`.
+- Agents: two `nz-worker` (opus) passes (about 114k and 122k tokens, the
+  second including one fix cycle) and one `nz-reviewer` (opus, 72k
+  tokens, 3 minutes). No review-driven fix cycle.
+- Review: accepted first time, no blockers. The committed diff hashes to
+  `0265d388e822f5e0b1eedcba64dbea8303e80510c2aec42142004a4f6be6ad70`
+  (`git diff ff33de0 fbc0481 | shasum -a 256`), the hash it accepted.
+  `collect_all` keeps its signature (one private helper added), so
+  epoz's call compiles unchanged.
+- Lead verification: `cargo build --workspace` and `cargo test
+  --workspace` on `main` after the merge: build clean, notez-cli 218
+  passed, notez-core 146 passed.
+- Lead decisions during the ticket: personal sections of unregistered
+  projects keep the vault root as `tag_root`; sections opened collapsed
+  at the base, so now current sections open expanded and the rest stay
+  collapsed; colours personal LAVENDER, public TEAL, scratch FLAMINGO,
+  global GREEN; `-g` empty state says "global".
+- Left alone, none authorized: (1) bare `notez` inside an unregistered
+  repo that sits under the vault lists that repo's public notes under
+  NOTEZ instead of its own section (the global walk wins the dedup);
+  rare, since repos live outside the vault; (2) no test pins that a
+  registered-but-missing project's `personal/` folder stays hidden; (3)
+  no symlink tests for `unregistered_personal_dirs`; (4) `icon.len()`
+  counts bytes in the header leader, older than the ticket.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+- What Andreas sees after `./install.sh`: bare `notez` anywhere shows
+  one tree: the current repo's sections first and open, then NOTEZ, then
+  every other project collapsed, including `personal/` folders of
+  projects not registered here; every row has a coloured scope badge
+  after the tag dots and headers name their scope; `-g` shows only the
+  vault's global notes.
+
+The ticket as it was run:
+
+Confirmed by Andreas on 2026-10-07 in the lead session
 ("NZ-13: the unified default view, with scope badges"). Supersedes NZ-7's
 decision 1 ("inside a project, the project view") where they differ. Runs
 after NZ-12, based on `main` then. Brief finalized by the lead at 17:10
@@ -1654,44 +1686,51 @@ answers the questions listed on it, and names which to run.
 
 ## Next step
 
-STOPPED for the night at 18:35 CEST on 2026-10-06. Nothing runs until
-Andreas says to continue. When he does, the lead (this session if it is
-still open, otherwise a new one that records its takeover under Current
-lead):
+STOPPED for the day at about 19:25 CEST on 2026-10-07. Nothing runs
+until Andreas says to continue. When he does, the lead (this session if
+it is still open, otherwise a new one that records its takeover under
+Current lead):
 
-1. Reconciles: `git status --short`, `main` against `origin/main`, `git
-   worktree list`, and that the NZ-8 worktree diff still hashes to the
-   value under In flight. Confirms with Andreas that the standing scope
-   and "merge as you go along" still hold; they were paused, not
-   withdrawn, and a new day is a fair moment to ask.
-2. NZ-8: dispatches `nz-reviewer` on the recorded hash with the ticket and
-   the six points listed under In flight, then fixes if asked, re-review,
-   the lead's checks on the combined result with current `main`, commit,
-   merge, push, cleanup.
-3. Then the UI queue, one at a time on `tui/tree.rs`: NZ-4 (panes), NZ-5
-   (search), NZ-3 (header). Andreas wants to demo the UI soon and has not
-   said when; ask him, and cut to what fits.
-4. In the second worker slot or between UI tickets: NZ-6 (quiet offline
-   exit, decided: quiet like Pinz) and NZ-11 (wide characters in the
-   warning footer).
+1. Reconciles: `git status --short`, `main` against `origin/main` (push
+   if local is ahead; a GitHub server error interrupted the last push),
+   `git worktree list` (no ticket worktree should hold work; a leftover
+   NZ-13 worktree is fully merged and removable), and the board
+   (`projects/2`: NZ-13 Done, NZ-14 Ready; correct it with the ids
+   recorded under NZ-12 if the failed edit never landed). Confirms with
+   Andreas that the standing scope and "merge as you go along" still
+   hold; they were paused, not withdrawn.
+2. NZ-14 (folders): brief is Ready under Tickets. Create
+   `feat/NZ-14-folders` and `.claude/worktrees/NZ-14` from `main`,
+   dispatch pass 1 (directory listing, `mkdir::create_in_dir`, the `N`
+   prompt), then pass 2 (folder rename and delete), one review, checks,
+   commit, merge, push, board, cleanup.
+3. Then NZ-15 (brief still to be finalized from the relayed draft and
+   the lead's notes), NZ-16 (same), then the UI tickets NZ-4, NZ-5,
+   NZ-3. NZ-11 and NZ-6 in the second slot when their files are free.
+4. NZ-17 (versioning) and the workflow-doc board wiring wait for
+   Andreas's word; tagging is off until a first version exists.
 
-Open with Andreas, none blocking: when the demo is and whether that UI
-order suits it; whether the two `notez-core` read-error cases found in the
-NZ-10 review (`.tags`, `load_single_todo`) should become a ticket; the
-smaller leftovers listed on the Done tickets.
+Open with Andreas, none blocking: when he wants to demo the UI and
+whether the order above suits it; whether the two `notez-core`
+read-error cases found in the NZ-10 review (`.tags`,
+`load_single_todo`) should become a ticket; the NZ-13 leftover where an
+unregistered repo nested under the vault lists under NOTEZ; the smaller
+leftovers on the Done tickets.
 
-What worked today, for whoever leads next: splitting any ticket that
-touches `tui/tree.rs` or `tui/todo.rs` into two worker passes (one worker
-used its whole 100k budget on half a ticket); giving the reviewer a list
-of specific things to probe; and hashing the uncommitted diff so the
-committed revision can be matched to the accepted one. There is no session
-scratch directory any more, so compute hashes by piping `git diff` and do
-not rely on saved diff files.
+What worked on 2026-10-07, for whoever leads next: three tickets merged
+in about three hours with one review each and no review-driven fix
+cycle; the lead sending a worker back once before review when its
+report showed a deviation from the brief (`d` not in the footer) was
+cheaper than a review round; two-pass workers on `tui/tree.rs` again;
+reviewer probe lists; hashing the uncommitted diff before and after
+commit. The brief for NZ-13 had two wrong premises (tag root for
+personal sections, sections opening expanded) that the workers caught;
+reading the code before writing decisions into a brief pays off.
 
-Standing scope, as it stood at the stop: NZ-2, NZ-7, NZ-9 and NZ-10 done
-(see NZ-9's ticket for the lead's grounds), then NZ-8, NZ-4, NZ-5, NZ-3,
-with NZ-6 and NZ-11 fitted around them (see Authorized by the owner for
-the limits). Per ticket the lead:
+Standing scope, as it stood at the stop: NZ-2, NZ-7, NZ-9, NZ-10, NZ-8,
+NZ-12 and NZ-13 done, then NZ-14, NZ-15, NZ-16, NZ-4, NZ-5, NZ-3, with
+NZ-6 and NZ-11 fitted around them (see Authorized by the owner for the
+limits). Per ticket the lead:
 
 1. Runs the worker passes, then a separate `nz-reviewer` on the whole diff,
    re-reviewing after any change.
@@ -1702,8 +1741,9 @@ the limits). Per ticket the lead:
    `main`, and pushes `main` (authorized: "merge as you go along"), provided
    the safe-merge conditions hold. Otherwise it stops at Ready to integrate
    and asks.
-5. Marks the ticket Done, removes its worktree and local branch, commits
-   and pushes this file, and tells Andreas what changed on screen.
+5. Marks the ticket Done here and on the board, removes its worktree
+   and local branch, commits and pushes this file, and tells Andreas
+   what changed on screen.
 6. Starts the next ticket in a new worktree based on `main`.
 
 A lead resuming from this file first checks whether a worker is still
@@ -1714,11 +1754,11 @@ Andreas installs and tries when he chooses (`./install.sh`, his to run).
 
 Waiting on Andreas, none of it blocking the scope above:
 
-- NZ-6 (quiet offline exit): his choice between fully quiet and one short
-  line, and the instruction to run it. It touches `main.rs`, `sync.rs` and
-  `commands/sync.rs`, so it could run alongside NZ-2, NZ-4 or NZ-5, but
-  not NZ-3, which may add a helper to `sync.rs`.
-- Whether the leftovers listed in NZ-1's record become tickets.
+- NZ-6 (quiet offline exit, decided: quiet like Pinz) is Ready and in
+  the standing scope for the second slot; it touches `main.rs`,
+  `sync.rs` and `commands/sync.rs`, so it can run beside a tree ticket
+  but not beside NZ-3, which may add a helper to `sync.rs`.
+- Whether the leftovers listed on the Done tickets become tickets.
 
 ## Start the lead
 
