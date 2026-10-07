@@ -268,6 +268,20 @@ State at the stop, in short (details under In flight, Tickets, Next step):
     (listing addition only, no signature or format change).
   - Stop conditions unchanged: outside the limits, two failed fix cycles on
     one blocker, disk full, usage limit, or Andreas changes direction.
+- 2026-10-07 about 17:40 CEST, RELAYED by the advisor session
+  (`repos-f9`), Andreas's words: "the agent may tag the releases of this
+  project. this project is however not ready for public release." RECORD
+  ONLY until Andreas confirms it in a lead session, because it widens a
+  standing prohibition (`docs/agent-workflow.md` "No agent tags,
+  releases..." and the coordinator definition "Never tag, release"), and a
+  relayed message cannot expand authority. The reading the lead will put
+  to him: once NZ-17 is done and merged, the lead may create the annotated
+  version tag (for example `v0.1.0`) locally; pushing a tag to the public
+  repository is held back and asked about, since the project is "not
+  ready for public release"; no GitHub Release, announcement or anything
+  else that publishes. On his confirmation the lead edits
+  `docs/agent-workflow.md` to say so and NZ-17's record; the coordinator
+  definition is his file to change.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -1126,7 +1140,16 @@ semver, 0.x so minor bumps may break, patch for fixes, and `notez-core`
 file-format changes are always at least a minor bump because epoz pins
 it; (5) `install.sh` prints the installed version. The ticket ends by
 presenting `git tag -a v0.1.0 -m ...` and the push command for Andreas;
-no agent tags or releases.
+no agent tags or releases, unless Andreas confirms the relayed tagging
+permission recorded under Authorized by the owner (then the lead creates
+the local tag after the merge and asks before pushing it).
+
+Board, relayed at the same time: the project board is now backed by real
+issues #13 to #29 (NZ-1 to NZ-17) in `Gaurgle/notez`, added to
+`projects/2` with statuses; the advisor is still reconciling duplicate
+draft items. The lead does not touch the board until the advisor or
+Andreas says it is settled; the advisor mirrors this file's status
+changes there for now.
 
 Open for Andreas: should epoz later pin the tag instead of a rev; should
 cli and core versions always move together (proposed: yes, one workspace
