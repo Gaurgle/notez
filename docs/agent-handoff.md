@@ -323,7 +323,25 @@ standing scope confirmed at takeover:
   initial expansion (current sections open, others collapsed, all open
   when nothing is current), `theme::scope_color`, badges on rows and
   scope words on headers, narrowed empty-state wording, README and
-  DESIGN.md. PASS 2 WORKER RUNNING. No reviewer yet.
+  DESIGN.md. Pass 2 REPORTED at 18:55 CEST (opus, about 122k tokens
+  including one fix cycle for the `-g` empty-state wording and the stale
+  "TUI aggregation" paragraph in DESIGN.md). Lead decision on pass 2's
+  finding that every section opened COLLAPSED at the base (the brief had
+  assumed expanded): current sections open expanded, everything else as
+  built, so a single `-p`/`-l` section inside a project now opens
+  expanded and views with nothing current open collapsed as before.
+  Colours chosen: personal LAVENDER, public TEAL, scratch FLAMINGO,
+  global GREEN (TEAL and FLAMINGO added to `theme.rs` from the same
+  palette; PEACH and SAPPHIRE are tag colours).
+- Whole diff: 7 files, 866 insertions, 195 deletions, `git diff ff33de0
+  | shasum -a 256` = `0265d388e822f5e0b1eedcba64dbea8303e80510c2aec42142004a4f6be6ad70`.
+  Worker checks: build clean, notez-cli 218, notez-core 146.
+- `nz-reviewer` (opus) dispatched 19:00 CEST on that hash with ten
+  probes (notez-core API unchanged, dedup, symlinks under `personal/`,
+  `is_current` in narrowed views, `NewNoteRoots` for personal-only
+  projects, expansion versus focus and rebuild, badge widths and mouse
+  columns, title-keyed empty state, the re-targeted tests, `decide`).
+  REVIEW RUNNING.
 
 Queue after NZ-13, as confirmed by Andreas at takeover: NZ-14 (folders),
 NZ-15 (move, set scope), NZ-16 (multi-select), then the UI tickets NZ-4,
@@ -1126,20 +1144,106 @@ personal folders too once its pinned `notez-core` rev moves.
 
 #### NZ-14: folders in the tree browser
 
-Status: Draft, relayed, not confirmed in the lead session. Builds on NZ-8
-(`n` new note) and NZ-12 (`d` delete note).
+Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+("NZ-14: folders in the browser (create, rename, delete)"). Builds on
+NZ-8 (`n`), NZ-12 (`d`) and NZ-13 (sections, `is_current`). Runs after
+NZ-13 is on `main`. Brief finalized by the lead at 19:05 CEST.
 
-Outcome: create a folder (`N`), rename a folder (`r` on a folder row;
-today `r` renames notes only), delete a folder (`d` on a folder row, with a
-confirmation that states how many notes go with it; hard delete). Renaming
-a folder migrates the `.tags` keys of everything under it.
+Correction to the earlier note: notez has NO numbered folder convention
+(DESIGN.md: "No numbered directory allocation. Real names."); `notez
+mkdir` only sanitizes the name with `sanitize::name` and runs
+`create_dir_all` under the scope root, plus `ensure_scratch_gitignored`
+for the local scope.
 
-Lead's notes for the brief: folder names in notez have a numbered
-convention (`is_numbered`, `notez mkdir` in `commands/mkdir.rs`); creating
-through the same path as `mkdir` keeps that. Deleting a folder removes
-user content in bulk, so the confirmation must count notes and name the
-scope, and the local scope says "not recoverable". `.tags` migration must
-never lose tags on a partial failure.
+Problem (verified by the lead at `ff33de0`): the tree shows folders only
+because files sit in them (`build_forest` derives folder rows from the
+section's file list), `r` is guarded by `!is_dir`, and `d` on a folder
+says folder delete is not available (NZ-12). An empty folder on disk is
+invisible and nothing in the browser creates, renames or deletes one.
+
+Outcome and decisions:
+
+1. Empty folders are listed. `commands/tree.rs` walks each section root
+   for directories (hidden names skipped) and passes them on the
+   `SectionSpec` (a `dirs: Vec<PathBuf>` field or equivalent);
+   `build_forest` makes a folder row for every listed directory, with or
+   without files. Section rows (depth 0) are not folders for these keys.
+2. `N` creates a folder. Same prompt machinery as NZ-8: the target is the
+   folder under the cursor (the parent for a file row, the section root
+   for a section row), `Tab` cycles the scope exactly as `n` does, the
+   lead reads `new folder in <scope>/<folder>: _`, `Enter` creates through
+   a `mkdir::create_in_dir(dir, name)` carved out of `mkdir::run` (same
+   sanitizing, same `.gitignore` step for local; no behaviour change to
+   `notez mkdir`), `Esc` cancels. An empty name is refused with a footer
+   message, an existing name is refused (never merges into or overwrites
+   an existing folder). The tree is rebuilt with the new folder selected
+   and expanded.
+3. `r` on a folder row renames it: the prompt shows the current name,
+   `Enter` renames within the same parent with `std::fs::rename` after
+   sanitizing; an existing target (file or folder, case-insensitive
+   match on APFS counts) is refused and nothing changes. Every row under
+   it gets its new path with `origin` kept, so the existing
+   `changed_tag_maps` retires the old keys and writes the new ones on
+   exit; no `.tags` file is touched at rename time, so a rename that
+   fails changes nothing. The cursor stays on the renamed folder.
+4. `d` on a folder row asks `delete <rel>/ and its <n> notes from
+   <scope>? y/n` (`1 note`, `no notes` for an empty folder), appending
+   "and other files" when the folder contains anything that is not a
+   markdown note, and "not recoverable" for the local scope as NZ-12
+   does. `y` removes it with `std::fs::remove_dir_all`, retires every
+   `.tags` key under it through NZ-12's retired list, and rebuilds with
+   the cursor on the neighbour by NZ-12's rule. A failed delete reports
+   `delete failed: <error>` and rebuilds so the tree matches the disk
+   (a partially removed folder then shows what is left).
+5. Keys in `TREE_KEYS`: `N` (help "new folder", footer priority just
+   below `n`), `r` and `d` help texts widened to "rename note or folder"
+   and "delete note or folder"; the confirm mode reuses NZ-12's `y` and
+   `n/esc`.
+6. Not in this ticket: moving folders (NZ-15), multi-select (NZ-16),
+   folder badges beyond what NZ-13 draws, the todo board.
+
+Acceptance criteria:
+
+1. An empty directory under a section root shows as a folder row; a
+   hidden directory does not; tests on the section builder and
+   `build_forest`.
+2. `N` then a name creates exactly that directory where `notez mkdir
+   <name>` with the matching scope would, for a cursor in each scope and
+   on a section row, checked by tests on target resolution and on
+   `mkdir::create_in_dir` parity with `run`; an empty or existing name
+   creates nothing and shows the message; `Esc` creates nothing; after
+   creation the folder is selected and expanded.
+3. Rename moves the directory and every note in it, refuses an existing
+   target, and after exit `.tags` holds the new keys and none of the old
+   ones, other keys untouched; tests on a temp tree including a note
+   two levels down and a rename that fails (target exists) leaving
+   paths and tags unchanged.
+4. Delete removes the directory and its contents, nothing outside it;
+   the prompt counts notes correctly (0, 1, many) and says "and other
+   files" when applicable; cancel removes nothing; after exit `.tags`
+   has no key under the old path; a delete failure reports and rebuilds;
+   tests on a temp tree.
+5. `r`, `d` and `N` on a section row change nothing (a footer message is
+   fine); no key panics on an empty tree; NZ-8 and NZ-12 tests pass
+   unchanged except where a `SectionSpec` field addition needs a
+   mechanical literal (list each).
+6. `N` in the key table, help and footer tests pass, README updated.
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/footer.rs`, `crates/notez-cli/src/tui/help.rs`,
+`crates/notez-cli/src/commands/tree.rs` (directory listing),
+`crates/notez-cli/src/commands/mkdir.rs` (expose the creation path, no
+behaviour change), `README.md`. No new dependency, no `notez-core`
+change.
+
+Method: bounded ticket, two worker passes on one worktree: pass 1
+directory listing and `N` create (commands/tree.rs, mkdir.rs, the
+`N` prompt in tui/tree.rs); pass 2 folder rename and delete. One review
+of the whole diff. Reviewer probes: `remove_dir_all` never reachable
+with a section root or a path outside the row's section; rename across
+a case-only change (`Ideas` to `ideas`); a folder containing a symlink;
+the retired-keys list after a folder delete that fails midway; key
+dispatch order so `N` never fires inside another prompt.
 
 #### NZ-15: move a note or folder, change its visibility
 
