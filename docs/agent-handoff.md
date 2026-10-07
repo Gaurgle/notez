@@ -206,9 +206,15 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 - 2026-10-07 16:04 CEST: a second message from the same advisor session
   relayed Andreas's "ok" to two recommendations (the `collect_all` change in
   `notez-core` for NZ-13; notez never commits in a project repository for
-  NZ-15) and a new ticket, NZ-16 (multi-select with `x`), RECORD ONLY. The
+  NZ-15) and a new ticket, NZ-16 (multi-select), RECORD ONLY. The
   lead recorded them, committed this file, and started nothing. Same
   standing as the first relay: confirmed with Andreas before anything runs.
+- 2026-10-07, third relay from the same advisor session: Andreas decided
+  NZ-16 marks rows with `Space`, not `x`, so `x` stays "check" in the todo
+  board. Recorded; the proposed key map now reads `n` new note, `N` new
+  folder, `r` rename, `d` delete, `m` move, `S` set scope, `Space` mark,
+  `o`/`Enter` open, still unconfirmed as a whole until Andreas confirms it
+  with the lead at start. Record only, nothing dispatched.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -813,9 +819,10 @@ Owner decisions as relayed (Andreas, advisor session, 2026-10-07):
   gets the same operations as a second way in, later.
 
 Key map proposed by the advisor session, NOT yet confirmed by Andreas (ask
-him before NZ-12 to NZ-15 run): `n` new note (NZ-8 already uses it), `N`
+him before NZ-12 to NZ-16 run): `n` new note (NZ-8 already uses it), `N`
 new folder, `r` rename (exists), `d` delete, `m` move, `S` set scope,
-`o`/`Enter` open (exist). Keys to avoid because they are taken or pending:
+`Space` mark (NZ-16; `x` stays check in the todo board, decided on
+2026-10-07), `o`/`Enter` open (exist). Keys to avoid because they are taken or pending:
 `q j k h l f v t J K / ? 0 s < > = 1 2 Tab`. Andreas's own `c` create and
 `C` change visibility was argued against (`c`/`C` look like a pair but are
 unrelated, `c` is better kept for copy, `n`/`N` is the file-manager
@@ -912,13 +919,15 @@ the repository and not yet committed. Moving out of the vault leaves the
 file in vault history until the next `notez sync` pushes the deletion;
 moving into the vault is picked up by the exit sync.
 
-#### NZ-16: multi-select with `x`
+#### NZ-16: multi-select with `Space`
 
 Status: Draft, relayed on 2026-10-07 at 16:04 CEST, not confirmed in the
-lead session. Depends on NZ-12, NZ-14 and NZ-15 for the actions; briefed
-and built after them, last in the proposed order.
+lead session. Mark key changed from `x` to `Space` on a third relay the
+same day: Andreas decided `x` stays "check" in the todo board. Depends on
+NZ-12, NZ-14 and NZ-15 for the actions; briefed and built after them, last
+in the proposed order.
 
-Outcome: `x` toggles a mark on the row under the cursor (notes and
+Outcome: `Space` toggles a mark on the row under the cursor (notes and
 folders). Marked rows are visibly marked and the footer shows the count,
 for example `3 marked`. `Esc` clears all marks. With marks present, `d`
 (delete), `m` (move) and `S` (set scope) apply to every marked row; the
@@ -928,12 +937,14 @@ the cursor row as before. Marks survive navigation and filtering and are
 dropped after the action. Marking a folder and one of its own notes must
 not act twice on the note. A partial failure (collision, read error)
 reports which items failed and leaves those in place; nothing is
-overwritten. `x` is taken as mark in the key map, so `x` is not used for
-cut.
+overwritten. `Space` is taken as mark in the key map; `x` is not used in
+the tree browser and is not used for cut.
 
-Lead's notes for the brief: in the todo board `x` already means check, so
-the two views will mean different things by `x`; worth confirming with
-Andreas. Marks are session state only, never persisted. The "folder plus
+Lead's notes for the brief: the mark key question is settled (`Space` in
+the tree, `x` stays check in the todo board). In the tree browser `Space`
+is free today; in the todo board `Space` also means check, which is a
+different view and does not clash. Marks are session state only, never
+persisted. The "folder plus
 its own note" rule means the action set is the marked rows with
 descendants of marked folders removed. A bulk delete across scopes needs
 one confirmation listing counts per scope.
