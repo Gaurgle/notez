@@ -29,17 +29,12 @@ continue; nothing here authorizes starting on its own.
 State at the stop, in short:
 
 - Done and merged today by this lead: NZ-8 (`bf8f2ca`), NZ-12
-  (`ff33de0`), NZ-13 (`ee6a6fd`). Local `main` is at the NZ-13 merge
-  plus handoff commits.
-- No ticket worktree holds work. The `.claude/worktrees/NZ-13` worktree
-  and `feat/NZ-13-unified-view` branch are removed once the push lands
-  (see the push note under In flight); if a lead finds them still
-  present, the branch is fully merged and may be removed with `git
-  worktree remove` and `git branch -d`.
-- Board (`projects/2`): NZ-13 must read Done and NZ-14 Ready; the edit
-  failed on a GitHub server error at 17:14 UTC and was retried; a lead
-  checks the board on takeover and corrects it with the ids recorded
-  under NZ-12.
+  (`ff33de0`), NZ-13 (`ee6a6fd`). `main` and `origin/main` are in sync
+  (the push landed on the fourth retry after GitHub's server errors).
+- No ticket worktree or branch exists; NZ-13's were removed after the
+  push. `git worktree list` shows only the main checkout.
+- Board (`projects/2`): NZ-13 Done and NZ-14 Ready, applied after the
+  GitHub errors cleared.
 - Andreas's installed binary is from 18:07 CEST on 2026-10-06 (NZ-1,
   NZ-2, NZ-7). NZ-9, NZ-10, NZ-8, NZ-12 and NZ-13 all need
   `./install.sh`, his to run. NZ-13 changes the default view and adds
@@ -322,11 +317,10 @@ about to be dispatched (its brief is Ready) but was NOT: no NZ-14
 branch, worktree or worker exists.
 
 GitHub returned "Internal Server Error" on `git push origin main` and on
-a `gh project item-edit` at 17:14 UTC while GitHub status said all
-systems operational; the lead retried the push in a loop. See the
-Current lead section for whether `origin/main` ended up at the NZ-13
-merge; if it did not, the first thing a lead does is `git push origin
-main` and the board edits listed there.
+`gh project item-edit` from 17:14 UTC for a few minutes while its status
+page said all systems operational; the push landed on retry and the
+board edits went through afterwards. `origin/main` is at the NZ-13 merge
+plus the handoff commits.
 
 Queue when work resumes, as confirmed by Andreas at takeover: NZ-14
 (folders, brief Ready), NZ-15 (move, set scope), NZ-16 (multi-select),
