@@ -7,6 +7,30 @@ ticket status, in-flight work, decisions and the next authorized step.
 ## Current lead
 
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
+`52bd7aa5-2d53-4a8e-bf4e-7bd5ec61a99b`, took the baton on 2026-10-07 16:30
+CEST on Andreas's "you can continue the work, from 2f04539, i believe.
+NZ-8 to NZ-16", followed by his pasted queue list (NZ-8, NZ-12, the UI
+tickets, NZ-13, NZ-14, NZ-15, NZ-16). Reconciled at takeover: `main` =
+`origin/main` = `2f04539`, working tree clean; one worktree,
+`.claude/worktrees/NZ-8`, uncommitted diff hashing to the value recorded
+under In flight; no worker or reviewer running. The previous lead's
+process (`298bd2d1`, 22 hours old) was still open at takeover; its own
+record below says it released the baton the night before. RETIRED at
+16:41 CEST on 2026-10-07: on Andreas's request the advisor session
+(`repos-f9`) sent it SIGTERM after checking it was idle with a clean tree,
+and this lead confirmed with `ps` that no process of that session remains.
+Only this session leads.
+
+Dispatched at takeover: `nz-reviewer` (opus) on the NZ-8 worktree diff,
+hash `9edb7c70...` (see In flight), at 16:35 CEST.
+
+Pending from Andreas, relayed by the advisor session and NOT an
+instruction: he wants a GitHub Project board for notez and a Linear
+evaluation; he will say so himself.
+
+Previous lead, for history:
+
+Claude `nz-coordinator` (model `claude-fable-5-1`), session
 `aa27d2ed-a3e9-498c-ae61-db84f43eae7c`, took the baton on 2026-10-06 15:01
 CEST. First lead since setup: no previous lead, no ticket worktrees or
 branches, no workers running at takeover.
@@ -215,6 +239,35 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   folder, `r` rename, `d` delete, `m` move, `S` set scope, `Space` mark,
   `o`/`Enter` open, still unconfirmed as a whole until Andreas confirms it
   with the lead at start. Record only, nothing dispatched.
+- 2026-10-07 16:25 CEST, Andreas, in the new lead session (`52bd7aa5`):
+  "you can continue the work, from 2f04539, i believe. NZ-8 to NZ-16",
+  then, answering the lead's four confirmation questions, a pasted list:
+  "Already in the queue: NZ-8 (create a note), NZ-12 (delete a note), and
+  the UI tickets. NZ-13: the unified default view, with scope badges.
+  NZ-14: folders in the browser (create, rename, delete). NZ-15: move and
+  change visibility, with the warning. NZ-16: multi-select with Space."
+  The lead's reading, stated back to him:
+  - CONTINUE: the paused standing scope and integration delegation resume.
+  - Scope now: NZ-8, NZ-12, NZ-13, NZ-14, NZ-15, NZ-16 and the UI tickets
+    NZ-4, NZ-5, NZ-3, with NZ-11 and NZ-6 in the second worker slot. The
+    relayed tickets NZ-12 to NZ-16 are confirmed by his pasting them here.
+    Order chosen by the lead, Andreas can reorder: NZ-8, NZ-12, NZ-13,
+    NZ-14, NZ-15, NZ-16, then NZ-4, NZ-5, NZ-3. NZ-16 depends on 12, 14 and
+    15; NZ-13 reshapes the tree sections, so it goes before the pane and
+    search work.
+  - Integration: "merge as you go along" is applied to NZ-8 (named in the
+    original delegation). For NZ-12 onward the lead told him it will apply
+    the same delegation unless he says stop; he has not objected. Same
+    safe-merge conditions, same limits (no install, tag, release,
+    force-push, remote branch deletion).
+  - Key map: confirmed as relayed, since he engaged with it (the `Space`
+    decision) and did not object when asked: `n` new note, `N` new folder,
+    `r` rename, `d` delete, `m` move, `S` set scope, `Space` mark,
+    `o`/`Enter` open.
+  - NZ-13's `collect_all` change in `notez-core`: the relayed "ok" stands
+    (listing addition only, no signature or format change).
+  - Stop conditions unchanged: outside the limits, two failed fix cycles on
+    one blocker, disk full, usage limit, or Andreas changes direction.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -280,9 +333,12 @@ NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
   prompt has no in-line cursor, like rename. (4) `n` and `f` share footer
   priority 3. (5) Creating in another section while focused expands that
   section too. (6) The mouse on an empty tree was reasoned, not exercised.
-- NEXT, on another day and only on Andreas's word: check the hash above
-  still matches, dispatch `nz-reviewer` on it with the NZ-8 ticket and the
-  six points, then fixes if asked, the lead's checks, commit, merge, push.
+- 2026-10-07 16:35 CEST: the new lead (`52bd7aa5`) verified the hash
+  still matches and dispatched `nz-reviewer` (opus) on it with the ticket,
+  the six points above, and extra probes (`add` behaviour unchanged, no
+  `notez-core` file touched, the rebuild path under editor failure).
+  REVIEW RUNNING. Then fixes if asked, re-review, the lead's checks on the
+  combined result with current `main`, commit, merge, push, cleanup.
 - The lead's session scratchpad was removed at about the same time (the
   session id appears to have changed to `298bd2d1`), so the diff snapshots
   saved there for earlier reviews are gone. Hashes in this file still
@@ -755,45 +811,80 @@ behaviour change to `add`), `README.md`. No new dependency, no
 
 ### NZ-12: delete a note from the tree browser
 
-Status: Draft, not yet approved by Andreas. Asked for on 2026-10-07 together
-with create and rename in the browser. Create is NZ-8 (built, awaiting
-review). Rename already exists as `r` in the tree browser (`tui/tree.rs`,
-through `commands/rename`), so only delete is new.
+Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+(his pasted queue: "NZ-12 (delete a note)"); the hard-delete decision and
+the `d` key were relayed on 2026-10-07 and stand. Runs after NZ-8 is on
+`main`, based on it, because both touch the key table, the footer lead
+and the rebuild path in `tui/tree.rs`. Brief finalized by the lead at
+16:55 CEST from the NZ-8 worktree code.
 
 Problem: the tree browser can browse, tag, rename and (after NZ-8) create
 notes, but a note can only be removed outside the app.
 
-Proposed outcome, decisions open for Andreas:
+Outcome and decisions:
 
-1. A key (proposed `d`) on a note row asks for confirmation in the footer,
-   naming the file and its scope, for example
-   `delete personal/ideas/2026-10-07-x.md? y/n`. Any other key cancels.
-2. On `y` the file is removed and the tree is rebuilt with the cursor on
-   the neighbouring row. The note's `.tags` key is retired as rename does.
-3. Folders are out of scope for the first cut: `d` on a folder row does
-   nothing and says so in the footer.
-4. SETTLED (relayed 2026-10-07, see the note below NZ-12): hard delete,
-   with a `y/n` confirmation naming the file and its scope; the prompt for
-   the local (`.notez`) scope says "not recoverable". Background: the vault
-   is a git repo, so a deleted personal or global note is recoverable from
-   history after `notez sync`; a public note under `<project>/notez/` only
-   if it was committed; a scratch note never.
-5. `d` and the prompt keys go in the key table, so the footer and the help
-   overlay show them.
-6. Folder delete, excluded in point 3, is now wanted as well: it is NZ-14.
+1. `d` on a note row asks for confirmation in the footer lead, naming the
+   file relative to its scope root and the scope by the same words NZ-8's
+   `scope_label` uses, for example
+   `delete ideas/2026-10-07-x.md from personal? y/n`. For the public scope
+   the prompt says "public (committed with the project)"; for the local
+   scope it appends "not recoverable". `y` deletes; `n`, `Esc` and any
+   other key cancel and leave everything as it was. The prompt is a mode
+   in the key table (`Mode::ConfirmDelete` or similar) so the footer and
+   help overlay show `y confirm` and `n cancel`.
+2. On `y` the file is removed with `std::fs::remove_file` and the tree is
+   rebuilt through the existing `rebuild` closure and `Forest::rebuild`,
+   with the cursor on the row that followed the deleted one (or the one
+   before it when it was last in its folder, or the folder itself when it
+   is now empty). Expanded state, unsaved tag edits and the filter are
+   kept, as NZ-8's rebuild keeps them.
+3. The deleted note's `.tags` key is retired in the maps written on exit.
+   Rename does this through `TreeNode.origin != path` in
+   `changed_tag_maps`; a deleted node no longer exists after the rebuild,
+   so the `Forest` needs an explicit list of retired keys per tag root
+   that `changed_tag_maps` removes. Without it the stale key would
+   survive, since the final map starts from the loaded one.
+4. `d` on a folder row does nothing except a footer message saying folder
+   delete is not available yet (NZ-14). `d` on an empty tree does nothing.
+5. The delete happens inside the browser; no editor, no sync call. The
+   exit sync commits the deletion in the vault as it commits any change.
+6. Hard delete, decided by Andreas: no trash folder, no undo key.
 
-Acceptance criteria (proposed):
+Acceptance criteria:
 
-1. Deleting in each scope removes exactly the selected file, checked by
-   tests on a temp tree. A cancelled prompt removes nothing.
-2. No key panics on an empty tree or a folder row.
-3. Rename and tags behave as before; `.tags` has no entry for the deleted
-   file afterwards.
-4. Unit tests for the confirm flow and for folder rows; README updated.
+1. `d` then `y` on a note in each scope (personal, public, local, global)
+   removes exactly that file, nothing else, checked by tests on a temp
+   tree with a real `rebuild` closure. `d` then `n`, `Esc` or another key
+   removes nothing.
+2. The prompt text names the relative path and the scope; for local it
+   contains "not recoverable"; for public it contains "public". Tests on
+   the pure prompt-building function.
+3. After the delete the cursor rule in decision 2 holds and the expanded
+   set, unsaved tag flags on other notes and the active filter are
+   unchanged; a unit test on the rebuild path shows it.
+4. After the exit, `.tags` has no entry for the deleted file, and other
+   entries are untouched (a test on `changed_tag_maps` with a retired
+   key). A deleted note that had no tag changes `.tags` only by losing its
+   key.
+5. No key panics on an empty tree or a folder row; `d` on a folder shows
+   the message and changes nothing.
+6. A delete that fails (file already gone, permission denied) shows
+   `delete failed: <error>` in the footer, removes nothing else, and the
+   tree is rebuilt so the display matches the disk.
+7. `d`, `y` and `n` are in `TREE_KEYS` with the right modes; the existing
+   key-table tests (each key appears once in help) still pass. README key
+   table updated.
 
-Allowed files (proposed): `crates/notez-cli/src/tui/` (`tree.rs`,
-`footer.rs`, `help.rs`), `README.md`. No new dependency. Runs after NZ-8,
-which touches the same key table and footer.
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/footer.rs`, `crates/notez-cli/src/tui/help.rs`,
+`README.md`. No new dependency, no `notez-core` change, no change to
+`commands/`.
+
+Method: bounded ticket, one worker pass (the change is small next to
+NZ-8), one review. Reviewer probes: the retired-key path in
+`changed_tag_maps`; the cursor after deleting the last note of a folder;
+`d` while a filter is active; `d` in focus mode; a `y` keypress arriving
+when the prompt is not open (must be a no-op, not a delete).
 
 ### Relayed on 2026-10-07: decisions and tickets NZ-13 to NZ-15
 
