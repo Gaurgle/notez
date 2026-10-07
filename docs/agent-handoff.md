@@ -28,7 +28,12 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 - One open worktree: `.claude/worktrees/NZ-8`, branch
   `feat/NZ-8-create-note-in-browser`, with a COMPLETE BUT UNREVIEWED,
   uncommitted worker result. It is the next thing to do.
-- Not started: NZ-4, NZ-5, NZ-3 (UI, in that order), NZ-6, NZ-11.
+- Not started: NZ-4, NZ-5, NZ-3 (UI, in that order), NZ-6, NZ-11. Drafts
+  relayed on 2026-10-07 through an advisor session, not yet confirmed by
+  Andreas in a lead session: NZ-12 (delete a note), NZ-13 (unified default
+  view), NZ-14 (folders), NZ-15 (move and change visibility). See the
+  "Relayed on 2026-10-07" note under Tickets for provenance and the
+  unconfirmed key map. Baton still released; nothing dispatched.
 - Andreas's installed binary is from 18:07 (NZ-1, NZ-2, NZ-7). NZ-9 and
   NZ-10 need another `./install.sh`, his to run.
 - This file has grown long. The sections that matter to a new lead are
@@ -190,6 +195,13 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   The standing scope and the delegation are NOT withdrawn: they are
   paused, and a lead continues them only when Andreas says so on another
   day.
+- 2026-10-07 15:37 CEST: a cross-session message from an advisor session
+  relayed Andreas's decisions on delete, visibility changes and keys, and
+  three new tickets (NZ-13, NZ-14, NZ-15), asking that they be RECORDED
+  ONLY. The lead recorded them under Tickets with their provenance,
+  committed this file, and started nothing. Relayed intent is not an
+  instruction to run: Andreas confirms in a lead session before any of
+  NZ-12 to NZ-15 is dispatched, and the proposed key map is his to accept.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -727,6 +739,151 @@ Allowed files: `crates/notez-cli/src/tui/` (`tree.rs`, `footer.rs`,
 `crates/notez-cli/src/commands/add.rs` (to expose the creation path, no
 behaviour change to `add`), `README.md`. No new dependency, no
 `notez-core` change unless Andreas approves.
+
+### NZ-12: delete a note from the tree browser
+
+Status: Draft, not yet approved by Andreas. Asked for on 2026-10-07 together
+with create and rename in the browser. Create is NZ-8 (built, awaiting
+review). Rename already exists as `r` in the tree browser (`tui/tree.rs`,
+through `commands/rename`), so only delete is new.
+
+Problem: the tree browser can browse, tag, rename and (after NZ-8) create
+notes, but a note can only be removed outside the app.
+
+Proposed outcome, decisions open for Andreas:
+
+1. A key (proposed `d`) on a note row asks for confirmation in the footer,
+   naming the file and its scope, for example
+   `delete personal/ideas/2026-10-07-x.md? y/n`. Any other key cancels.
+2. On `y` the file is removed and the tree is rebuilt with the cursor on
+   the neighbouring row. The note's `.tags` key is retired as rename does.
+3. Folders are out of scope for the first cut: `d` on a folder row does
+   nothing and says so in the footer.
+4. SETTLED (relayed 2026-10-07, see the note below NZ-12): hard delete,
+   with a `y/n` confirmation naming the file and its scope; the prompt for
+   the local (`.notez`) scope says "not recoverable". Background: the vault
+   is a git repo, so a deleted personal or global note is recoverable from
+   history after `notez sync`; a public note under `<project>/notez/` only
+   if it was committed; a scratch note never.
+5. `d` and the prompt keys go in the key table, so the footer and the help
+   overlay show them.
+6. Folder delete, excluded in point 3, is now wanted as well: it is NZ-14.
+
+Acceptance criteria (proposed):
+
+1. Deleting in each scope removes exactly the selected file, checked by
+   tests on a temp tree. A cancelled prompt removes nothing.
+2. No key panics on an empty tree or a folder row.
+3. Rename and tags behave as before; `.tags` has no entry for the deleted
+   file afterwards.
+4. Unit tests for the confirm flow and for folder rows; README updated.
+
+Allowed files (proposed): `crates/notez-cli/src/tui/` (`tree.rs`,
+`footer.rs`, `help.rs`), `README.md`. No new dependency. Runs after NZ-8,
+which touches the same key table and footer.
+
+### Relayed on 2026-10-07: decisions and tickets NZ-13 to NZ-15
+
+Provenance: at 15:37 CEST on 2026-10-07 the lead session (baton released,
+stopped the night before) received a cross-session message from another
+Claude session ("advisor session", `repos-f9`) saying Andreas asked it to
+have these recorded. RECORD ONLY. Nothing below was said by Andreas in the
+lead session, so a lead treats it as owner intent relayed second hand:
+record it, do not run on it, and confirm the decisions and the key map with
+Andreas directly before any of these tickets is dispatched. The advisor
+session also wrote NZ-12 above into this file, uncommitted, the same day.
+The baton stays released until Andreas says continue.
+
+Owner decisions as relayed (Andreas, advisor session, 2026-10-07):
+
+- Delete: hard delete with `y/n` confirmation naming the file and scope;
+  the local scope prompt says "not recoverable". Settles NZ-12 point 4.
+  Folder delete wanted too (NZ-14).
+- Visibility change: a move between scopes must warn. Public to private
+  leaves the file in the repository's git history; private to public
+  commits it into the repository.
+- Keys: regular single-key commands first. The existing `:` command line
+  gets the same operations as a second way in, later.
+
+Key map proposed by the advisor session, NOT yet confirmed by Andreas (ask
+him before NZ-12 to NZ-15 run): `n` new note (NZ-8 already uses it), `N`
+new folder, `r` rename (exists), `d` delete, `m` move, `S` set scope,
+`o`/`Enter` open (exist). Keys to avoid because they are taken or pending:
+`q j k h l f v t J K / ? 0 s < > = 1 2 Tab`. Andreas's own `c` create and
+`C` change visibility was argued against (`c`/`C` look like a pair but are
+unrelated, `c` is better kept for copy, `n`/`N` is the file-manager
+convention). The `:` line already exists (`VimCommandMode`), so `:new`,
+`:mkdir`, `:rename`, `:mv`, `:rm` would go there; no leader key.
+
+Order proposed by the advisor session, for Andreas to decide: NZ-8 review
+and merge, then NZ-12, NZ-13, NZ-14, NZ-15, fitted around the UI queue
+(NZ-4, NZ-5, NZ-3). All of them stop at Ready to integrate under the
+standing scope's limits unless Andreas says otherwise.
+
+#### NZ-13: unified default view
+
+Status: Draft, relayed, not confirmed in the lead session. Supersedes
+NZ-7's decision 1 ("inside a project, the project view") where they differ.
+
+Outcome: bare `notez` shows everything Andreas can reach: global notes, the
+current repository (personal, public, docs, scratch), every registered
+project, and unregistered `personal/<name>/` folders. Today
+`aggregate::collect_all` skips `personal/` for projects not in the
+registry, so for example `personal/socials` never shows. The current
+repository's section comes first and expanded. Every row and section
+carries a scope badge (private, public, local, global) using the existing
+scope icons and colours. The scope flags `-p`, `-l`, `-g` still narrow to
+one scope; an empty scope says so in the browser instead of exiting with a
+message (NZ-8 removes that exit).
+
+Files named: `tui/tree.rs`, `commands/tree.rs`,
+`notez-core/src/core/aggregate.rs` (the `collect_all` personal rule),
+`README.md`. Tests on aggregation and badges.
+
+Lead's notes for the brief: the `notez-core` change needs Andreas's
+explicit approval in the lead session (epoz pins the crate; a change to
+what `collect_all` returns is a behaviour change epoz would also see when
+it bumps). NZ-8's `NewNoteRoots` and section scope work should be reused
+for the badges. The `s` scope cycling in NZ-5 and this ticket's badges
+should agree on names and colours.
+
+#### NZ-14: folders in the tree browser
+
+Status: Draft, relayed, not confirmed in the lead session. Builds on NZ-8
+(`n` new note) and NZ-12 (`d` delete note).
+
+Outcome: create a folder (`N`), rename a folder (`r` on a folder row;
+today `r` renames notes only), delete a folder (`d` on a folder row, with a
+confirmation that states how many notes go with it; hard delete). Renaming
+a folder migrates the `.tags` keys of everything under it.
+
+Lead's notes for the brief: folder names in notez have a numbered
+convention (`is_numbered`, `notez mkdir` in `commands/mkdir.rs`); creating
+through the same path as `mkdir` keeps that. Deleting a folder removes
+user content in bulk, so the confirmation must count notes and name the
+scope, and the local scope says "not recoverable". `.tags` migration must
+never lose tags on a partial failure.
+
+#### NZ-15: move a note or folder, change its visibility
+
+Status: Draft, relayed, not confirmed in the lead session.
+
+Outcome: `m` moves a note or folder to a chosen destination; the picker's
+first step is the scope (private, public, local, global), then the folder.
+`S` (set scope) is a shortcut that keeps the relative path and changes only
+the scope. Both show the visibility warning above before acting, check for
+name collisions and never overwrite (as NZ-9), carry `.tags` keys, and
+handle moves across filesystems (vault versus repository). The public
+target prompt says "public" in so many words.
+
+Lead's notes for the brief: a cross-filesystem move is copy then delete,
+so the sequence must be copy, verify, carry tags, then remove, and leave
+both copies rather than none on failure. Private to public "commits it
+into the repository" needs a decision on who commits: notez (a git commit
+in the project repo, which notez has never done) or the user; ask Andreas.
+Moving out of the vault leaves the file in vault history until the next
+`notez sync` pushes the deletion; moving into the vault is picked up by
+the exit sync.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
