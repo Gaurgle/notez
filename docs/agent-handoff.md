@@ -31,9 +31,10 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 - Not started: NZ-4, NZ-5, NZ-3 (UI, in that order), NZ-6, NZ-11. Drafts
   relayed on 2026-10-07 through an advisor session, not yet confirmed by
   Andreas in a lead session: NZ-12 (delete a note), NZ-13 (unified default
-  view), NZ-14 (folders), NZ-15 (move and change visibility). See the
-  "Relayed on 2026-10-07" note under Tickets for provenance and the
-  unconfirmed key map. Baton still released; nothing dispatched.
+  view), NZ-14 (folders), NZ-15 (move and change visibility), NZ-16
+  (multi-select). See the "Relayed on 2026-10-07" note under Tickets for
+  provenance, the two relayed approvals and the unconfirmed key map. Baton
+  still released; nothing dispatched.
 - Andreas's installed binary is from 18:07 (NZ-1, NZ-2, NZ-7). NZ-9 and
   NZ-10 need another `./install.sh`, his to run.
 - This file has grown long. The sections that matter to a new lead are
@@ -202,6 +203,12 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   committed this file, and started nothing. Relayed intent is not an
   instruction to run: Andreas confirms in a lead session before any of
   NZ-12 to NZ-15 is dispatched, and the proposed key map is his to accept.
+- 2026-10-07 16:04 CEST: a second message from the same advisor session
+  relayed Andreas's "ok" to two recommendations (the `collect_all` change in
+  `notez-core` for NZ-13; notez never commits in a project repository for
+  NZ-15) and a new ticket, NZ-16 (multi-select with `x`), RECORD ONLY. The
+  lead recorded them, committed this file, and started nothing. Same
+  standing as the first relay: confirmed with Andreas before anything runs.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -815,10 +822,29 @@ unrelated, `c` is better kept for copy, `n`/`N` is the file-manager
 convention). The `:` line already exists (`VimCommandMode`), so `:new`,
 `:mkdir`, `:rename`, `:mv`, `:rm` would go there; no leader key.
 
-Order proposed by the advisor session, for Andreas to decide: NZ-8 review
-and merge, then NZ-12, NZ-13, NZ-14, NZ-15, fitted around the UI queue
-(NZ-4, NZ-5, NZ-3). All of them stop at Ready to integrate under the
-standing scope's limits unless Andreas says otherwise.
+Full proposed order, as it stands after the second relay (16:04 CEST on
+2026-10-07), for Andreas to confirm or change when he starts a lead: NZ-8
+review and merge; NZ-12 (delete); NZ-13 (unified view); NZ-14 (folders);
+NZ-15 (move, set scope); the UI queue NZ-4, NZ-5, NZ-3 fitted around those
+as Andreas prefers for his demo; NZ-6 and NZ-11 in the second worker slot
+or between; NZ-16 (multi-select) last, since it depends on NZ-12, NZ-14 and
+NZ-15. All of them stop at Ready to integrate under the standing scope's
+limits unless Andreas says otherwise. The key map stays unconfirmed until
+Andreas confirms it with the lead at the start.
+
+Second relay, 16:04 CEST on 2026-10-07, same advisor session: Andreas said
+"ok" to the advisor's recommendations on the two questions the lead had
+raised, and asked for one more ticket (NZ-16). Marked as relayed, like the
+rest; the lead confirms them with him at the start.
+
+- NZ-13: the `notez-core` change to `collect_all` (also list
+  `personal/<name>/` folders of projects not in the registry) is approved.
+  It only adds notes to the listing; no file format change. Follow-up for
+  Andreas, not part of the ticket: check how epoz uses `collect_all` before
+  its pinned rev moves, since epoz will then list those folders too.
+- NZ-15: notez only moves the file. It never commits or pushes in a project
+  repository. The private-to-public warning says the note is now in the
+  repository and not yet committed.
 
 #### NZ-13: unified default view
 
@@ -840,11 +866,12 @@ Files named: `tui/tree.rs`, `commands/tree.rs`,
 `notez-core/src/core/aggregate.rs` (the `collect_all` personal rule),
 `README.md`. Tests on aggregation and badges.
 
-Lead's notes for the brief: the `notez-core` change needs Andreas's
-explicit approval in the lead session (epoz pins the crate; a change to
-what `collect_all` returns is a behaviour change epoz would also see when
-it bumps). NZ-8's `NewNoteRoots` and section scope work should be reused
-for the badges. The `s` scope cycling in NZ-5 and this ticket's badges
+Lead's notes for the brief: the `notez-core` change to `collect_all` is
+approved by Andreas as relayed on 2026-10-07 ("ok" to the advisor's
+recommendation; see the second relay above); it must stay an addition to
+the listing with no public signature or file format change, and epoz's use
+of `collect_all` is a follow-up for Andreas, not part of the ticket. NZ-8's
+`NewNoteRoots` and section scope work should be reused for the badges. The `s` scope cycling in NZ-5 and this ticket's badges
 should agree on names and colours.
 
 #### NZ-14: folders in the tree browser
@@ -878,12 +905,38 @@ target prompt says "public" in so many words.
 
 Lead's notes for the brief: a cross-filesystem move is copy then delete,
 so the sequence must be copy, verify, carry tags, then remove, and leave
-both copies rather than none on failure. Private to public "commits it
-into the repository" needs a decision on who commits: notez (a git commit
-in the project repo, which notez has never done) or the user; ask Andreas.
-Moving out of the vault leaves the file in vault history until the next
-`notez sync` pushes the deletion; moving into the vault is picked up by
-the exit sync.
+both copies rather than none on failure. Who commits is decided as relayed
+on 2026-10-07: notez only moves the file and never commits or pushes in a
+project repository; the private-to-public warning says the note is now in
+the repository and not yet committed. Moving out of the vault leaves the
+file in vault history until the next `notez sync` pushes the deletion;
+moving into the vault is picked up by the exit sync.
+
+#### NZ-16: multi-select with `x`
+
+Status: Draft, relayed on 2026-10-07 at 16:04 CEST, not confirmed in the
+lead session. Depends on NZ-12, NZ-14 and NZ-15 for the actions; briefed
+and built after them, last in the proposed order.
+
+Outcome: `x` toggles a mark on the row under the cursor (notes and
+folders). Marked rows are visibly marked and the footer shows the count,
+for example `3 marked`. `Esc` clears all marks. With marks present, `d`
+(delete), `m` (move) and `S` (set scope) apply to every marked row; the
+confirmation names the count and the scopes involved, and for delete says
+"not recoverable" if any marked note is local. Without marks they act on
+the cursor row as before. Marks survive navigation and filtering and are
+dropped after the action. Marking a folder and one of its own notes must
+not act twice on the note. A partial failure (collision, read error)
+reports which items failed and leaves those in place; nothing is
+overwritten. `x` is taken as mark in the key map, so `x` is not used for
+cut.
+
+Lead's notes for the brief: in the todo board `x` already means check, so
+the two views will mean different things by `x`; worth confirming with
+Andreas. Marks are session state only, never persisted. The "folder plus
+its own note" rule means the action set is the marked rows with
+descendants of marked folders removed. A bulk delete across scopes needs
+one confirmation listing counts per scope.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
