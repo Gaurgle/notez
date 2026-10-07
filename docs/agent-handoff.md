@@ -1200,12 +1200,17 @@ no agent tags or releases, unless Andreas confirms the relayed tagging
 permission recorded under Authorized by the owner (then the lead creates
 the local tag after the merge and asks before pushing it).
 
-Board, relayed at the same time: the project board is now backed by real
-issues #13 to #29 (NZ-1 to NZ-17) in `Gaurgle/notez`, added to
-`projects/2` with statuses; the advisor is still reconciling duplicate
-draft items. The lead does not touch the board until the advisor or
-Andreas says it is settled; the advisor mirrors this file's status
-changes there for now.
+Board, as settled by the advisor on 2026-10-07 about 18:20 CEST: the
+project board is `https://github.com/users/Gaurgle/projects/2` (private,
+linked to the repo), 17 draft items NZ-1 to NZ-17 with Status options
+Draft, Ready, In flight, Ready to integrate, Done. No repository issues
+back it; the ones the advisor had opened were deleted again, so ghost
+rows in GitHub's listing for a while are index lag, not items. The lead
+does not edit the board: it reports state changes to Andreas or the
+advisor, who update it with `gh project item-edit`, until Andreas says
+the lead may do so. Wiring the URL and read command into
+`docs/agent-workflow.md` also waits for his word. This file stays the
+record of ticket status.
 
 Open for Andreas: should epoz later pin the tag instead of a rev; should
 cli and core versions always move together (proposed: yes, one workspace
@@ -1218,14 +1223,10 @@ Allowed files (proposed): `Cargo.toml` (workspace and both crates),
 `crates/notez-cli/build.rs` (new), `crates/notez-cli/src/main.rs`
 (version output only), `CHANGELOG.md` (new), `README.md`, `install.sh`.
 
-Board note, relayed the same way: a GitHub Project board for notez now
-exists (`https://github.com/users/Gaurgle/projects/2`, private, linked
-to the repo, Status options Draft, Ready, In flight, Ready to integrate,
-Done). The advisor is populating it with NZ-1 to NZ-17 as draft items.
-Wiring it into `docs/agent-workflow.md` (board URL and read command) is
-the lead's job but waits for Andreas's word; the API listing for the new
-project returned 0 items when the advisor checked. Until then this file
-stays the board of record.
+Board: see the settled note under NZ-12 (the project board at
+`https://github.com/users/Gaurgle/projects/2`; the lead reports state
+changes, the advisor or Andreas edits the board, until Andreas says
+otherwise).
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
