@@ -74,9 +74,20 @@ content, never overwriting an existing file; an empty title becomes
 `untitled`), opens it in the editor, and selects it in the refreshed tree;
 `Esc` cancels.
 
+**Deleting notes in the tree.** `d` on a note asks first in the footer,
+naming the file and its scope, for example
+`delete ideas/2026-10-07-x.md from personal? y/n`; a local scratch note's
+prompt adds `(not recoverable)`, since scratch is in no repository. `y`
+deletes the file and refreshes the tree, keeping open folders, unsaved tag
+changes and the filter, with the cursor on the next note in the folder (or
+the one before it). `n`, `Esc` or any other key cancels. The note's `.tags`
+entry goes on exit, and the exit sync commits the deletion like any other
+change. There is no trash and no undo. `d` on a folder only says folder
+delete is not available yet.
+
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a
-new note or a new todo, `:` command) and lights the ones whose mode is on, such as `f`
+new note or a new todo, a delete confirmation, `:` command) and lights the ones whose mode is on, such as `f`
 while a section is focused. In tag, text-entry and `:` command modes the
 tag legend, prompt or command comes first and the keys follow in the space
 left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes

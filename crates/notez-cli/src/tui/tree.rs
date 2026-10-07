@@ -104,7 +104,7 @@ struct TreeNode {
 /// every tag root whose `.tags` content changed; the caller persists them.
 /// A quit without tag edits returns an empty list (nothing gets written).
 /// `rebuild` lists the sections again; the browser calls it after creating
-/// a note so the new file shows up.
+/// or deleting a note so the tree matches the disk.
 pub fn run_tree(
     sections: Vec<SectionSpec>,
     ctx: &TreeContext,
@@ -116,14 +116,15 @@ pub fn run_tree(
         tag_roots.iter().map(|r| note_tags::load_tags(r)).collect();
     apply_tags(&mut nodes, &tag_roots, &initial);
     let mut forest = Forest { sections, nodes, tag_roots, initial };
+    let mut retired = Vec::new();
 
     let mut terminal = super::enter().context("failed to enter TUI")?;
-    let result = event_loop(&mut terminal, &mut forest, ctx, config, rebuild);
+    let result = event_loop(&mut terminal, &mut forest, &mut retired, ctx, config, rebuild);
     let Forest { nodes, tag_roots, initial, .. } = forest;
     super::leave().context("failed to leave TUI")?;
     result?;
 
-    Ok(changed_tag_maps(&nodes, &tag_roots, &initial))
+    Ok(changed_tag_maps_retiring(&nodes, &tag_roots, &initial, &retired))
 }
 
 /// What the event loop browses, kept together so a rebuild can replace it:
@@ -132,6 +133,8 @@ pub fn run_tree(
 struct Forest {
     sections: Vec<SectionSpec>,
     nodes: Vec<TreeNode>,
+    /// Every tag root seen this session. A root whose last note was deleted
+    /// stays listed (with no rows), so its retired keys still get written.
     tag_roots: Vec<PathBuf>,
     initial: Vec<HashMap<String, u8>>,
 }
@@ -140,13 +143,70 @@ impl Forest {
     /// Swap in freshly listed `sections`, keeping the session state (see
     /// [`restore_state`]). Returns the row of `created`, if listed.
     fn rebuild(&mut self, sections: Vec<SectionSpec>, created: &Path) -> Option<usize> {
-        let (mut nodes, tag_roots) = build_forest(&sections);
-        let initial = carry_initial_tags(&self.tag_roots, &self.initial, &tag_roots);
-        apply_tags(&mut nodes, &tag_roots, &initial);
-        let row = restore_state(&self.nodes, &mut nodes, created);
-        *self = Forest { sections, nodes, tag_roots, initial };
-        row
+        let old = self.replace(sections);
+        restore_state(&old, &mut self.nodes, created)
     }
+
+    /// Swap in `sections` listed after `deleted` was removed, keeping the
+    /// session state (see [`carry_state`]). Returns the row the cursor goes
+    /// to: `deleted` itself if it is still listed (the delete failed), else
+    /// the next note in its folder, else the one before it, else the nearest
+    /// listed ancestor, skipping rows the filter `search` hides. An emptied
+    /// folder is not listed, since folders come from the files in them.
+    fn rebuild_after_delete(
+        &mut self,
+        sections: Vec<SectionSpec>,
+        deleted: &Path,
+        search: &str,
+    ) -> Option<usize> {
+        let candidates = cursor_candidates(&self.nodes, deleted);
+        let old = self.replace(sections);
+        carry_state(&old, &mut self.nodes);
+        derive_dir_flags(&mut self.nodes);
+        let visible = compute_visible(&self.nodes, search);
+        candidates
+            .iter()
+            .find_map(|path| visible.iter().copied().find(|&i| self.nodes[i].path == *path))
+    }
+
+    /// Replace the sections and rows; the new rows carry no session state
+    /// yet. Returns the old rows.
+    fn replace(&mut self, sections: Vec<SectionSpec>) -> Vec<TreeNode> {
+        let (mut nodes, mut tag_roots) = build_forest(&sections);
+        let mut initial = carry_initial_tags(&self.tag_roots, &self.initial, &tag_roots);
+        apply_tags(&mut nodes, &tag_roots, &initial);
+        for (root, map) in self.tag_roots.iter().zip(&self.initial) {
+            if !tag_roots.contains(root) {
+                tag_roots.push(root.clone());
+                initial.push(map.clone());
+            }
+        }
+        self.sections = sections;
+        self.tag_roots = tag_roots;
+        self.initial = initial;
+        std::mem::replace(&mut self.nodes, nodes)
+    }
+}
+
+/// Paths the cursor may land on once `deleted` is gone, best first:
+/// `deleted` itself, its following siblings, its preceding siblings
+/// nearest first, then its ancestors upward.
+fn cursor_candidates(nodes: &[TreeNode], deleted: &Path) -> Vec<PathBuf> {
+    let Some(idx) = nodes.iter().position(|n| n.path == deleted) else {
+        return vec![deleted.to_path_buf()];
+    };
+    let parent = nodes[idx].parent_idx;
+    let siblings: Vec<usize> = (0..nodes.len()).filter(|&i| nodes[i].parent_idx == parent).collect();
+    let pos = siblings.iter().position(|&i| i == idx).unwrap_or(0);
+    let mut out = vec![deleted.to_path_buf()];
+    out.extend(siblings[pos + 1..].iter().map(|&i| nodes[i].path.clone()));
+    out.extend(siblings[..pos].iter().rev().map(|&i| nodes[i].path.clone()));
+    let mut up = parent;
+    while let Some(i) = up {
+        out.push(nodes[i].path.clone());
+        up = nodes[i].parent_idx;
+    }
+    out
 }
 
 // --- Forest construction ---
@@ -307,15 +367,34 @@ fn apply_tags(nodes: &mut [TreeNode], tag_roots: &[PathBuf], maps: &[HashMap<Str
     }
 }
 
-/// Final per-root tag maps: start from the loaded map (so keys this view
-/// never showed survive untouched) and overlay every file node's current
-/// flags. Returns only the roots whose map differs from the loaded one.
+/// [`changed_tag_maps_retiring`] with no deleted notes.
+#[cfg(test)]
 fn changed_tag_maps(
     nodes: &[TreeNode],
     tag_roots: &[PathBuf],
     initial: &[HashMap<String, u8>],
 ) -> Vec<(PathBuf, HashMap<String, u8>)> {
+    changed_tag_maps_retiring(nodes, tag_roots, initial, &[])
+}
+
+/// Final per-root tag maps: start from the loaded map (so keys this view
+/// never showed survive untouched), drop the `retired` `(tag root, key)`
+/// pairs of notes deleted this session, and overlay every file node's
+/// current flags. Returns only the roots whose map differs from the loaded
+/// one. Retired keys go first, so a note created again at a deleted path
+/// keeps the flags its new row has.
+fn changed_tag_maps_retiring(
+    nodes: &[TreeNode],
+    tag_roots: &[PathBuf],
+    initial: &[HashMap<String, u8>],
+    retired: &[(PathBuf, String)],
+) -> Vec<(PathBuf, HashMap<String, u8>)> {
     let mut finals: Vec<HashMap<String, u8>> = initial.to_vec();
+    for (root, key) in retired {
+        if let Some(i) = tag_roots.iter().position(|r| r == root) {
+            finals[i].remove(key);
+        }
+    }
     for node in nodes {
         if node.is_dir {
             continue;
@@ -727,11 +806,149 @@ fn new_note_lead(label: &str, buffer: &str) -> Vec<Span<'static>> {
     ]
 }
 
+// --- Delete ---
+
+/// The footer message for `d` on a folder row.
+const FOLDER_DELETE_UNAVAILABLE: &str = "folder delete is not available yet";
+
+/// The open delete confirmation for one note: its path, its path when the
+/// session started (a rename moves `path` only), the tag root its `.tags`
+/// key lives under, its path relative to its section's root, and the scope
+/// it is deleted from with that scope's label.
+#[derive(Debug, Clone)]
+struct DeletePrompt {
+    path: PathBuf,
+    origin: PathBuf,
+    tag_root: PathBuf,
+    rel: String,
+    scope: Scope,
+    label: String,
+}
+
+/// What `d` does with the cursor on `row`: `Ok(Some)` opens the prompt on a
+/// note, `Err` is the footer message for a folder row, and `Ok(None)` (no
+/// row under the cursor) does nothing.
+fn delete_request(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+    current_project: Option<&str>,
+) -> std::result::Result<Option<DeletePrompt>, &'static str> {
+    let Some(node) = row.and_then(|i| nodes.get(i)) else {
+        return Ok(None);
+    };
+    if node.is_dir {
+        return Err(FOLDER_DELETE_UNAVAILABLE);
+    }
+    let Some(spec) = sections.get(node.section) else {
+        return Ok(None);
+    };
+    let rel = node.path.strip_prefix(&spec.root).unwrap_or(&node.path);
+    Ok(Some(DeletePrompt {
+        path: node.path.clone(),
+        origin: node.origin.clone(),
+        tag_root: spec.tag_root.clone(),
+        rel: rel.to_string_lossy().into_owned(),
+        scope: spec.scope,
+        label: scope_label(spec.scope, spec.project.as_deref(), current_project),
+    }))
+}
+
+/// The confirmation question. Local scratch notes are not in any
+/// repository, so the question says a delete there cannot be undone.
+fn delete_question(prompt: &DeletePrompt) -> String {
+    let warning = if prompt.scope == Scope::Local { " (not recoverable)" } else { "" };
+    format!("delete {} from {}?{warning} y/n", prompt.rel, prompt.label)
+}
+
+/// The delete confirmation that leads the footer while it is open.
+fn delete_lead(prompt: &DeletePrompt) -> Vec<Span<'static>> {
+    vec![Span::styled(format!(" {}", delete_question(prompt)), Style::default().fg(theme::PEACH))]
+}
+
+/// What a confirmed delete leaves: the row for the cursor and the footer
+/// message.
+#[derive(Debug)]
+struct DeleteOutcome {
+    row: Option<usize>,
+    message: String,
+}
+
+/// Answer the open delete prompt with `key`. Anything but `y` cancels and
+/// returns `None` without touching the disk or the forest. On `y` the note
+/// is removed, its `.tags` keys (current and original path) are added to
+/// `retired`, and the forest is rebuilt from `rebuild` whether or not the
+/// removal worked, so the tree matches the disk. If `rebuild` fails, the
+/// current rows minus the deleted note are used instead.
+fn answer_delete(
+    key: KeyCode,
+    forest: &mut Forest,
+    retired: &mut Vec<(PathBuf, String)>,
+    prompt: &DeletePrompt,
+    search: &str,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+) -> Option<DeleteOutcome> {
+    if key != KeyCode::Char('y') {
+        return None;
+    }
+    let removed = std::fs::remove_file(&prompt.path);
+    let mut message = match &removed {
+        Ok(()) => {
+            for path in [&prompt.path, &prompt.origin] {
+                if let Some(tag_key) = rel_key(&prompt.tag_root, path) {
+                    if !retired.iter().any(|(r, k)| *r == prompt.tag_root && *k == tag_key) {
+                        retired.push((prompt.tag_root.clone(), tag_key));
+                    }
+                }
+            }
+            format!("deleted {}", prompt.rel)
+        }
+        Err(e) => format!("delete failed: {e}"),
+    };
+    let sections = rebuild().unwrap_or_else(|e| {
+        message = format!("{message}, but the list could not be refreshed: {e:#}");
+        let gone = removed.is_ok().then_some(prompt.path.as_path());
+        current_sections_without(forest, gone)
+    });
+    let row = forest.rebuild_after_delete(sections, &prompt.path, search);
+    Some(DeleteOutcome { row, message })
+}
+
+/// The forest's sections listing its current file rows, minus `gone`: the
+/// fallback listing when the rebuild closure fails. Takes the sections out
+/// of `forest`; the caller puts a rebuilt set back.
+fn current_sections_without(forest: &mut Forest, gone: Option<&Path>) -> Vec<SectionSpec> {
+    let mut sections = std::mem::take(&mut forest.sections);
+    for (i, spec) in sections.iter_mut().enumerate() {
+        spec.files = forest
+            .nodes
+            .iter()
+            .filter(|n| !n.is_dir && n.section == i && Some(n.path.as_path()) != gone)
+            .map(|n| n.path.clone())
+            .collect();
+    }
+    sections
+}
+
+// --- Rebuild ---
+
+/// [`carry_state`], then expand the ancestors of `created` so it is
+/// visible; its index is returned.
+fn restore_state(old: &[TreeNode], new: &mut [TreeNode], created: &Path) -> Option<usize> {
+    carry_state(old, new);
+    let idx = new.iter().position(|n| !n.is_dir && n.path == created)?;
+    let mut parent = new[idx].parent_idx;
+    while let Some(p) = parent {
+        new[p].expanded = true;
+        parent = new[p].parent_idx;
+    }
+    Some(idx)
+}
+
 /// Carry the session state over to a freshly built forest: directories keep
 /// their expanded state and files their tags (including edits not yet
-/// saved) and original path, matched by path. The ancestors of `created`
-/// are expanded so it is visible; its index is returned.
-fn restore_state(old: &[TreeNode], new: &mut [TreeNode], created: &Path) -> Option<usize> {
+/// saved) and original path, matched by path.
+fn carry_state(old: &[TreeNode], new: &mut [TreeNode]) {
     let by_path: HashMap<&Path, &TreeNode> =
         old.iter().map(|n| (n.path.as_path(), n)).collect();
     for node in new.iter_mut() {
@@ -745,13 +962,6 @@ fn restore_state(old: &[TreeNode], new: &mut [TreeNode], created: &Path) -> Opti
             node.origin = prev.origin.clone();
         }
     }
-    let idx = new.iter().position(|n| !n.is_dir && n.path == created)?;
-    let mut parent = new[idx].parent_idx;
-    while let Some(p) = parent {
-        new[p].expanded = true;
-        parent = new[p].parent_idx;
-    }
-    Some(idx)
 }
 
 /// Map row indices recorded against `old` (focus mode's saved expansion) to
@@ -789,6 +999,7 @@ const FILTERING: &[Mode] = &[Mode::Filter];
 const TAGGING: &[Mode] = &[Mode::Tag];
 const RENAMING: &[Mode] = &[Mode::Rename];
 const NEW_NOTE: &[Mode] = &[Mode::NewItem];
+const CONFIRMING: &[Mode] = &[Mode::ConfirmDelete];
 const COMMAND: &[Mode] = &[Mode::VimCommand];
 
 const fn key(
@@ -827,6 +1038,9 @@ const TREE_KEYS: &[KeyHint] = &[
     key("esc", "cancel", "new note: cancel, nothing is created", theme::PEACH, Group::Edit, NEW_NOTE, Slot::Priority(2), None),
     key("tab", "scope", "new note: next scope (personal, public, local, global), at its root", theme::SAPPHIRE, Group::Edit, NEW_NOTE, Slot::Priority(3), None),
     key("bksp", "delete", "new note: delete the last char", theme::TEXT, Group::Edit, NEW_NOTE, Slot::Priority(4), None),
+    key("d", "delete", "delete the note under the cursor (asks first; no undo)", theme::RED, Group::Edit, BROWSE, Slot::Priority(7), None),
+    key("y", "confirm", "delete: yes, delete the note", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
+    key("n/esc", "cancel", "delete: cancel (any other key too), nothing is deleted", theme::PEACH, Group::Edit, CONFIRMING, Slot::Priority(2), None),
     key("/", "filter", "filter: text and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
     key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
     key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
@@ -905,11 +1119,13 @@ fn view_all_lit(nodes: &[TreeNode]) -> bool {
 fn event_loop(
     terminal: &mut super::TuiTerminal,
     forest: &mut Forest,
+    retired: &mut Vec<(PathBuf, String)>,
     ctx: &TreeContext,
     config: &Config,
     rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
 ) -> Result<()> {
     let mut new_note: Option<NewNotePrompt> = None;
+    let mut confirm_delete: Option<DeletePrompt> = None;
     let mut state = ListState::default();
     state.select(Some(0));
     let mut vim = VimCommandMode::new();
@@ -1320,6 +1536,10 @@ fn event_loop(
                     help.open,
                 );
                 let status = match slot {
+                    _ if confirm_delete.is_some() => {
+                        let prompt = confirm_delete.as_ref().expect("checked by the guard");
+                        lead_with_hints(delete_lead(prompt), Mode::ConfirmDelete, &toggles, width)
+                    }
                     _ if new_note.is_some() => {
                         let prompt = new_note.as_ref().expect("checked by the guard");
                         let lead = new_note_lead(&prompt.target.label, &prompt.buffer);
@@ -1454,6 +1674,21 @@ fn event_loop(
         }
 
         status_message = None;
+
+        if let Some(prompt) = confirm_delete.take() {
+            let old_nodes = forest.nodes.clone();
+            if let Some(outcome) =
+                answer_delete(key.code, forest, retired, &prompt, &search_buffer, rebuild)
+            {
+                pre_focus_expanded =
+                    remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
+                status_message = Some(outcome.message);
+                let visible = compute_visible(&forest.nodes, &search_buffer);
+                let pos = outcome.row.and_then(|r| visible.iter().position(|&i| i == r));
+                state.select(Some(pos.unwrap_or(0)));
+            }
+            continue;
+        }
 
         if let Some(prompt) = new_note.as_mut() {
             match key.code {
@@ -1752,6 +1987,17 @@ fn event_loop(
                     ctx,
                 ));
             }
+            KeyCode::Char('d') => {
+                match delete_request(
+                    nodes,
+                    &forest.sections,
+                    visible.get(selected).copied(),
+                    ctx.current_project.as_deref(),
+                ) {
+                    Ok(prompt) => confirm_delete = prompt,
+                    Err(message) => status_message = Some(message.to_string()),
+                }
+            }
             KeyCode::Char('J') => {
                 preview_scroll = preview_scroll.saturating_add(1);
             }
@@ -1916,7 +2162,7 @@ mod tests {
 
     #[test]
     fn normal_and_focus_footers_hint_the_browse_keys() {
-        let expected = vec!["o", "t", "r", "n", "/", "f", "v", "?", "q"];
+        let expected = vec!["o", "t", "r", "n", "d", "/", "f", "v", "?", "q"];
         assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
         assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
     }
@@ -1957,8 +2203,10 @@ mod tests {
 
     #[test]
     fn narrow_footer_drops_low_priority_hints_but_keeps_help_and_quit() {
-        let all = vec!["o", "t", "r", "n", "/", "f", "v", "?", "q"];
-        assert_eq!(shown_keys(Mode::Normal, &[], 64), all);
+        let all = vec!["o", "t", "r", "n", "d", "/", "f", "v", "?", "q"];
+        assert_eq!(shown_keys(Mode::Normal, &[], 72), all);
+        assert_eq!(shown_keys(Mode::Normal, &[], 71), vec!["o", "t", "r", "n", "/", "f", "v", "?", "q"]);
+        assert_eq!(shown_keys(Mode::Normal, &[], 64), vec!["o", "t", "r", "n", "/", "f", "v", "?", "q"]);
         assert_eq!(shown_keys(Mode::Normal, &[], 63), vec!["o", "t", "n", "/", "f", "v", "?", "q"]);
         assert_eq!(shown_keys(Mode::Normal, &[], 55), vec!["o", "t", "n", "/", "f", "?", "q"]);
         assert_eq!(shown_keys(Mode::Normal, &[], 45), vec!["o", "t", "n", "f", "?", "q"]);
@@ -2657,5 +2905,425 @@ mod tests {
         assert_eq!(empty_state_line(&nodes), Some(EMPTY_STATE));
         let (some, _) = build_forest(&project_sections());
         assert_eq!(empty_state_line(&some), None);
+    }
+
+    // --- Delete ---
+
+    const SCOPES: [(Scope, &str); 4] = [
+        (Scope::Personal, "personal"),
+        (Scope::Public, "public"),
+        (Scope::Local, "local"),
+        (Scope::Global, "global"),
+    ];
+
+    /// Every `.md` file under `dir`, skipping dot entries like `.tags`: what
+    /// the aggregator lists for a store.
+    fn md_files(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                out.extend(md_files(&path));
+            } else if path.extension().is_some_and(|e| e == "md") {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A temp tree with one store per scope, each holding `ideas/a.md`,
+    /// `ideas/b.md` and `c.md`.
+    fn temp_tree() -> (tempfile::TempDir, Vec<(Scope, PathBuf)>) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut roots = Vec::new();
+        for (scope, name) in SCOPES {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(root.join("ideas")).unwrap();
+            for file in ["ideas/a.md", "ideas/b.md", "c.md"] {
+                std::fs::write(root.join(file), "# note\n").unwrap();
+            }
+            roots.push((scope, root));
+        }
+        (dir, roots)
+    }
+
+    /// The rebuild closure's work: list the stores again from disk.
+    fn list_sections(roots: &[(Scope, PathBuf)]) -> Vec<SectionSpec> {
+        roots
+            .iter()
+            .map(|(scope, root)| SectionSpec {
+                root: root.clone(),
+                tag_root: root.clone(),
+                label: format!("{scope:?}"),
+                icon: "",
+                is_doc: false,
+                files: md_files(root),
+                scope: *scope,
+                project: (*scope != Scope::Global).then(|| "proj".to_string()),
+                new_note_root: root.clone(),
+            })
+            .collect()
+    }
+
+    fn all_files(roots: &[(Scope, PathBuf)]) -> Vec<PathBuf> {
+        roots.iter().flat_map(|(_, root)| md_files(root)).collect()
+    }
+
+    fn forest_of(sections: Vec<SectionSpec>) -> Forest {
+        let (mut nodes, tag_roots) = build_forest(&sections);
+        let initial: Vec<HashMap<String, u8>> =
+            tag_roots.iter().map(|r| note_tags::load_tags(r)).collect();
+        apply_tags(&mut nodes, &tag_roots, &initial);
+        Forest { sections, nodes, tag_roots, initial }
+    }
+
+    fn path_str(path: &Path) -> &str {
+        path.to_str().unwrap()
+    }
+
+    /// The prompt `d` opens with the cursor on `path`, whose folders are
+    /// expanded as they are when the cursor can reach it.
+    fn prompt_at(forest: &mut Forest, path: &Path) -> DeletePrompt {
+        let i = row(&forest.nodes, path_str(path));
+        let mut up = forest.nodes[i].parent_idx;
+        while let Some(p) = up {
+            forest.nodes[p].expanded = true;
+            up = forest.nodes[p].parent_idx;
+        }
+        delete_request(&forest.nodes, &forest.sections, Some(i), Some("proj"))
+            .expect("a note row")
+            .expect("a row under the cursor")
+    }
+
+    #[test]
+    fn d_then_y_deletes_exactly_that_note_in_every_scope() {
+        for (scope, name) in SCOPES {
+            let (_dir, roots) = temp_tree();
+            let rebuild = || Ok(list_sections(&roots));
+            let mut forest = forest_of(list_sections(&roots));
+            let mut retired = Vec::new();
+            let target = roots.iter().find(|(s, _)| *s == scope).unwrap().1.join("ideas/a.md");
+            let before = all_files(&roots);
+
+            let prompt = prompt_at(&mut forest, &target);
+            let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild)
+                .expect("y confirms");
+
+            let expected: Vec<PathBuf> = before.into_iter().filter(|p| *p != target).collect();
+            assert_eq!(all_files(&roots), expected, "{name}");
+            assert!(!forest.nodes.iter().any(|n| n.path == target), "{name}: row gone");
+            assert_eq!(outcome.message, "deleted ideas/a.md", "{name}");
+        }
+    }
+
+    #[test]
+    fn any_answer_but_y_deletes_nothing() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let mut retired = Vec::new();
+        let target = roots[0].1.join("ideas/a.md");
+        let prompt = prompt_at(&mut forest, &target);
+        let before = all_files(&roots);
+        let rows = forest.nodes.len();
+        for code in [KeyCode::Char('n'), KeyCode::Esc, KeyCode::Char('x'), KeyCode::Enter, KeyCode::Char('Y'), KeyCode::Char('d')] {
+            assert!(
+                answer_delete(code, &mut forest, &mut retired, &prompt, "", &rebuild).is_none(),
+                "{code:?}"
+            );
+            assert_eq!(all_files(&roots), before, "{code:?}");
+            assert_eq!(forest.nodes.len(), rows, "{code:?}");
+        }
+        assert!(retired.is_empty());
+    }
+
+    #[test]
+    fn delete_prompt_names_the_file_and_the_scope() {
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        let question = |path: &str, current: Option<&str>| {
+            let p = delete_request(&nodes, &sections, Some(row(&nodes, path)), current)
+                .unwrap()
+                .unwrap();
+            delete_question(&p)
+        };
+        assert_eq!(
+            question("/n/personal/proj/ideas/a.md", Some("proj")),
+            "delete ideas/a.md from personal? y/n"
+        );
+        let public = question("/p/notez/plans/b.md", Some("proj"));
+        assert_eq!(public, "delete plans/b.md from public (committed with the project)? y/n");
+        assert!(question("/p/notez/plans/b.md", None).contains("public"));
+        assert!(question("/p/docs/design/c.md", Some("proj")).contains("public"));
+        let local = question("/p/.notez/d.md", Some("proj"));
+        assert!(local.starts_with("delete d.md from local scratch?"), "{local}");
+        assert!(local.contains("not recoverable"), "{local}");
+        assert_eq!(question("/n/e.md", Some("proj")), "delete e.md from global? y/n");
+        assert_eq!(
+            question("/n/personal/proj/top.md", None),
+            "delete top.md from personal (proj)? y/n"
+        );
+        for path in ["/n/personal/proj/top.md", "/p/notez/plans/b.md", "/n/e.md"] {
+            assert!(!question(path, Some("proj")).contains("not recoverable"), "{path}");
+        }
+    }
+
+    #[test]
+    fn d_on_a_folder_or_an_empty_tree_changes_nothing() {
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        for path in ["/n/personal/proj", "/n/personal/proj/ideas", "/p/docs/design", "/n"] {
+            let request = delete_request(&nodes, &sections, Some(row(&nodes, path)), None);
+            assert_eq!(request.err(), Some(FOLDER_DELETE_UNAVAILABLE), "{path}");
+        }
+        assert!(matches!(delete_request(&nodes, &sections, None, None), Ok(None)));
+        assert!(matches!(delete_request(&nodes, &sections, Some(nodes.len()), None), Ok(None)));
+        assert!(matches!(delete_request(&[], &[], Some(0), None), Ok(None)));
+        assert!(matches!(delete_request(&[], &[], None, None), Ok(None)));
+        assert!(FOLDER_DELETE_UNAVAILABLE.contains("folder delete is not available yet"));
+    }
+
+    fn delete_and_select(
+        before: &[&str],
+        after: &[&str],
+        deleted: &str,
+        expand: &[&str],
+        search: &str,
+    ) -> (Forest, Option<usize>) {
+        let (mut nodes, roots) = build_forest(&[spec("/r", "S", before)]);
+        for path in expand {
+            let i = row(&nodes, path);
+            nodes[i].expanded = true;
+        }
+        let initial = vec![HashMap::new(); roots.len()];
+        let mut forest = Forest { sections: vec![spec("/r", "S", before)], nodes, tag_roots: roots, initial };
+        let selected = forest.rebuild_after_delete(vec![spec("/r", "S", after)], Path::new(deleted), search);
+        (forest, selected)
+    }
+
+    #[test]
+    fn delete_selects_the_next_note_then_the_previous_then_the_folder() {
+        let open = ["/r", "/r/ideas"];
+        let files = ["ideas/a.md", "ideas/b.md", "ideas/c.md", "z.md"];
+
+        let (f, sel) = delete_and_select(&files, &["ideas/a.md", "ideas/c.md", "z.md"], "/r/ideas/b.md", &open, "");
+        assert_eq!(sel, Some(row(&f.nodes, "/r/ideas/c.md")), "the row that followed");
+
+        let (f, sel) = delete_and_select(&files, &["ideas/a.md", "ideas/b.md", "z.md"], "/r/ideas/c.md", &open, "");
+        assert_eq!(sel, Some(row(&f.nodes, "/r/ideas/b.md")), "last in its folder: the one before");
+
+        let (f, sel) = delete_and_select(
+            &["ideas/sub/x.md", "ideas/only.md"],
+            &["ideas/sub/x.md"],
+            "/r/ideas/only.md",
+            &open,
+            "",
+        );
+        assert_eq!(sel, Some(row(&f.nodes, "/r/ideas/sub")), "the one before can be a folder");
+
+        let (f, sel) = delete_and_select(&["ideas/a.md", "z.md"], &["z.md"], "/r/ideas/a.md", &open, "");
+        assert_eq!(
+            sel,
+            Some(row(&f.nodes, "/r")),
+            "an emptied folder leaves the tree, so its nearest listed ancestor is selected"
+        );
+
+        let (f, sel) = delete_and_select(&["ideas/a.md"], &[], "/r/ideas/a.md", &open, "");
+        assert!(f.nodes.is_empty());
+        assert_eq!(sel, None, "nothing left to select");
+    }
+
+    #[test]
+    fn delete_keeps_expansion_unsaved_tags_and_the_filter() {
+        let before = ["ideas/a.md", "ideas/b.md", "ideas/c-a.md", "plans/p.md", "shut/s.md", "z.md"];
+        let (mut nodes, roots) = build_forest(&[spec("/r", "S", &before)]);
+        for path in ["/r", "/r/ideas", "/r/plans"] {
+            let i = row(&nodes, path);
+            nodes[i].expanded = true;
+        }
+        let p = row(&nodes, "/r/plans/p.md");
+        nodes[p].flags = FLAG_PRIO;
+        let z = row(&nodes, "/r/z.md");
+        nodes[z].origin = PathBuf::from("/r/old-z.md");
+        let initial = vec![HashMap::new()];
+        let mut forest = Forest { sections: vec![spec("/r", "S", &before)], nodes, tag_roots: roots, initial };
+
+        let after = ["ideas/b.md", "ideas/c-a.md", "plans/p.md", "shut/s.md", "z.md"];
+        // The filter "a" hides b.md, the row that followed a.md, so the
+        // cursor goes on to the next row it shows.
+        let search = "a";
+        let sel = forest.rebuild_after_delete(vec![spec("/r", "S", &after)], Path::new("/r/ideas/a.md"), search);
+
+        let n = &forest.nodes;
+        assert!(!compute_visible(n, search).contains(&row(n, "/r/ideas/b.md")));
+        assert_eq!(sel, Some(row(n, "/r/ideas/c-a.md")));
+        assert!(compute_visible(n, search).contains(&sel.unwrap()));
+        assert!(n[row(n, "/r")].expanded && n[row(n, "/r/ideas")].expanded && n[row(n, "/r/plans")].expanded);
+        assert!(!n[row(n, "/r/shut")].expanded, "a closed folder stays closed");
+        assert_eq!(n[row(n, "/r/plans/p.md")].flags, FLAG_PRIO, "unsaved tag edits survive");
+        assert_eq!(n[row(n, "/r/z.md")].origin, PathBuf::from("/r/old-z.md"));
+    }
+
+    #[test]
+    fn retired_keys_leave_the_tags_map_and_nothing_else_changes() {
+        let s = spec("/r", "S", &["b.md"]);
+        let (mut nodes, roots) = build_forest(&[s]);
+        let initial = vec![HashMap::from([
+            ("a.md".to_string(), FLAG_PRIO),
+            ("b.md".to_string(), FLAG_IMPORTANT),
+            ("elsewhere/hidden.md".to_string(), FLAG_IMPORTANT),
+        ])];
+        apply_tags(&mut nodes, &roots, &initial);
+        let retired = vec![(PathBuf::from("/r"), "a.md".to_string())];
+
+        let changed = changed_tag_maps_retiring(&nodes, &roots, &initial, &retired);
+        assert_eq!(
+            changed,
+            vec![(
+                PathBuf::from("/r"),
+                HashMap::from([
+                    ("b.md".to_string(), FLAG_IMPORTANT),
+                    ("elsewhere/hidden.md".to_string(), FLAG_IMPORTANT),
+                ])
+            )]
+        );
+
+        let untagged = vec![(PathBuf::from("/r"), "never-tagged.md".to_string())];
+        assert!(
+            changed_tag_maps_retiring(&nodes, &roots, &initial, &untagged).is_empty(),
+            "an untagged note's delete leaves .tags alone"
+        );
+        let unknown_root = vec![(PathBuf::from("/elsewhere"), "a.md".to_string())];
+        assert!(changed_tag_maps_retiring(&nodes, &roots, &initial, &unknown_root).is_empty());
+    }
+
+    #[test]
+    fn deleting_a_renamed_note_retires_its_original_key() {
+        let (_dir, roots) = temp_tree();
+        let root = roots[0].1.clone();
+        std::fs::write(root.join(".tags"), "ideas/a.md:1\n").unwrap();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let a = row(&forest.nodes, path_str(&root.join("ideas/a.md")));
+        assert_ne!(forest.nodes[a].flags, 0, "the fixture's .tags loaded");
+        // As a rename in this session leaves it: new path, old origin.
+        std::fs::rename(root.join("ideas/a.md"), root.join("ideas/renamed.md")).unwrap();
+        forest.nodes[a].path = root.join("ideas/renamed.md");
+        let mut retired = Vec::new();
+
+        let prompt = prompt_at(&mut forest, &root.join("ideas/renamed.md"));
+        answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        let changed = changed_tag_maps_retiring(&forest.nodes, &forest.tag_roots, &forest.initial, &retired);
+        assert_eq!(changed, vec![(root.clone(), HashMap::new())]);
+    }
+
+    #[test]
+    fn deleting_the_last_note_of_a_tag_root_still_retires_its_key() {
+        let (_dir, roots) = temp_tree();
+        let local = roots.iter().find(|(s, _)| *s == Scope::Local).unwrap().1.clone();
+        std::fs::remove_file(local.join("ideas/b.md")).unwrap();
+        std::fs::remove_file(local.join("c.md")).unwrap();
+        std::fs::write(local.join(".tags"), "ideas/a.md:1\nkept.md:2\n").unwrap();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let mut retired = Vec::new();
+
+        let prompt = prompt_at(&mut forest, &local.join("ideas/a.md"));
+        answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(!forest.nodes.iter().any(|n| n.path.starts_with(&local)), "the section is gone");
+        let changed = changed_tag_maps_retiring(&forest.nodes, &forest.tag_roots, &forest.initial, &retired);
+        let initial_kept = note_tags::load_tags(&local).get("kept.md").copied();
+        assert_eq!(changed, vec![(local.clone(), HashMap::from([("kept.md".to_string(), initial_kept.unwrap())]))]);
+    }
+
+    #[test]
+    fn delete_of_a_note_already_gone_reports_and_rebuilds() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let mut retired = Vec::new();
+        let target = roots[1].1.join("ideas/a.md");
+        let prompt = prompt_at(&mut forest, &target);
+        std::fs::remove_file(&target).unwrap();
+        let before = all_files(&roots);
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(outcome.message.starts_with("delete failed: "), "{}", outcome.message);
+        assert_eq!(all_files(&roots), before, "nothing else removed");
+        assert!(!forest.nodes.iter().any(|n| n.path == target), "the display matches the disk");
+        assert!(retired.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_without_permission_reports_and_keeps_the_note_selected() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, roots) = temp_tree();
+        let ideas = roots[0].1.join("ideas");
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let mut retired = Vec::new();
+        let target = ideas.join("a.md");
+        let prompt = prompt_at(&mut forest, &target);
+        let before = all_files(&roots);
+
+        std::fs::set_permissions(&ideas, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild);
+        std::fs::set_permissions(&ideas, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = outcome.unwrap();
+
+        assert!(outcome.message.starts_with("delete failed: "), "{}", outcome.message);
+        assert_eq!(all_files(&roots), before);
+        assert!(retired.is_empty());
+        assert_eq!(outcome.row, Some(row(&forest.nodes, path_str(&target))));
+    }
+
+    #[test]
+    fn a_failed_rebuild_still_drops_the_deleted_row() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || -> Result<Vec<SectionSpec>> { anyhow::bail!("listing broke") };
+        let mut forest = forest_of(list_sections(&roots));
+        let mut retired = Vec::new();
+        let target = roots[0].1.join("ideas/a.md");
+        let prompt = prompt_at(&mut forest, &target);
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(!target.exists());
+        assert!(outcome.message.contains("listing broke"), "{}", outcome.message);
+        assert!(!forest.nodes.iter().any(|n| n.path == target));
+        assert_eq!(outcome.row, Some(row(&forest.nodes, path_str(&roots[0].1.join("ideas/b.md")))));
+    }
+
+    #[test]
+    fn delete_keys_are_in_the_table_with_their_modes() {
+        let d: Vec<&KeyHint> = TREE_KEYS.iter().filter(|k| k.key == "d").collect();
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].modes, BROWSE);
+        assert_eq!(d[0].group, Group::Edit);
+        assert_eq!(shown_keys(Mode::ConfirmDelete, &[], 200), vec!["y", "n/esc"]);
+        let confirm: Vec<&str> = TREE_KEYS
+            .iter()
+            .filter(|k| k.modes.contains(&Mode::ConfirmDelete))
+            .map(|k| k.key)
+            .collect();
+        assert_eq!(confirm, vec!["y", "n/esc"]);
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        let prompt = delete_request(&nodes, &sections, Some(row(&nodes, "/n/e.md")), None).unwrap().unwrap();
+        let rendered = text_of(&lead_with_hints(delete_lead(&prompt), Mode::ConfirmDelete, &[], 120));
+        assert!(rendered.starts_with(" delete e.md from global? y/n"), "{rendered}");
+        assert!(rendered.contains("y confirm") && rendered.contains("n/esc cancel"), "{rendered}");
+        assert!(!rendered.contains("quit"));
     }
 }
