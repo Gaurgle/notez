@@ -3,6 +3,7 @@
 //! Carried over from notez-cli verbatim so the TUI looks identical. RGB
 //! triplets only; do not introduce 256-color approximations here.
 
+use notez_core::core::Scope;
 use ratatui::style::{Color, Modifier, Style};
 
 pub const RED: Color = Color::Rgb(243, 139, 168);
@@ -12,6 +13,8 @@ pub const YELLOW: Color = Color::Rgb(249, 226, 175);
 pub const SAPPHIRE: Color = Color::Rgb(116, 199, 236);
 pub const LAVENDER: Color = Color::Rgb(180, 190, 254);
 pub const MAUVE: Color = Color::Rgb(203, 166, 247);
+pub const TEAL: Color = Color::Rgb(148, 226, 213);
+pub const FLAMINGO: Color = Color::Rgb(242, 205, 205);
 pub const OVERLAY: Color = Color::Rgb(108, 112, 134);
 pub const SURFACE: Color = Color::Rgb(69, 71, 90);
 pub const SURFACE0: Color = Color::Rgb(49, 50, 68);
@@ -75,6 +78,18 @@ pub const FLAG_COLORS: [Color; 5] = [
     Color::Rgb(203, 166, 247), // mauve, blocked
 ];
 
+/// The colour of a scope's badge and scope word in the tree browser. Kept
+/// apart from the tag colours in [`FLAG_COLORS`], so a badge never reads as
+/// a tag dot.
+pub fn scope_color(scope: Scope) -> Color {
+    match scope {
+        Scope::Personal => LAVENDER,
+        Scope::Public => TEAL,
+        Scope::Local => FLAMINGO,
+        Scope::Global => GREEN,
+    }
+}
+
 /// Dim a color by dividing each channel by 3, used for inactive tag dots.
 /// Terminal DIM modifier is too inconsistent across emulators to rely on.
 pub fn dim_color(c: Color) -> Color {
@@ -104,5 +119,21 @@ mod tests {
     #[test]
     fn five_flag_colors_defined() {
         assert_eq!(FLAG_COLORS.len(), 5);
+    }
+
+    #[test]
+    fn each_scope_has_its_own_colour_apart_from_the_tag_colours() {
+        let colors: Vec<Color> = [Scope::Personal, Scope::Public, Scope::Local, Scope::Global]
+            .into_iter()
+            .map(scope_color)
+            .collect();
+        for (i, a) in colors.iter().enumerate() {
+            for b in &colors[i + 1..] {
+                assert_ne!(a, b, "two scopes share {a:?}");
+            }
+            assert!(!FLAG_COLORS.contains(a), "{a:?} is a tag colour");
+            assert_ne!(Some(*a), selected().bg, "{a:?} is the selection background");
+            assert_ne!(Some(*a), dimmed().fg, "{a:?} is the dimmed colour");
+        }
     }
 }

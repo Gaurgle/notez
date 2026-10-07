@@ -77,6 +77,9 @@ pub struct SectionSpec {
     /// it this is the project's personal root and nothing is published by
     /// accident.
     pub new_note_root: PathBuf,
+    /// Whether the section belongs to the repository the browser was
+    /// opened in. The global section and other projects' sections are not.
+    pub is_current: bool,
 }
 
 /// A row in the flattened forest. Hierarchy is positional via `parent_idx`,
@@ -112,6 +115,7 @@ pub fn run_tree(
     rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
 ) -> Result<Vec<(PathBuf, HashMap<String, u8>)>> {
     let (mut nodes, tag_roots) = build_forest(&sections);
+    open_current_sections(&mut nodes, &sections);
     let initial: Vec<HashMap<String, u8>> =
         tag_roots.iter().map(|r| note_tags::load_tags(r)).collect();
     apply_tags(&mut nodes, &tag_roots, &initial);
@@ -292,6 +296,18 @@ fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<PathBuf>) {
     }
 
     (nodes, tag_roots)
+}
+
+/// The section rows' state when the browser opens: the sections of the
+/// repository it was opened in are expanded, every other section stays
+/// collapsed as built. Only the first build calls this; a rebuild after a
+/// create or delete carries the user's expansion instead.
+fn open_current_sections(nodes: &mut [TreeNode], sections: &[SectionSpec]) {
+    for node in nodes.iter_mut().filter(|n| n.depth == 0) {
+        if sections.get(node.section).is_some_and(|s| s.is_current) {
+            node.expanded = true;
+        }
+    }
 }
 
 fn emit_children(
@@ -556,6 +572,94 @@ fn flags_slots(flags: u8) -> Vec<Span<'static>> {
     spans
 }
 
+/// The colour of a section's badge, scope icon and scope word. A docs
+/// section is published with the repository, so it takes the public colour.
+fn section_color(spec: &SectionSpec) -> Color {
+    theme::scope_color(if spec.is_doc { Scope::Public } else { spec.scope })
+}
+
+/// The one-column badge after a row's tag dots: the section's icon in its
+/// colour on every file and folder row, a blank on a section header (which
+/// shows the icon next to its label). Render only: the filter, preview,
+/// mouse hit testing and tag keys never see it, and the tag dots before it
+/// keep their columns.
+fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
+    match spec {
+        Some(spec) if node.depth > 0 && !spec.icon.is_empty() => {
+            Span::styled(spec.icon, Style::default().fg(section_color(spec)))
+        }
+        _ => Span::raw(" "),
+    }
+}
+
+/// One list row: the tag dots, the scope badge, the tree indentation and
+/// branch glyph, the name, and on a directory row a dotted leader to its
+/// file count. A section header also shows its scope icon before the label
+/// and the scope word after it, both in the scope colour. `spec` is the
+/// row's section and `inner_width` the list pane's text width.
+fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> Line<'static> {
+    let indent = "  ".repeat(node.depth);
+    let icon = if node.depth == 0 {
+        if node.is_dir {
+            if node.expanded { "▼ " } else { "▶ " }
+        } else {
+            "  "
+        }
+    } else if node.is_dir {
+        if node.expanded { "├─▼ " } else { "├─▶ " }
+    } else {
+        "│   "
+    };
+
+    let header_color = spec.map_or(theme::OVERLAY, section_color);
+    let mut spans = flags_slots(node.flags);
+    spans.push(row_badge(node, spec));
+    spans.push(Span::styled(
+        format!("{}{}", indent, icon),
+        Style::default().fg(theme::SURFACE),
+    ));
+    if !node.scope_icon.is_empty() {
+        spans.push(Span::styled(
+            format!("{} ", node.scope_icon),
+            Style::default().fg(header_color),
+        ));
+    }
+    if node.is_dir {
+        spans.push(Span::styled(node.name.clone(), Style::default().fg(theme::SAPPHIRE)));
+        let scope_word = spec.filter(|_| node.depth == 0).map(|s| s.scope.label());
+        if let Some(word) = scope_word {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(word, Style::default().fg(header_color)));
+        }
+        if node.child_count > 0 {
+            let count_str = format!("{}", node.child_count);
+            let scope_len = if node.scope_icon.is_empty() { 0 } else { 2 };
+            let word_len = scope_word.map_or(0, |w| w.chars().count() + 1);
+            let badge_len = 1;
+            let prefix_len = 7
+                + badge_len
+                + indent.len()
+                + icon.len()
+                + node.name.chars().count()
+                + scope_len
+                + word_len;
+            let avail = inner_width.saturating_sub(prefix_len + count_str.len() + 2);
+            if avail > 3 {
+                spans.push(Span::styled(
+                    format!(" {} ", "·".repeat(avail)),
+                    Style::default().fg(theme::SURFACE),
+                ));
+            } else {
+                spans.push(Span::raw(" "));
+            }
+            spans.push(Span::styled(count_str, Style::default().fg(theme::OVERLAY)));
+        }
+    } else {
+        spans.push(Span::styled(node.name.clone(), Style::default().fg(theme::TEXT)));
+    }
+    Line::from(spans)
+}
+
 /// What the status bar shows, highest priority first.
 #[derive(Debug, PartialEq, Eq)]
 enum StatusSlot<'a> {
@@ -693,6 +797,24 @@ const EMPTY_STATE: &str = "no notes here yet: n creates one";
 /// The empty-state line, shown in place of the list when there are no rows.
 fn empty_state_line(nodes: &[TreeNode]) -> Option<&'static str> {
     nodes.is_empty().then_some(EMPTY_STATE)
+}
+
+/// The empty-state text for the view titled `title`. A narrowed view
+/// (`-p`, `-l`, `-g`) is titled `<scope icon> notez (...)` by
+/// `commands::tree`, so its scope is read from that icon and named:
+/// `no scratch notes here yet: n creates one`. The all view's title starts
+/// with `notez` and keeps [`EMPTY_STATE`].
+fn empty_state_text(title: &str) -> String {
+    let narrowed = [Scope::Personal, Scope::Public, Scope::Local, Scope::Global]
+        .into_iter()
+        .find(|scope| title.starts_with(scope.icon()));
+    // `Scope::label()` calls the global scope `notez`; "global" reads better here.
+    let word = match narrowed {
+        Some(Scope::Global) => "global",
+        Some(scope) => scope.label(),
+        None => return EMPTY_STATE.to_string(),
+    };
+    format!("no {word} notes here yet: n creates one")
 }
 
 /// The prompt `n` opens for the row at `row`: the folder under the cursor
@@ -1147,6 +1269,7 @@ fn event_loop(
 
     loop {
         let nodes = &mut forest.nodes;
+        let sections = &forest.sections;
         derive_dir_flags(nodes);
 
         // Auto-expand directories that contain filter matches whenever the
@@ -1189,66 +1312,7 @@ fn event_loop(
                     .iter()
                     .map(|&idx| {
                         let node = &nodes[idx];
-                        let indent = "  ".repeat(node.depth);
-                        let icon = if node.depth == 0 {
-                            if node.is_dir {
-                                if node.expanded { "▼ " } else { "▶ " }
-                            } else {
-                                "  "
-                            }
-                        } else if node.is_dir {
-                            if node.expanded { "├─▼ " } else { "├─▶ " }
-                        } else {
-                            "│   "
-                        };
-
-                        let mut spans = flags_slots(node.flags);
-                        spans.push(Span::styled(
-                            format!("{}{}", indent, icon),
-                            Style::default().fg(theme::SURFACE),
-                        ));
-                        if !node.scope_icon.is_empty() {
-                            spans.push(Span::styled(
-                                format!("{} ", node.scope_icon),
-                                Style::default().fg(theme::OVERLAY),
-                            ));
-                        }
-                        if node.is_dir {
-                            spans.push(Span::styled(
-                                node.name.clone(),
-                                Style::default().fg(theme::SAPPHIRE),
-                            ));
-                            if node.child_count > 0 {
-                                let count_str = format!("{}", node.child_count);
-                                let scope_len =
-                                    if node.scope_icon.is_empty() { 0 } else { 2 };
-                                let prefix_len = 7
-                                    + indent.len()
-                                    + icon.len()
-                                    + node.name.chars().count()
-                                    + scope_len;
-                                let avail = inner_width
-                                    .saturating_sub(prefix_len + count_str.len() + 2);
-                                if avail > 3 {
-                                    spans.push(Span::styled(
-                                        format!(" {} ", "·".repeat(avail)),
-                                        Style::default().fg(theme::SURFACE),
-                                    ));
-                                } else {
-                                    spans.push(Span::raw(" "));
-                                }
-                                spans.push(Span::styled(
-                                    count_str,
-                                    Style::default().fg(theme::OVERLAY),
-                                ));
-                            }
-                        } else {
-                            spans.push(Span::styled(
-                                node.name.clone(),
-                                Style::default().fg(theme::TEXT),
-                            ));
-                        }
-                        ListItem::new(Line::from(spans))
+                        ListItem::new(row_line(node, sections.get(node.section), inner_width))
                     })
                     .collect();
 
@@ -1382,10 +1446,10 @@ fn event_loop(
                     inner_chunks[1],
                 );
 
-                if let Some(line) = empty_state_line(nodes) {
+                if empty_state_line(nodes).is_some() {
                     frame.render_widget(
                         Paragraph::new(Line::from(Span::styled(
-                            format!("  {line}"),
+                            format!("  {}", empty_state_text(&ctx.title)),
                             Style::default().fg(theme::OVERLAY),
                         ))),
                         inner_chunks[2],
@@ -2353,6 +2417,7 @@ mod tests {
             scope: Scope::Global,
             project: None,
             new_note_root: PathBuf::from(root),
+            is_current: false,
         }
     }
 
@@ -2907,6 +2972,203 @@ mod tests {
         assert_eq!(empty_state_line(&some), None);
     }
 
+    #[test]
+    fn a_narrowed_empty_view_names_its_scope() {
+        let cases = [
+            (Scope::Personal, "no personal notes here yet: n creates one"),
+            (Scope::Public, "no public notes here yet: n creates one"),
+            (Scope::Local, "no scratch notes here yet: n creates one"),
+            (Scope::Global, "no global notes here yet: n creates one"),
+        ];
+        for (scope, expected) in cases {
+            let title = format!("{} notez (proj)", scope.icon());
+            assert_eq!(empty_state_text(&title), expected);
+        }
+    }
+
+    #[test]
+    fn the_all_view_keeps_the_plain_empty_state() {
+        assert_eq!(empty_state_text("notez (proj)"), EMPTY_STATE);
+        assert_eq!(empty_state_text("notez"), EMPTY_STATE);
+        assert_eq!(empty_state_text(""), EMPTY_STATE);
+    }
+
+    // --- Initial expansion ---
+
+    /// The section rows of `nodes` with their expanded state.
+    fn section_rows(nodes: &[TreeNode]) -> Vec<(&str, bool)> {
+        nodes
+            .iter()
+            .filter(|n| n.depth == 0)
+            .map(|n| (path_str(&n.path), n.expanded))
+            .collect()
+    }
+
+    #[test]
+    fn the_current_repositorys_sections_open_expanded_and_the_rest_collapsed() {
+        let mut sections = project_sections();
+        sections[0].is_current = true;
+        sections[1].is_current = true;
+        let (mut nodes, _) = build_forest(&sections);
+        open_current_sections(&mut nodes, &sections);
+        assert_eq!(
+            section_rows(&nodes),
+            vec![
+                ("/n/personal/proj", true),
+                ("/p/notez", true),
+                ("/p/docs", false),
+                ("/p/.notez", false),
+                ("/n", false),
+            ],
+        );
+        assert!(
+            nodes.iter().filter(|n| n.depth > 0 && n.is_dir).all(|n| !n.expanded),
+            "folders inside a section stay collapsed",
+        );
+    }
+
+    #[test]
+    fn with_no_current_section_every_section_opens_as_before() {
+        let sections = project_sections();
+        let (mut nodes, _) = build_forest(&sections);
+        open_current_sections(&mut nodes, &sections);
+        let (built, _) = build_forest(&sections);
+        assert_eq!(section_rows(&nodes), section_rows(&built));
+    }
+
+    #[test]
+    fn a_rebuild_keeps_the_users_expansion_over_the_initial_one() {
+        let current = || {
+            let mut sections = project_sections();
+            sections[0].is_current = true;
+            sections
+        };
+        let sections = current();
+        let (mut nodes, tag_roots) = build_forest(&sections);
+        open_current_sections(&mut nodes, &sections);
+        let initial = vec![HashMap::new(); tag_roots.len()];
+        let mut forest = Forest { sections, nodes, tag_roots, initial };
+        let personal = row(&forest.nodes, "/n/personal/proj");
+        let global = row(&forest.nodes, "/n");
+        forest.nodes[personal].expanded = false;
+        forest.nodes[global].expanded = true;
+
+        forest.rebuild(current(), Path::new("/n/none.md"));
+
+        assert!(!forest.nodes[row(&forest.nodes, "/n/personal/proj")].expanded);
+        assert!(forest.nodes[row(&forest.nodes, "/n")].expanded);
+    }
+
+    // --- Scope badges ---
+
+    /// Width of the list pane's text in an 80-column list, the way the
+    /// event loop derives it from the pane width.
+    const LIST_TEXT_WIDTH: usize = 80 - 6;
+
+    /// [`project_sections`] with the icons the real listing gives them, and
+    /// every row expanded.
+    fn badged_forest() -> (Vec<SectionSpec>, Vec<TreeNode>) {
+        let mut sections = project_sections();
+        for spec in &mut sections {
+            spec.icon = if spec.is_doc { "\u{f02d}" } else { spec.scope.icon() };
+        }
+        let (mut nodes, _) = build_forest(&sections);
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        (sections, nodes)
+    }
+
+    /// `line` drawn as the selected row of an 80-column list, the way the
+    /// event loop draws it: the cells of that row.
+    fn render_row(line: Line<'static>) -> Vec<(String, Option<Color>)> {
+        use ratatui::buffer::Buffer;
+        let area = Rect::new(0, 0, 80, 1);
+        let mut buf = Buffer::empty(area);
+        let list = List::new(vec![ListItem::new(line)]).highlight_symbol("  ▸ ");
+        let mut state = ListState::default();
+        state.select(Some(0));
+        StatefulWidget::render(list, area, &mut buf, &mut state);
+        (0..80)
+            .map(|x| {
+                let cell = &buf[(x, 0)];
+                (cell.symbol().to_string(), cell.style().fg)
+            })
+            .collect()
+    }
+
+    /// Highlight symbol plus the tag dots: the badge sits in this column.
+    const BADGE_COL: usize = 4 + 7;
+
+    #[test]
+    fn every_file_row_has_a_badge_in_its_scope_colour_and_the_rest_unchanged() {
+        let (sections, nodes) = badged_forest();
+        let cases = [
+            ("/n/personal/proj/top.md", Scope::Personal.icon(), Scope::Personal, 1),
+            ("/p/notez/plans/b.md", Scope::Public.icon(), Scope::Public, 2),
+            ("/p/docs/design/c.md", "\u{f02d}", Scope::Public, 2),
+            ("/p/.notez/d.md", Scope::Local.icon(), Scope::Local, 1),
+            ("/n/e.md", Scope::Global.icon(), Scope::Global, 1),
+        ];
+        for (path, icon, colour_scope, depth) in cases {
+            let node = &nodes[row(&nodes, path)];
+            let cells = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
+            assert_eq!(cells[BADGE_COL].0, icon, "{path}");
+            assert_eq!(cells[BADGE_COL].1, Some(theme::scope_color(colour_scope)), "{path}");
+            let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+            let expected = format!("{}│   {}", "  ".repeat(depth), node.name);
+            assert_eq!(rest.trim_end(), expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn folder_rows_have_the_badge_too() {
+        let (sections, nodes) = badged_forest();
+        let node = &nodes[row(&nodes, "/n/personal/proj/ideas")];
+        let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        let cells = render_row(line);
+        assert_eq!(cells[BADGE_COL].0, Scope::Personal.icon());
+        assert_eq!(cells[BADGE_COL].1, Some(theme::scope_color(Scope::Personal)));
+        let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+        assert!(rest.starts_with("  ├─▼ ideas "), "{rest:?}");
+        assert!(rest.trim_end().ends_with('1'), "{rest:?}");
+    }
+
+    #[test]
+    fn a_section_header_shows_its_scope_word_in_the_scope_colour() {
+        let (sections, nodes) = badged_forest();
+        for (i, spec) in sections.iter().enumerate() {
+            let node = nodes.iter().find(|n| n.depth == 0 && n.section == i).unwrap();
+            let line = row_line(node, Some(spec), LIST_TEXT_WIDTH);
+            let word = spec.scope.label();
+            let colour = Some(theme::scope_color(spec.scope));
+            let word_span = line.spans.iter().find(|s| s.content == word).expect(word);
+            assert_eq!(word_span.style.fg, colour, "{word}");
+            let icon_span =
+                line.spans.iter().find(|s| s.content.starts_with(spec.icon)).expect("icon");
+            assert_eq!(icon_span.style.fg, colour, "{word} icon");
+
+            let cells = render_row(line);
+            assert_eq!(cells[BADGE_COL].0, " ", "{word}: no second icon on the header");
+            let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+            let expected = format!("▼ {} {} {word} ", spec.icon, spec.label);
+            assert!(rest.starts_with(&expected), "{rest:?}");
+            assert!(rest.trim_end().ends_with(&node.child_count.to_string()), "{rest:?}");
+        }
+    }
+
+    #[test]
+    fn a_click_on_a_tag_dot_still_toggles_that_tag_past_the_badge() {
+        let (sections, mut nodes) = badged_forest();
+        let idx = row(&nodes, "/p/.notez/d.md");
+        let prio = FLAG_DEFS.iter().position(|d| d.bit == FLAG_PRIO).unwrap();
+        nodes[idx].flags = FLAG_PRIO;
+        let cells = render_row(row_line(&nodes[idx], sections.get(nodes[idx].section), LIST_TEXT_WIDTH));
+        let lit = cells.iter().position(|c| c.0 == "●").expect("a lit dot");
+        assert_eq!(mouse_x_to_dot(lit as u16, 0), Some(prio as u8));
+        assert_eq!(mouse_x_to_dot(BADGE_COL as u16, 0), None, "the badge is no dot");
+    }
+
     // --- Delete ---
 
     const SCOPES: [(Scope, &str); 4] = [
@@ -2968,6 +3230,7 @@ mod tests {
                 scope: *scope,
                 project: (*scope != Scope::Global).then(|| "proj".to_string()),
                 new_note_root: root.clone(),
+                is_current: false,
             })
             .collect()
     }

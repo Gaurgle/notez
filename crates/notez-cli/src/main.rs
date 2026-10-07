@@ -68,9 +68,10 @@ fn main() -> ExitCode {
         return finish(commands::nav::run(&config));
     }
 
-    // No subcommand: a bare `notez` (or `tree`) opens the browser on the
-    // current project, `-g` / `-p` / `-l` narrow it to that scope, and a
-    // scope flag followed by words makes a quick note there. See `decide`.
+    // No subcommand: a bare `notez` (or `tree`) opens the browser on
+    // everything, current project first; `-g` / `-p` / `-l` narrow it to
+    // that scope, and a scope flag followed by words makes a quick note
+    // there. See `decide`.
     let cmd = match action {
         Action::Browse(view) => return finish(browse(view, &config, sync)),
         Action::QuickNote(title) => {
@@ -604,19 +605,27 @@ mod tests {
     }
 
     #[test]
-    fn no_flag_opens_the_project_view_inside_a_project() {
+    fn no_flag_opens_the_all_view_inside_and_outside_a_project() {
         for args in [&[][..], &["tree"], &["treez"]] {
             let action = decide_for(parse(args).unwrap(), true).unwrap();
-            assert!(matches!(action, Action::Browse(View::Project)), "{args:?}");
+            assert!(matches!(action, Action::Browse(View::All)), "{args:?}");
             let action = decide_for(parse(args).unwrap(), false).unwrap();
-            assert!(matches!(action, Action::Browse(View::Global)), "{args:?}");
+            assert!(matches!(action, Action::Browse(View::All)), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn personal_flag_outside_a_project_opens_the_all_view() {
+        for args in [&["-p"][..], &["-p", "tree"]] {
+            let action = decide_for(parse(args).unwrap(), false).unwrap();
+            assert!(matches!(action, Action::Browse(View::All)), "{args:?}");
         }
     }
 
     #[test]
     fn a_scope_flag_alone_opens_that_scope() {
         let cases = [
-            ("-g", View::Global),
+            ("-g", View::Only(Scope::Global)),
             ("-p", View::Only(Scope::Personal)),
             ("-l", View::Only(Scope::Local)),
         ];
