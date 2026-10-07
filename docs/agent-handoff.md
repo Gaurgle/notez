@@ -302,7 +302,28 @@ standing scope confirmed at takeover:
   (pass 1 `aggregate.rs` and `commands/tree.rs`; pass 2 `tui/tree.rs`,
   `theme.rs`, docs), one `nz-reviewer` (opus) on the whole diff. Brief
   under Tickets, NZ-13.
-- PASS 1 WORKER RUNNING. No reviewer yet.
+- Pass 1 REPORTED at 18:40 CEST (opus, about 114k tokens, 8 minutes):
+  `collect_all` lists unregistered `personal/<name>/` folders (hidden
+  names and loose files skipped); `View { All, Only(Scope) }`;
+  `SectionSpec.is_current`; order current, global, others in
+  `sections_from_entries` (`BUCKET_CURRENT/GLOBAL/OTHER`); `-g` is vault
+  global notes only and `single_scope_view` collects them without a
+  project so they are not grouped under the current one; tests in
+  `aggregate.rs`, `commands/tree.rs`, `main.rs`; `tui/tree.rs` touched
+  only for the struct field and two test helpers. Worker checks: build
+  clean, notez-cli 208, notez-core 146. Existing tests renamed or
+  re-targeted for the new decisions are listed in its report (view names
+  and `-g` expectations); the reviewer checks them.
+- Lead decision on pass 1's deviation: personal sections of unregistered
+  projects keep the VAULT ROOT as `tag_root` (keys `personal/<name>/...`),
+  not `<vault>/personal/<name>` as the brief said, because that is the
+  `.tags` layout every personal section uses and epoz reads; the brief's
+  wording was wrong. `root` and `new_note_root` are the folder itself.
+- Pass 2 `nz-worker` (opus) dispatched 18:45 CEST on the same worktree:
+  initial expansion (current sections open, others collapsed, all open
+  when nothing is current), `theme::scope_color`, badges on rows and
+  scope words on headers, narrowed empty-state wording, README and
+  DESIGN.md. PASS 2 WORKER RUNNING. No reviewer yet.
 
 Queue after NZ-13, as confirmed by Andreas at takeover: NZ-14 (folders),
 NZ-15 (move, set scope), NZ-16 (multi-select), then the UI tickets NZ-4,
