@@ -49,11 +49,6 @@ pub fn run(
     scope: Scope,
     config: &Config,
 ) -> Result<Created> {
-    let (title, body) = cli::split_title_body(title_words);
-    let title = title.unwrap_or_else(|| "untitled".to_string());
-    let had_body = body.is_some();
-
-    let note = Note::new(title, body);
     let dir = match &in_arg {
         None if is_quick => resolve::quick_notes(quick_scope(scope), config)?,
         None => resolve::root(scope, config)?,
@@ -67,13 +62,27 @@ pub fn run(
             }
         }
     };
-    std::fs::create_dir_all(&dir)
+    create_in_dir(title_words, &dir, scope)
+}
+
+/// Create a note in an explicit directory: the creation path shared by
+/// `notez add` and the tree browser's new-note prompt. The first title word
+/// group is the title ("untitled" when empty), the rest an optional body, as
+/// for `add`. Creates `dir` if missing, gitignores the scratch store for
+/// [`Scope::Local`], and never overwrites an existing file (`-2`, `-3`, ...).
+pub fn create_in_dir(title_words: Vec<String>, dir: &Path, scope: Scope) -> Result<Created> {
+    let (title, body) = cli::split_title_body(title_words);
+    let title = title.unwrap_or_else(|| "untitled".to_string());
+    let had_body = body.is_some();
+    let note = Note::new(title, body);
+
+    std::fs::create_dir_all(dir)
         .with_context(|| format!("failed to create note dir {}", dir.display()))?;
     if scope == Scope::Local {
-        project::ensure_scratch_gitignored(&dir);
+        project::ensure_scratch_gitignored(dir);
     }
 
-    let path = create_new_note_file(&dir, &note.filename(), &note.rendered())?;
+    let path = create_new_note_file(dir, &note.filename(), &note.rendered())?;
 
     Ok(Created { path, had_body })
 }
@@ -652,6 +661,61 @@ mod tests {
 
         assert_eq!(std::fs::read_to_string(&numbered).unwrap(), "plan two edits\n");
         assert_eq!(std::fs::read_to_string(&plain).unwrap(), "plan edits\n");
+    }
+
+    /// The browser creates through `create_in_dir` in the scope root; that
+    /// must land beside what `notez add` writes for the same title and
+    /// scope, with the same content, never overwriting it.
+    #[test]
+    #[serial_test::serial]
+    fn create_in_dir_matches_add_for_every_scope() {
+        let notez_root = tempdir().unwrap();
+        let config = config_in(notez_root.path());
+        let project_dir = tempdir().unwrap();
+        git_init(project_dir.path());
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(project_dir.path()).unwrap();
+
+        let mut results = Vec::new();
+        for scope in [Scope::Global, Scope::Personal, Scope::Public, Scope::Local] {
+            let added = run(words("call the bank"), None, false, false, scope, &config);
+            let dir = resolve::root(scope, &config);
+            let created = dir
+                .as_ref()
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .and_then(|d| create_in_dir(words("call the bank"), d, scope));
+            results.push((scope, added, dir, created));
+        }
+        std::env::set_current_dir(saved).unwrap();
+
+        for (scope, added, dir, created) in results {
+            let (added, dir, created) = (added.unwrap().path, dir.unwrap(), created.unwrap().path);
+            assert_eq!(added.parent().unwrap(), dir, "{scope:?}");
+            assert_eq!(created.parent().unwrap(), dir, "{scope:?}");
+            assert!(file_name(&added).ends_with("-call-the-bank.md"), "{scope:?}");
+            assert!(file_name(&created).ends_with("-call-the-bank-2.md"), "{scope:?}");
+            assert_eq!(
+                std::fs::read_to_string(&added).unwrap(),
+                std::fs::read_to_string(&created).unwrap(),
+                "{scope:?}"
+            );
+        }
+        let gitignore = std::fs::read_to_string(project_dir.path().join(".gitignore")).unwrap();
+        assert!(gitignore.lines().any(|l| l.trim() == ".notez"));
+    }
+
+    #[test]
+    fn create_in_dir_defaults_to_untitled_and_creates_the_dir() {
+        let root = tempdir().unwrap();
+        let dir = root.path().join("ideas").join("new");
+
+        let created = create_in_dir(vec![], &dir, Scope::Personal).unwrap();
+
+        assert_eq!(created.path.parent().unwrap(), dir);
+        assert!(!created.had_body);
+        assert!(file_name(&created.path).ends_with("-untitled.md"));
+        let body = std::fs::read_to_string(&created.path).unwrap();
+        assert!(body.starts_with("# untitled\n"));
     }
 
     #[test]
