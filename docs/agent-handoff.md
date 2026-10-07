@@ -272,90 +272,27 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-8, dispatched 2026-10-06 18:13 CEST under the standing scope:
+NZ-12 (delete a note from the tree browser), dispatched 2026-10-07 17:25
+CEST under the standing scope confirmed at takeover:
 
-- Base commit: `c272d02` (`main` and `origin/main` at dispatch, the NZ-9
-  merge).
-- Branch: `feat/NZ-8-create-note-in-browser`.
-- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-8`.
-- Method: bounded ticket, no locked tests, two worker passes on the same
-  worktree because `tui/tree.rs` is 1910 lines. Pass 1: expose the creation
-  path in `commands/add.rs`, give sections their scope, target resolution,
-  the `n` prompt, create, open the editor, rebuild the tree with state
-  kept. Pass 2: `Tab` scope cycling in the prompt, the browser opening
-  with no notes (removing the "No notes here." exit), README. One review
-  of the whole diff after pass 2.
-- Lead decision added at dispatch: with the cursor in a docs section, the
-  target is the project's personal root, so nothing is published by
-  accident.
-- Pass 1: `nz-worker`, model `opus`. STOPPED BY ANDREAS by accident at
-  about 18:21 CEST, some 8 minutes in, before it reported ("oops, sorry.
-  continue!"). It left uncommitted edits to `commands/add.rs` (+80),
-  `commands/tree.rs` (+62) and `tui/tree.rs` (+474), nothing untracked. The
-  lead measured them at 18:22: `cargo build --workspace` clean, `cargo test
-  --workspace` green (notez-cli 176, 14 new; notez-core 143). Present by
-  name: `add::create_in_dir`, `NewNoteTarget`, `NewNotePrompt`,
-  `new_note_target`, `new_note_lead`, `restore_state`, an `n` key row and
-  handler. Unknown: whether the flow is complete end to end; nobody ran it.
-- Continuation: a fresh `nz-worker`, model `opus`, dispatched 18:23 CEST on
-  the same worktree. It REPORTED at 18:32 CEST and is stopped: the whole
-  ticket claimed complete (audit of the inherited pass 1, the `n` footer
-  hint, `Tab` scope cycling, the empty browser, README), with a pty run
-  under isolation. Usage: about 100k tokens, 8 minutes. No agent is
-  working on NZ-8.
-- WORKER COMPLETE, NOT REVIEWED. Stopped here for the night on Andreas's
-  wrap-up instruction; no reviewer was dispatched.
-- Uncommitted change in the worktree: `README.md`,
-  `crates/notez-cli/src/commands/add.rs`,
-  `crates/notez-cli/src/commands/tree.rs`,
-  `crates/notez-cli/src/tui/tree.rs`; 947 insertions, 36 deletions, nothing
-  untracked. `git diff c272d02 | shasum -a 256` gives
-  `9edb7c7079a4b83dcd70f2f74f1f74ecd98c39ebca4957ce1beedd3de961e378`.
-- Lead check at 18:32 CEST on that state: `cargo build --workspace` clean,
-  `cargo test --workspace` green (notez-cli 184, notez-core 143). That is a
-  build and test run only, not a review.
-- What the worker says it built: `add::create_in_dir` (the tail of `run`,
-  shared by `notez add` and the browser); `SectionSpec` with `scope`,
-  `project`, `new_note_root`; pure `new_note_target`, `scope_label`,
-  `next_scope_target`; `NewNotePrompt` with `origin` and `project`;
-  `NewNoteRoots` on `TreeContext`, filled by `commands/tree.rs`;
-  `Forest::rebuild`, fed by a `rebuild` closure that re-collects the view
-  from disk; the "No notes here." exit removed and an empty state line
-  `no notes here yet: n creates one`.
-- For the reviewer to judge, from the worker's own list: (1) two tests that
-  existed at the base were edited because `n` now shows in the footer:
-  `normal_and_focus_footers_hint_the_browse_keys` (expected list) and
-  `narrow_footer_drops_low_priority_hints_but_keeps_help_and_quit` (the
-  widths at which keys drop were re-measured); check coverage was kept.
-  (2) `Tab` offers a row's project scopes whenever that project's
-  repository is known, even in the global view outside a project, which is
-  broader than "outside a project: global only" in decision 3. (3) The
-  prompt has no in-line cursor, like rename. (4) `n` and `f` share footer
-  priority 3. (5) Creating in another section while focused expands that
-  section too. (6) The mouse on an empty tree was reasoned, not exercised.
-- 2026-10-07 16:35 CEST: the new lead (`52bd7aa5`) verified the hash
-  still matches and dispatched `nz-reviewer` (opus) on it with the ticket,
-  the six points above, and extra probes (`add` behaviour unchanged, no
-  `notez-core` file touched, the rebuild path under editor failure).
-  REVIEW RUNNING. Then fixes if asked, re-review, the lead's checks on the
-  combined result with current `main`, commit, merge, push, cleanup.
-- The lead's session scratchpad was removed at about the same time (the
-  session id appears to have changed to `298bd2d1`), so the diff snapshots
-  saved there for earlier reviews are gone. Hashes in this file still
-  identify the reviewed revisions; committed ticket diffs can be
-  re-derived with `git diff <base> <ticket commit>`.
+- Base commit: `bf8f2ca` (`main` and `origin/main` at dispatch, the NZ-8
+  merge). `git status --short` at dispatch: only `docs/agent-handoff.md`
+  modified (this file), no source changes.
+- Branch: `fix/NZ-12-delete-note`.
+- Worktree: `/Users/at-a/Repos/notez/.claude/worktrees/NZ-12`.
+- Method: bounded ticket, one `nz-worker` (opus) pass, one `nz-reviewer`
+  (opus) on the whole diff. Ticket brief under Tickets, NZ-12.
+- WORKER RUNNING. No reviewer yet.
 
-NZ-8 is the only ticket with work in a worktree. `main` has moved since its
-base `c272d02`: NZ-10 landed (`commands/todo.rs`, `commands/log.rs`,
-`notez-core/src/core/project.rs`), none of them NZ-8's files, plus handoff
-commits. The lead reruns the checks on the combined result at the merge.
+Queue after NZ-12, as confirmed by Andreas at takeover: NZ-13 (unified
+view, Ready), NZ-14 (folders), NZ-15 (move, set scope), NZ-16
+(multi-select), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and NZ-6 in
+the second worker slot when their files are free (NZ-11 touches
+`tui/tree.rs`, so only between tree tickets; NZ-6 touches `main.rs`,
+`sync.rs`, `commands/sync.rs`, `README.md`).
 
-Queue after NZ-8, UI first because Andreas wants to demo it soon: NZ-4
-(panes), NZ-5 (search), NZ-3 (header). The lead put NZ-4 and NZ-5 ahead of
-NZ-3 as the more visible ones; Andreas can reorder. NZ-6 and NZ-11 fit
-around them: NZ-6 in the second slot (it touches `main.rs`, `sync.rs`,
-`commands/sync.rs`, `README.md`), NZ-11 as a small `tui/tree.rs` change
-between UI tickets.
+Note to the next lead: there is no session scratch directory to rely on;
+compute diff hashes by piping `git diff <base>` to `shasum -a 256`.
 
 Worktrees branch from a commit, so the lead checks `git status --short`
 before each dispatch and stops if source files are dirty.
@@ -757,8 +694,60 @@ Allowed files: `crates/notez-cli/src/tui/tree.rs`,
 
 ### NZ-8: create a note from the tree browser
 
-Status: In flight (see In flight above). Authorized with NZ-7, decisions by the lead. Runs after
-NZ-7. Needs NZ-2's footer and help tables.
+Status: Done. Merged into `main` as `bf8f2ca` at 17:20 CEST on 2026-10-07
+and pushed. Authorized with NZ-7, decisions by the lead. Not yet installed
+by Andreas.
+
+Record:
+
+- Base `c272d02`, branch `feat/NZ-8-create-note-in-browser`, ticket commit
+  `6a7453f` (4 files, 947 insertions, 36 deletions), merge commit
+  `bf8f2ca` made with `git merge --no-ff` under the integration
+  delegation. To undo the ticket: `git revert -m 1 bf8f2ca`.
+- Agents: two `nz-worker` (opus) runs on 2026-10-06 (pass 1 stopped by
+  accident, a continuation finished the ticket; about 100k tokens for the
+  continuation) and one `nz-reviewer` (opus) on 2026-10-07 (75k tokens, 3
+  minutes). No fix cycle.
+- Review: accepted first time, no blockers. The committed diff hashes to
+  `9edb7c7079a4b83dcd70f2f74f1f74ecd98c39ebca4957ce1beedd3de961e378`
+  (`git diff c272d02 6a7453f | shasum -a 256`), the hash it accepted. The
+  reviewer traced every key arm and the mouse handlers on an empty tree
+  (no panic path), confirmed `notez add` is unchanged (NZ-9 numbering goes
+  through the same `create_new_note_file`), and that no `notez-core` file
+  is touched.
+- Lead verification: `cargo build --workspace` and `cargo test
+  --workspace` on `main` after the merge: build clean, notez-cli 186
+  passed, notez-core 145 passed.
+- One change beyond the ticket's wording, judged in scope by the reviewer
+  and the lead: `repo_paths` in `commands/tree.rs` now includes the
+  current unregistered project, because at the base its public and
+  scratch sections were rooted under the vault and showed nothing, and
+  `n` there would have written a "public" note into the vault. Covered by
+  `unregistered_project_sections_are_rooted_in_the_project`.
+- Lead decisions recorded from the review: (a) `Tab` offers a row's
+  project scopes whenever that project's repository is known, also in the
+  global view; the label names scope and project ("public (committed with
+  <p>)"), rows outside any project cycle global only. Accepted as the
+  reading of "outside a project". (b) The `Tab` order is personal, public,
+  local, global rather than the brief's public-first; accepted, the
+  prompt names the scope either way.
+- Left alone, none authorized: (1) new rustfmt drift in the added lines
+  (not a gate per CLAUDE.md); (2) creating in another section while focus
+  mode is on leaves two sections open with focus still lit, cosmetic; (3)
+  in an empty single-scope view such as `notez -l`, `n` defaults to
+  personal and the note does not appear in that view, only a "created
+  <path>" status (NZ-13 reworks the views and should settle this); (4)
+  mouse clicks still act on the list while the prompt is open, harmless;
+  (5) the prompt has no in-line cursor, like rename.
+- Cleanup done: worktree removed, local branch deleted with `git branch
+  -d`. The branch was never pushed.
+- What Andreas sees after `./install.sh`: `n` in the tree opens a footer
+  prompt `new note in <scope>/<folder>: _`, `Tab` cycles the scope,
+  `Enter` creates and opens the editor, the tree comes back with the new
+  note selected; an empty view opens the browser with `no notes here yet:
+  n creates one` instead of exiting.
+
+The ticket as it was run:
 
 Outcome and decisions:
 
@@ -946,31 +935,103 @@ rest; the lead confirms them with him at the start.
 
 #### NZ-13: unified default view
 
-Status: Draft, relayed, not confirmed in the lead session. Supersedes
-NZ-7's decision 1 ("inside a project, the project view") where they differ.
+Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+("NZ-13: the unified default view, with scope badges"). Supersedes NZ-7's
+decision 1 ("inside a project, the project view") where they differ. Runs
+after NZ-12, based on `main` then. Brief finalized by the lead at 17:10
+CEST from the code at `2f04539` plus the NZ-8 worktree.
 
-Outcome: bare `notez` shows everything Andreas can reach: global notes, the
-current repository (personal, public, docs, scratch), every registered
-project, and unregistered `personal/<name>/` folders. Today
-`aggregate::collect_all` skips `personal/` for projects not in the
-registry, so for example `personal/socials` never shows. The current
-repository's section comes first and expanded. Every row and section
-carries a scope badge (private, public, local, global) using the existing
-scope icons and colours. The scope flags `-p`, `-l`, `-g` still narrow to
-one scope; an empty scope says so in the browser instead of exiting with a
-message (NZ-8 removes that exit).
+Problem (verified by the lead): `aggregate::collect_all` walks only
+registry projects, and skips the whole `personal/` subtree of the vault
+when it walks the global root, so a `personal/<name>/` folder whose
+project is not registered on this machine (for example `personal/socials`)
+is listed nowhere. Inside a project, bare `notez` shows that project only
+(NZ-7), so the rest of the vault is a flag away.
 
-Files named: `tui/tree.rs`, `commands/tree.rs`,
-`notez-core/src/core/aggregate.rs` (the `collect_all` personal rule),
-`README.md`. Tests on aggregation and badges.
+Outcome and decisions:
 
-Lead's notes for the brief: the `notez-core` change to `collect_all` is
-approved by Andreas as relayed on 2026-10-07 ("ok" to the advisor's
-recommendation; see the second relay above); it must stay an addition to
-the listing with no public signature or file format change, and epoz's use
-of `collect_all` is a follow-up for Andreas, not part of the ticket. NZ-8's
-`NewNoteRoots` and section scope work should be reused for the badges. The `s` scope cycling in NZ-5 and this ticket's badges
-should agree on names and colours.
+1. Bare `notez`, `notez tree` and `treez` with no scope flag open ONE view,
+   inside or outside a project: the current repository's sections first
+   (personal, public, docs, scratch, in today's `scope_rank` order),
+   expanded; then the global notes section; then every other project
+   (registered ones with all their scopes, plus unregistered
+   `personal/<name>/` folders), collapsed at the section level. Outside a
+   project the current-repository group is simply absent. `View::Project`
+   and `View::Global` collapse into this one view (`View::All` or a
+   rename of the lead's choosing); the title is `notez` with the current
+   repository named when there is one.
+2. `collect_all` (notez-core) additionally lists, as `Scope::Personal`
+   with `project: Some(<name>)`, every directory `personal/<name>/` whose
+   name is not in the registry. Addition only: same signature, same
+   `NoteEntry`, no file format change, registered projects unchanged, the
+   dedup safety net kept. Approved by Andreas as relayed ("ok"). Tests
+   with a temp vault and an empty registry.
+3. Scope badges: every section header already carries its scope icon;
+   this ticket adds the scope word (`personal`, `public`, `scratch`,
+   `notez`, from `Scope::label`) in that scope's colour next to it, and
+   gives every file and folder row a one-column badge with the scope icon
+   in the same colour at the left of the row (today file rows have an
+   empty `scope_icon`). Colours: one per scope, chosen from `theme.rs`,
+   defined once in a `scope_color(Scope)` helper so NZ-5's `s` scope
+   cycling and NZ-8's prompts can reuse it. Docs sections use the docs
+   icon and the public colour.
+4. The scope flags narrow as before: `-p` the project's personal notes,
+   `-l` its scratch, and `-g` becomes the global notes only (the vault
+   root minus `personal/`), since bare `notez` now shows everything that
+   `-g` used to. `-p` outside a project keeps falling back to the whole
+   view. An empty narrowed view opens the browser with NZ-8's empty state
+   line, naming the scope.
+5. `NewNoteRoots` (NZ-8) must know every project shown, including the
+   unregistered personal-only ones (personal root only, no repository),
+   so `n` and `Tab` in those sections offer personal and global and never
+   public or local.
+6. Not in this ticket: remembering collapsed state between runs (no state
+   file); any change to the todo board; projects with notes but no
+   `personal/` folder and no registry entry (nothing to list).
+
+Acceptance criteria:
+
+1. `collect_all` on a temp vault with `personal/a/x.md` (registered),
+   `personal/b/y.md` (unregistered) and `z.md` at the root returns three
+   entries with scopes Personal(a), Personal(b), Global, and the
+   registered project's local and public notes as before; existing
+   aggregate tests unchanged.
+2. Inside a project the section order is current repository, global,
+   others; outside it is global, others; tested on `sections_from_entries`
+   or its successor with a fake current project.
+3. The current repository's sections open expanded and every other section
+   collapsed; a unit test on the initial forest state.
+4. Every section header shows icon and scope word in the scope colour;
+   every row shows the badge; a render test at width 80 checks the badge
+   column and that the label text is otherwise unchanged. Narrow widths
+   drop nothing new (the badge is one column).
+5. `-g` lists only root notes (no `personal/`), `-p` and `-l` as before;
+   `notez -p` outside a project opens the full view; tests through
+   `build_view`.
+6. `n` in an unregistered personal section targets that folder and `Tab`
+   cycles personal and global only; a test on the roots passed in.
+7. README (default view, `-g` meaning, badges) and DESIGN.md (scope flags
+   section, where it states what bare `notez` shows) updated.
+
+Allowed files: `crates/notez-core/src/core/aggregate.rs` (decision 2
+only), `crates/notez-cli/src/commands/tree.rs`,
+`crates/notez-cli/src/tui/tree.rs`, `crates/notez-cli/src/tui/theme.rs`,
+`crates/notez-cli/src/main.rs` and `crates/notez-cli/src/cli/mod.rs` only
+if the `-g` doc strings or `decide` need the new view name, `README.md`,
+`DESIGN.md`. No new dependency.
+
+Method: bounded ticket, two worker passes on one worktree: pass 1
+`aggregate.rs` and `commands/tree.rs` (listing, view, ordering, roots,
+tests); pass 2 `tui/tree.rs` and `theme.rs` (initial expansion, badges,
+render tests) plus docs. One review of the whole diff. Reviewer probes:
+the dedup when a registered project's `personal/` is also reachable as
+unregistered; a `personal/<name>` that is a file, a symlink or unreadable;
+`-g` with a vault that has only `personal/` content; `Tab` in an
+unregistered section never offering public.
+
+Follow-up for Andreas, not in the ticket: epoz calls `collect_all` once
+(`app/src-tauri/src/commands.rs:33`) and will list the unregistered
+personal folders too once its pinned `notez-core` rev moves.
 
 #### NZ-14: folders in the tree browser
 
@@ -1039,6 +1100,53 @@ persisted. The "folder plus
 its own note" rule means the action set is the marked rows with
 descendants of marked folders removed. A bulk delete across scopes needs
 one confirmation listing counts per scope.
+
+#### NZ-17: versioning, first version 0.1.0
+
+Status: Draft, relayed, not confirmed in the lead session. RECORD ONLY.
+Provenance: a cross-session message from the advisor session
+(`repos-f9`) at about 17:20 CEST on 2026-10-07 relaying Andreas: "add a
+ticket about adding versioning to notez. first version can be 0.1.0?".
+Nothing dispatched; Andreas confirms the brief and names it before it
+runs. Tagging and releasing are owner-only whatever he decides.
+
+Facts checked by the advisor (not yet re-checked by the lead): both
+crates already say `version = "0.1.0"` in their own `Cargo.toml`; no git
+tags; no CHANGELOG; epoz pins `notez-core` by rev.
+
+Proposed outcome: notez has a real version, 0.1.0 the first. Scope as
+proposed: (1) one source of truth, `[workspace.package] version`,
+inherited by both crates; (2) `notez --version` prints the version plus
+the short commit, through a `build.rs` reading git with no new
+dependency, falling back to the plain version outside a git checkout;
+(3) `CHANGELOG.md` in Keep a Changelog form, with 0.1.0 summarizing what
+has shipped (auto sync, rename, always-open browser, footer and help,
+NZ-1 to NZ-10 and later); (4) a short versioning policy in the README:
+semver, 0.x so minor bumps may break, patch for fixes, and `notez-core`
+file-format changes are always at least a minor bump because epoz pins
+it; (5) `install.sh` prints the installed version. The ticket ends by
+presenting `git tag -a v0.1.0 -m ...` and the push command for Andreas;
+no agent tags or releases.
+
+Open for Andreas: should epoz later pin the tag instead of a rev; should
+cli and core versions always move together (proposed: yes, one workspace
+version); and whether a new `build.rs` counts as a build-config change
+needing his explicit approval (the lead's view: it is one, so it needs
+his yes before dispatch; CLAUDE.md asks before CI and dependency changes
+and this sits next to them).
+
+Allowed files (proposed): `Cargo.toml` (workspace and both crates),
+`crates/notez-cli/build.rs` (new), `crates/notez-cli/src/main.rs`
+(version output only), `CHANGELOG.md` (new), `README.md`, `install.sh`.
+
+Board note, relayed the same way: a GitHub Project board for notez now
+exists (`https://github.com/users/Gaurgle/projects/2`, private, linked
+to the repo, Status options Draft, Ready, In flight, Ready to integrate,
+Done). The advisor is populating it with NZ-1 to NZ-17 as draft items.
+Wiring it into `docs/agent-workflow.md` (board URL and read command) is
+the lead's job but waits for Andreas's word; the API listing for the new
+project returned 0 items when the advisor checked. Until then this file
+stays the board of record.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
