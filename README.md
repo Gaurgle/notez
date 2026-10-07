@@ -58,11 +58,25 @@ open-in-editor). Tag changes write only `.tags` roots that actually changed.
 A bare `notez` opens it too. With no scope flag it shows the whole current
 project (personal, public, docs and scratch sections), or the global view
 outside a project; `-g` opens the global view, `-p` only the project's
-personal notes, `-l` only its scratch notes.
+personal notes, `-l` only its scratch notes. It opens even when the view
+has no notes yet, with an empty-state line pointing at `n`.
+
+**New notes in the tree.** `n` creates a note in the folder under the
+cursor, in that row's scope. The footer prompt names the target before
+anything is created, for example `new note in personal/ideas: _`; on a
+project's `docs` section the target is the project's personal root.
+`Tab` cycles the scope (personal, public, local scratch, global, as far as
+they apply), each time at that scope's root, and returns to the original
+folder after a full cycle. Public notes are committed with the project
+repository, so the prompt says so: `public (committed with the project)`.
+`Enter` creates the note the way `notez add` does (same file name and
+content, never overwriting an existing file; an empty title becomes
+`untitled`), opens it in the editor, and selects it in the refreshed tree;
+`Esc` cancels.
 
 **Keys.** In both the board and the tree, the footer shows the keys for the
-current mode (browsing, filter, tags, focus, text entry such as rename or a
-new todo, `:` command) and lights the ones whose mode is on, such as `f`
+current mode (browsing, filter, tags, focus, text entry such as rename, a
+new note or a new todo, `:` command) and lights the ones whose mode is on, such as `f`
 while a section is focused. In tag, text-entry and `:` command modes the
 tag legend, prompt or command comes first and the keys follow in the space
 left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes

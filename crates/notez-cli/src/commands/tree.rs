@@ -14,7 +14,7 @@ use notez_core::core::{Project, Scope};
 use notez_core::note_tags;
 use notez_core::util::tilde;
 
-use crate::tui::tree::{SectionSpec, TreeContext, run_tree};
+use crate::tui::tree::{NewNoteRoots, SectionSpec, TreeContext, run_tree};
 
 /// Nerdfont book icon for docs sections (scopes use `Scope::icon`).
 const ICON_DOCS: &str = "\u{f02d}";
@@ -51,17 +51,49 @@ pub fn run(view: View, config: &Config, warning: Option<&str>) -> Result<()> {
     let registry = ProjectRegistry::load().unwrap_or_default();
     let (sections, mut ctx) = build_view(view, config, &registry)?;
     ctx.warning = warning.map(str::to_string);
+    ctx.new_note_roots = new_note_roots(config, &registry);
 
-    if sections.iter().all(|s| s.files.is_empty()) {
-        println!("\n  - No notes here.\n");
-        return Ok(());
-    }
-
-    let changed = run_tree(sections, &ctx, config)?;
+    // An empty view still opens: the browser shows an empty state and `n`
+    // creates the first note.
+    let rebuild = || build_view(view, config, &registry).map(|(sections, _)| sections);
+    let changed = run_tree(sections, &ctx, config, &rebuild)?;
     for (root, map) in &changed {
         note_tags::save_tags(root, map)?;
     }
     Ok(())
+}
+
+/// Repository root of every registered project. The project the browser
+/// runs in need not be registered; its stores still live in its own
+/// repository, not under the notez root.
+fn repo_paths(registry: &ProjectRegistry) -> std::collections::BTreeMap<String, PathBuf> {
+    let mut paths: std::collections::BTreeMap<String, PathBuf> = registry
+        .iter_resolved()
+        .map(|(n, p)| (n.to_string(), p))
+        .collect();
+    if let Some(current) = Project::try_detect() {
+        paths.entry(current.name).or_insert(current.root);
+    }
+    paths
+}
+
+/// The scope roots the new-note prompt can target: the global store and,
+/// per project with a known repository, its personal, public and scratch
+/// stores (the paths `notez add` writes to inside that project).
+fn new_note_roots(config: &Config, registry: &ProjectRegistry) -> NewNoteRoots {
+    let notez_root = config.notez_root_path();
+    let projects = repo_paths(registry)
+        .into_iter()
+        .map(|(name, repo)| {
+            let stores = vec![
+                (Scope::Personal, notez_root.join("personal").join(&name)),
+                (Scope::Public, repo.join("notez")),
+                (Scope::Local, repo.join(".notez")),
+            ];
+            (name, stores)
+        })
+        .collect();
+    NewNoteRoots { global: notez_root, projects }
 }
 
 /// Section order within a project: personal, public, docs, local.
@@ -124,10 +156,7 @@ fn sections_from_entries(
     registry: &ProjectRegistry,
 ) -> Vec<SectionSpec> {
     let notez_root = config.notez_root_path();
-    let repo_paths: std::collections::BTreeMap<String, PathBuf> = registry
-        .iter_resolved()
-        .map(|(n, p)| (n.to_string(), p))
-        .collect();
+    let repo_paths = repo_paths(registry);
 
     // Grouping key sorts NOTEZ (bucket 0) ahead of the projects (bucket 1).
     let mut grouped: std::collections::BTreeMap<(u8, String, u8), Vec<PathBuf>> =
@@ -162,13 +191,22 @@ fn sections_from_entries(
         } else {
             section_meta(scope, kind, &project, &repo, &notez_root)
         };
+        let is_doc = kind == SourceKind::Doc;
+        let new_note_root = if is_doc {
+            notez_root.join("personal").join(&project)
+        } else {
+            root.clone()
+        };
         out.push(SectionSpec {
             root,
             tag_root,
             label,
             icon,
-            is_doc: kind == SourceKind::Doc,
+            is_doc,
             files,
+            scope: if bucket == 0 { Scope::Global } else { scope },
+            project: (bucket != 0).then_some(project),
+            new_note_root,
         });
     }
     out
@@ -192,6 +230,8 @@ fn build_view(
                     title: "notez (global)".to_string(),
                     path_display: tilde::contract(&notez_root),
                     warning: None,
+                    current_project: Project::try_detect().map(|p| p.name),
+                    new_note_roots: NewNoteRoots::default(),
                 },
             ))
         }
@@ -221,6 +261,8 @@ fn build_view(
                     title: format!("notez ({})", project.name),
                     path_display: tilde::contract(&project.root),
                     warning: None,
+                    current_project: Some(project.name.clone()),
+                    new_note_roots: NewNoteRoots::default(),
                 },
             ))
         }
@@ -261,6 +303,8 @@ fn single_scope_view(
             title: format!("{} notez ({})", scope.icon(), name),
             path_display,
             warning: None,
+            current_project: project.map(|p| p.name.clone()),
+            new_note_roots: NewNoteRoots::default(),
         },
     )
 }
@@ -415,5 +459,43 @@ mod tests {
         let sections = sections_from_entries(entries, &config, &registry);
         assert_eq!(sections[0].root, PathBuf::from("/nr/personal/proj"));
         assert_eq!(sections[0].tag_root, PathBuf::from("/nr"));
+    }
+
+    /// An unregistered project's public, scratch and docs sections live in
+    /// the project, not under the notez root: a new note in the public
+    /// section must land in `<project>/notez/` as `notez add` puts it.
+    #[test]
+    #[serial_test::serial]
+    fn unregistered_project_sections_are_rooted_in_the_project() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        let name = Project::try_detect_from(repo.path()).unwrap().name;
+        for (dir, file) in [("notez/plans", "p.md"), (".notez", "s.md")] {
+            std::fs::create_dir_all(repo.path().join(dir)).unwrap();
+            std::fs::write(repo.path().join(dir).join(file), "# x\n").unwrap();
+        }
+        let mut config = Config::defaults();
+        config.paths.notez_root = root.path().to_string_lossy().into_owned();
+
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(repo.path()).unwrap();
+        let built = build_view(View::Project, &config, &ProjectRegistry::default());
+        std::env::set_current_dir(saved).unwrap();
+
+        let (sections, ctx) = built.unwrap();
+        assert_eq!(ctx.current_project.as_deref(), Some(name.as_str()));
+        let repo_root = repo.path().canonicalize().unwrap();
+        for (scope, dir) in [(Scope::Public, "notez"), (Scope::Local, ".notez")] {
+            let s = sections.iter().find(|s| s.scope == scope).unwrap();
+            assert_eq!(s.root.canonicalize().unwrap(), repo_root.join(dir), "{scope:?}");
+            assert_eq!(s.new_note_root, s.root, "{scope:?}");
+            assert_eq!(s.project.as_deref(), Some(name.as_str()));
+            assert_eq!(s.files.len(), 1, "{scope:?}");
+        }
     }
 }
