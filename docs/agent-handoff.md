@@ -370,9 +370,38 @@ REPORTED at 12:40 CEST: touched `tui/tree.rs`, `tui/footer.rs`
 files, 1799 insertions, 4 deletions, hashing to
 `5dd46366d0f422bfe1096548def638665a2346f2f6c5f9e6f10817ad8c7fcbc2`;
 worker checks: build clean, notez-cli 284 passed, notez-core 146
-passed; about 133k agent tokens. Workers stopped. REVIEW dispatched at
-12:45 CEST (`nz-reviewer`, opus) on that hash, RUNNING. Next: on
-acceptance, lead checks, commit exactly the reviewed diff on
+passed; about 133k agent tokens. REVIEW dispatched at 12:45 CEST
+(`nz-reviewer`, opus) on that hash; REPORTED at 12:55 CEST: changes
+requested, two blockers, about 128k agent tokens; hash confirmed,
+checks rerun (284 + 146), scope clean, all eight probes answered (no
+zero-copies path in `move_path`, tags correct across all 12 pairs
+except the two bugs, confirm and dispatch order correct).
+
+B1 (medium): `resolve_move` guards global-to-`personal/` lexically, but
+APFS is case-insensitive, so `Personal/proj/plans` typed from a global
+row bypasses it, lands without confirm, writes the tag key with the
+typed spelling (tag lost) and can reach another project's personal
+store; an intermediate symlink component also passes. B2 (medium): a
+hidden tagged note under a folder moved twice in one session loses its
+tag (`carry_unlisted_keys` scans only `forest.initial`, so the carried
+entry is never rewritten and ends up keyed to a missing file). FIX
+CYCLE 1 sent to the pass 2 worker at 12:58 CEST, RUNNING: component by
+component exact-spelling, no-symlink resolution of the typed folder;
+carried entries under a moved folder rewritten; tests for both.
+Re-review follows on the new hash.
+
+Reviewer follow-ups, not blocking, for Andreas and the leftovers list:
+F1 the check-then-rename window (macOS `rename` replaces an existing
+file; a no-overwrite rename needs libc, a new dependency, or
+`hard_link` then `remove_file`); F2 on a `RemoveSource` failure
+(cross-volume copy verified, source removal failed) notes already gone
+from the source keep stale keys and their copies are untagged, silent
+tag loss on a rare path; F3 a file written into the source between copy
+and `remove_dir_all` is lost; F4 cosmetic messages; F5 mouse while a
+prompt is open (same as rename). The prompt reads `move <name> to
+<scope>/<folder>_` (README documents the actual text).
+
+Next: on acceptance, lead checks, commit exactly the reviewed diff on
 `feat/NZ-15-move`, merge `--no-ff` into `main`, checks on `main`, push,
 board Done, cleanup. Board: In flight. No second worker slot is in use.
 
