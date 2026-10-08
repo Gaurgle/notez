@@ -346,8 +346,16 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-15 (move, set scope). Dispatched 2026-10-08 at 11:58 CEST by lead
-`4ffb11e2` under the standing scope, with the lead's recommended answers
+Nothing is in flight as of 13:20 CEST on 2026-10-08. NZ-15 is Done
+(merge `36699c1`, pushed, board Done, worktree and branch removed). No
+worker or reviewer is running. Next under the standing scope: NZ-16
+(multi-select), brief Ready under Tickets, board Ready; the lead
+dispatches it next unless Andreas redirects. NZ-19 (CI) waits for
+Andreas's four answers in the lead session (see Authorized by the
+owner, 2026-10-08 entry).
+
+NZ-15 record, moved here for history. Dispatched 2026-10-08 at 11:58
+CEST by lead `4ffb11e2` under the standing scope, with the lead's recommended answers
 to the three "Andreas" decisions (typed folder prompt with `Tab` for
 scope; `S` as its own key; destinations are the row's project's scopes
 plus global, no other projects). Andreas was asked at 10:35 CEST and had
@@ -1570,10 +1578,50 @@ dispatch order so `N` never fires inside another prompt.
 
 #### NZ-15: move a note or folder, change its visibility
 
-Status: In flight since 11:58 CEST on 2026-10-08, running with the
-lead's recommendations on the three decisions marked "Andreas" below
-(asked in the lead session at 10:35 CEST, no objection by dispatch;
-Andreas can still redirect). Confirmed in scope by Andreas on 2026-10-07 in the lead
+Status: Done. Merged into `main` as `36699c1` at 13:15 CEST on
+2026-10-08 and pushed; board Done. Not yet installed by Andreas. Ran
+with the lead's recommendations on the three decisions marked "Andreas"
+below (asked at 10:35 CEST, no objection).
+
+Record:
+
+- Base `1074141`, branch `feat/NZ-15-move`, ticket commit `244b2a6`
+  (5 files: `README.md`, `tui/footer.rs`, `tui/mod.rs`, new
+  `tui/move_path.rs`, `tui/tree.rs`; 1904 insertions, 4 deletions),
+  merge commit `36699c1` made with `git merge --no-ff` under the
+  integration delegation. To undo the ticket: `git revert -m 1 36699c1`.
+- Agents: two `nz-worker` (opus) passes and one fix cycle on the pass 2
+  worker; one `nz-reviewer` (opus) with one re-review. About 463k
+  worker tokens and 268k reviewer tokens.
+- Review: changes requested once (B1 case-insensitive bypass of the
+  global-to-`personal/` guard, B2 hidden tagged note losing its tag on
+  a second folder move), both fixed with regression tests, then
+  accepted. The committed diff hashes to
+  `d5d6485329221d1adf55015941117eaab458a051277f58a8a95a805fad34a704`
+  (`git diff 1074141 244b2a6 | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and again on `main`
+  after the merge: build clean, notez-cli 286 passed, notez-core 146
+  passed.
+- Behaviour as built: `m` prompt `move <name> to <scope>/<folder>_`,
+  `Tab` cycles the row's project's scopes plus global, destination
+  folder must exist with exact spelling and no symlink component; `S`
+  cycles scope only; confirm with clauses on every scope change; tags
+  follow across tag roots, carried for notes that leave the view;
+  `move_path` rename-first with copy-verify-remove fallback, never zero
+  copies; `m`/`S` refuse docs rows, section rows, folders holding a
+  section.
+- Leftovers, none blocking, for Andreas: F1 check-then-rename window
+  (a no-overwrite rename needs libc, a new dependency, or `hard_link`
+  then `remove_file`); F2 silent tag loss on a `RemoveSource` failure
+  (cross-volume copy verified, source removal failed); F3 a file written
+  into the source during a cross-volume copy is lost; F4 cosmetic
+  messages (`already exists` for a case variant of the note's own
+  folder; a move that clears the filter does not say so); F5 mouse
+  input while a prompt is open (same as rename); README does not
+  mention the `not a plain folder` refusal; a typed name whose Unicode
+  normalization differs from disk is refused as `no folder` (safe).
+
+Brief as run (confirmed in scope by Andreas on 2026-10-07 in the lead
 session ("NZ-15: move and change visibility, with the warning"). Builds
 on NZ-8 (prompt machinery, `Tab` scope cycling, `NewNoteRoots`), NZ-12
 (confirm mode, retired tag keys), NZ-13 (sections, `tag_root` per
@@ -1715,7 +1763,8 @@ open.
 
 #### NZ-16: multi-select with `Space`
 
-Status: Ready once NZ-15 is on `main`; board Draft until then. Confirmed
+Status: Ready (NZ-15 is on `main` as of 13:15 CEST on 2026-10-08; board
+Ready). Confirmed
 in scope by Andreas on 2026-10-07 in the lead session ("NZ-16:
 multi-select with Space"); the mark key is `Space` by his decision the
 same day (`x` stays "check" in the todo board). Depends on NZ-12 (`d`,
@@ -2325,14 +2374,15 @@ Current lead):
    Andreas that the standing scope and "merge as you go along" still
    hold; they were paused, not withdrawn.
 2. NZ-14 (folders): DONE 2026-10-08, merge `ae3617e`.
-3. NZ-15 (move, set scope): brief finalized under Tickets with three
-   decisions marked "Andreas" and the lead's recommendations; asked in
-   the lead session at 10:35 CEST on 2026-10-08, no answer yet. Create
-   `feat/NZ-15-move` and `.claude/worktrees/NZ-15` from `main`, two
-   passes, one review. Then NZ-16 (brief to finalize from the relayed
-   draft once NZ-15's decisions are settled), then the UI tickets NZ-4,
-   NZ-5, NZ-3. NZ-11 and NZ-6 in the second slot when their files are
-   free. NZ-18 (Pinz, design) waits for Andreas's word.
+3. NZ-15 (move, set scope): DONE 2026-10-08, merge `36699c1`.
+4. NZ-16 (multi-select): brief Ready under Tickets. Create
+   `feat/NZ-16-multi-select` and `.claude/worktrees/NZ-16` from `main`,
+   pass 1 (marks, `Esc`, drawing, footer count, action set, bulk
+   delete), pass 2 (bulk `m` and `S`, README), one review, checks,
+   commit, merge, push, board, cleanup. Then the UI tickets NZ-4, NZ-5,
+   NZ-3. NZ-11 and NZ-6 in the second slot when their files are free.
+   NZ-19 (CI) runs in the second slot once Andreas answers the four
+   questions; NZ-18 (Pinz, design) waits for his word.
 4. NZ-17 (versioning) and the workflow-doc board wiring wait for
    Andreas's word; tagging is off until a first version exists.
 
