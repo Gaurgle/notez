@@ -37,7 +37,9 @@ where the session runs.
 
 ## Ship policy
 
-Direct commits to `main`, no PR step. No CI: a push triggers nothing.
+Direct commits to `main`, no PR step. CI (`.github/workflows/ci.yml`) builds
+and tests on ubuntu and macos on every push and pull request except docs-only
+changes, so a push to `main` triggers a run.
 Relay leads present commit commands and stop at Ready to integrate unless the
 owner records a delegation in `docs/agent-handoff.md`.
 
@@ -46,6 +48,9 @@ owner records a delegation in `docs/agent-handoff.md`.
 ```bash
 cargo build --workspace && cargo test --workspace
 ```
+
+CI runs the same two commands. It also runs `cargo clippy --workspace
+--all-targets`, which is reported but not gating.
 
 `cargo fmt --check` fails repo-wide on pre-existing drift. Do not reformat
 untouched files as part of an unrelated change.

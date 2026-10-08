@@ -28,7 +28,7 @@ integrate `abf1c81e`, Done `82c5faed`.
 
 ## Owner-approved integration policy
 
-Owner integrates; the lead presents commands and stops at Ready to integrate. Relay setup grants no commit, push or merge permission. The repo ships direct to `main` with no PR and no CI, so a push triggers nothing, but nothing here is delegated until the owner records it in `docs/agent-handoff.md`.
+Owner integrates; the lead presents commands and stops at Ready to integrate. Relay setup grants no commit, push or merge permission. The repo ships direct to `main` with no PR. CI (`.github/workflows/ci.yml`) builds and tests on ubuntu and macos on every push and pull request except docs-only changes, so a push to `main` triggers a run, but nothing here is delegated until the owner records it in `docs/agent-handoff.md`.
 
 Integration branch: `main`. This records an owner decision;
 creating Relay files does not grant authority. If permission for an operation
@@ -150,6 +150,10 @@ merge a ticket branch into `main` and push when all hold:
   contract, unless the owner approved that for this ticket.
 - Acceptance does not rest on the owner's judgment. Interaction, layout and
   look need him to try the branch build first.
+
+Read CI with `gh run list --branch <branch> --limit 3` and `gh run watch`.
+A run is green when every job without `continue-on-error` succeeds; the
+`lint` job never blocks.
 
 Merge with `git merge --no-ff` so one ticket is one revertable unit. Stage
 only the ticket's files, never `git add -A`. After the push, confirm CI on
