@@ -336,8 +336,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-14 (folders). Dispatched 2026-10-08 about 09:55 CEST by lead
-`4ffb11e2`. `git status --short` before dispatch: only this file
+Nothing is in flight as of 11:50 CEST on 2026-10-08. NZ-14 is Done
+(merge `ae3617e`, pushed, board Done, worktree and branch removed). No
+worker or reviewer is running. Next under the standing scope: NZ-15,
+whose brief under Tickets has three decisions marked "Andreas" with the
+lead's recommendations; the lead dispatches it on his word (or on his
+silence after being asked in the lead session, as the brief says).
+
+Two pre-existing local branches that are not Relay's,
+`feat/default-command-opens-tree` and `feat/melt-ui-refresh`, exist in
+the main checkout; the lead leaves them alone (Andreas's to delete).
+
+NZ-14 record, moved here from the dispatch log for history. Dispatched
+2026-10-08 about 09:55 CEST by lead `4ffb11e2`. `git status --short` before dispatch: only this file
 modified. Base `4a239e3` (= `main` = `origin/main`), branch
 `feat/NZ-14-folders`, worktree `.claude/worktrees/NZ-14`, model `opus`
 via `nz-worker`. Pass 1 (directory listing, `mkdir::create_in_dir`, the
@@ -1313,7 +1324,47 @@ personal folders too once its pinned `notez-core` rev moves.
 
 #### NZ-14: folders in the tree browser
 
-Status: Ready. Confirmed by Andreas on 2026-10-07 in the lead session
+Status: Done. Merged into `main` as `ae3617e` at 11:45 CEST on
+2026-10-08 and pushed; board Done. Not yet installed by Andreas.
+
+Record:
+
+- Base `4a239e3`, branch `feat/NZ-14-folders`, ticket commit `cf7eabc`
+  (4 files: `README.md`, `commands/mkdir.rs`, `commands/tree.rs`,
+  `tui/tree.rs`; 1447 insertions, 66 deletions), merge commit `ae3617e`
+  made with `git merge --no-ff` under the integration delegation. To
+  undo the ticket: `git revert -m 1 ae3617e`.
+- Agents: two `nz-worker` (opus) passes plus two small continuations
+  (prompt wording, README line) and one fix cycle on the same worker;
+  one `nz-reviewer` (opus) with one re-review. About 326k worker tokens
+  and 216k reviewer tokens.
+- Review: changes requested once (B1: Enter on an unchanged folder name
+  ran it through `sanitize::name` and would have renamed `00_quick-notes`
+  and `_todos` in the real vault), fixed with an early return and a
+  regression test, then accepted. The committed diff hashes to
+  `766e8c757994e3df8822099d6ebc31914dbabc73e9a076f5b0111c566c3a3286`
+  (`git diff 4a239e3 cf7eabc | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and again on `main`
+  after the merge: build clean, notez-cli 254 passed, notez-core 146
+  passed.
+- Lead decisions on the way (details in the In flight record): `N`
+  footer priority 8; `N` refused on docs rows; `N` on a section row
+  creates at the section root like `n`; empty-folder prompt reads
+  `(no notes)`; deleting the last note in a folder now leaves the empty
+  folder listed.
+- Leftovers, none blocking, for Andreas: (a) a mouse click while a
+  prompt is open moves the selection (pre-existing for notes); (b) a
+  scope holding only empty folders shows no section, so `N` into it via
+  `Tab` creates the folder and reports its path with no row; (c) `d`
+  and `r` work on `_todos` in the global section; (d) `sanitize::name`
+  strips `_` and lowercases typed names, and `r` on a NOTE still has the
+  Enter-on-unchanged-name problem for titles not already in sanitized
+  form (candidate ticket: refuse names sanitizing would alter, and the
+  same early return for notes); (e) a repository nested in the vault
+  lists its folders under NOTEZ (NZ-13 leftover family); (f) the mkdir
+  parity test changes the cwd and restores it only at the end.
+
+Brief as run (confirmed by Andreas on 2026-10-07 in the lead session
 ("NZ-14: folders in the browser (create, rename, delete)"). Builds on
 NZ-8 (`n`), NZ-12 (`d`) and NZ-13 (sections, `is_current`). Runs after
 NZ-13 is on `main`. Brief finalized by the lead at 19:05 CEST.
@@ -2005,14 +2056,15 @@ Current lead):
    recorded under NZ-12 if the failed edit never landed). Confirms with
    Andreas that the standing scope and "merge as you go along" still
    hold; they were paused, not withdrawn.
-2. NZ-14 (folders): brief is Ready under Tickets. Create
-   `feat/NZ-14-folders` and `.claude/worktrees/NZ-14` from `main`,
-   dispatch pass 1 (directory listing, `mkdir::create_in_dir`, the `N`
-   prompt), then pass 2 (folder rename and delete), one review, checks,
-   commit, merge, push, board, cleanup.
-3. Then NZ-15 (brief still to be finalized from the relayed draft and
-   the lead's notes), NZ-16 (same), then the UI tickets NZ-4, NZ-5,
-   NZ-3. NZ-11 and NZ-6 in the second slot when their files are free.
+2. NZ-14 (folders): DONE 2026-10-08, merge `ae3617e`.
+3. NZ-15 (move, set scope): brief finalized under Tickets with three
+   decisions marked "Andreas" and the lead's recommendations; asked in
+   the lead session at 10:35 CEST on 2026-10-08, no answer yet. Create
+   `feat/NZ-15-move` and `.claude/worktrees/NZ-15` from `main`, two
+   passes, one review. Then NZ-16 (brief to finalize from the relayed
+   draft once NZ-15's decisions are settled), then the UI tickets NZ-4,
+   NZ-5, NZ-3. NZ-11 and NZ-6 in the second slot when their files are
+   free. NZ-18 (Pinz, design) waits for Andreas's word.
 4. NZ-17 (versioning) and the workflow-doc board wiring wait for
    Andreas's word; tagging is off until a first version exists.
 
