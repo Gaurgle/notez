@@ -415,7 +415,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-26 (soft name rule). Dispatched 2026-10-08 at 18:05 CEST by lead
+NZ-24 (todo icon). Dispatched 2026-10-08 at 18:40 CEST by lead
+`4ffb11e2` on Andreas's "3. go with b" (17:20 CEST). `git status
+--short` before dispatch: only this file modified. Base `5442854`
+(= `main` = `origin/main`), branch `feat/NZ-24-todo-icon`, worktree
+`.claude/worktrees/NZ-24`, model `opus` via `nz-worker`, one pass.
+RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` In flight. Then
+review, branch push, CI, merge, `main` run, cleanup; then NZ-25.
+
+NZ-26 is Done (merge `5442854` at 18:35 CEST; branch run and `main` run
+`37777856510` green; remote branch deleted; worktree and local branch
+removed; board Done).
+
+NZ-26 record, for history. Dispatched 2026-10-08 at 18:05 CEST by lead
 `4ffb11e2` on Andreas's "2. go with b" (17:20 CEST). `git status
 --short` before dispatch: only this file modified. Base `82fae54`
 (= `main` = `origin/main`), branch `fix/NZ-26-soft-name-rule`,
@@ -432,9 +444,19 @@ and `cleaned` is not empty; `My Note`, `Ideas`, `Ä` accepted,
 `00_quick`, `a.b` refused; NZ-20's `ALTERED` test const split into
 `ALTERED` and `SOFTENED`, three NZ-20 tests adjusted accordingly, two
 new Enter-path tests. REVIEW dispatched at 18:15 CEST (`nz-reviewer`,
-opus) on that hash, RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY`
-In flight. Then branch push, CI, merge, `main` run, cleanup; then
-NZ-24.
+opus) on that hash; ACCEPTED at 18:22 CEST first time (about 37k
+tokens; follow-ups: README could say a punctuation-only name counts as
+empty; the `n` Enter-path test copies the loop's lines instead of
+calling them; pre-existing: a case-only title change that maps to the
+same file name does not rewrite the heading, reachable again from `r`;
+`İ` lowercases to `i` plus a combining dot and is refused as `i`). Lead
+checks: build clean, 327 + 146 passed. Committed as `a361d30` (diff
+against `82fae54` hashes to the accepted `8ef332a8...`), branch pushed
+at 18:25 CEST; the integration chain (branch run, merge `--no-ff`,
+checks on `main`, push, `main` run, remote branch deletion, worktree
+removal) is running as one background command and stops at the first
+failure. Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY` In flight until the
+chain reports. Next after it: NZ-24.
 
 NZ-22 is Done (merge `82fae54` at 18:00 CEST; branch run and `main` run
 `37776056271` green; remote branch deleted; worktree and local branch
@@ -2804,7 +2826,23 @@ width 1 and width 0 panes.
 
 #### NZ-26: soft name rule in the browser prompts
 
-Status: Ready, authorized to run after NZ-22 (Andreas, 2026-10-08
+Status: Done. Merged into `main` as `5442854` at 18:35 CEST on
+2026-10-08 and pushed; branch run and `main` run `37777856510` green;
+board Done; remote branch deleted. Not yet installed by Andreas.
+
+Record: base `82fae54`, branch `fix/NZ-26-soft-name-rule`, ticket
+commit `a361d30` (`tui/tree.rs`, `README.md`; 119 insertions, 19
+deletions), merge `5442854` with `git merge --no-ff`; undo with `git
+revert -m 1 5442854`. One `nz-worker` (opus, about 45k tokens), one
+`nz-reviewer` (opus, about 37k), accepted first time; committed diff
+hashes to the accepted
+`8ef332a8083b412c2f81bd9334c3e0b49d54b2c70ab56288e7563ecdefb6371a`.
+Lead checks: build clean, notez-cli 327 passed, notez-core 146 passed.
+Leftovers: README could say a punctuation-only name counts as empty;
+pre-existing: a case-only title change mapping to the same file name
+does not rewrite the heading; `İ` is refused as `i`.
+
+Brief as run. Authorized to run after NZ-22 (Andreas, 2026-10-08
 17:20 CEST: "2. go with b"). Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY`.
 Touches `tui/tree.rs`. Changes NZ-20's contract.
 
@@ -3180,7 +3218,8 @@ Current lead):
 6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-23: DONE without code
    (files moved). NZ-22: DONE 2026-10-08, merge `82fae54`.
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
-   `tui/tree.rs`: NZ-26 (soft name rule, IN FLIGHT), NZ-24 (todo icon),
+   `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 (todo icon, IN
+   FLIGHT),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
