@@ -489,7 +489,26 @@ deletions, hashing to
 worker checks: build clean, notez-cli 416 passed, notez-core 146
 passed; about 142k agent tokens for pass 2 over three rounds. Workers
 stopped. REVIEW dispatched at 22:18 CEST (`nz-reviewer`, opus) on that
-hash, RUNNING. Then branch push, CI, merge, `main` run, cleanup. Board item
+hash; ACCEPTED at 23:05 CEST first time (about 87k tokens; it fuzzed
+the module through a scratch crate: all languages, nested fences, 10k
+lines, NUL, BOM, emoji, no panics; `cargo tree -d` shows no new
+duplicate crates). Follow-ups, none blocking: F1 Kotlin method calls on
+a receiver (`repo.add(1)`) capture as property, not function; F2 LOOK
+CHANGE for Andreas: in RAW markdown the block markers (`#`, `- `, `> `,
+fences) now take the dim punctuation style while heading text keeps
+its colour, every raw note looks slightly different (the lead merged
+under the delegation's waiver of per-ticket branch trials; Andreas
+judges installed and can have it reverted); F3 the renderer measures
+the normalised length and the footer the on-disk length for the 1 MiB
+limit (a CRLF note straddling it gets a wrong footer note); F4 README
+says 1 MB for a 1 MiB constant; measure python and bash near 1 MiB in
+release; consider feature flags for bash, c, java grammars (1.4, 0.65,
+0.43 MB static). Lead checks: build clean, 416 + 146 passed. Committed
+as `608235c` (diff against `9e1bb20` hashes to the accepted
+`e7734722...`), branch pushed at 23:08 CEST; the integration chain is
+running as one background command and stops at the first failure.
+Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight until the chain
+reports. Next after it: NZ-4. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight. Disk: 9.3 GB free; the
 grammars compile C, so the lead watches `target` size.
 
