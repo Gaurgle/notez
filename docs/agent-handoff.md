@@ -506,19 +506,26 @@ NZ-37 (Esc never quits). Dispatched 2026-10-08 at 22:21 CEST by lead
 `4ffb11e2` on Andreas's request of 22:30 (estimated; real about 22:05)
 CEST. Base `38f91a5` (= `main`, the NZ-31 merge), branch
 `fix/NZ-37-esc-never-quits`, worktree `.claude/worktrees/NZ-37`, model
-`sonnet` via `nz-small`. RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_fY-g` In flight. Then review, branch push, CI,
-merge (after NZ-36's chain), cleanup; then NZ-34, NZ-3, NZ-5, NZ-32,
-NZ-28, NZ-30.
+`sonnet` via `nz-small`. Worker REPORTED at 22:24 CEST: `README.md`,
+`tui/todo.rs`, `tui/tree.rs`, 18 insertions, 27 deletions, uncommitted
+diff against `38f91a5` hashing to
+`f58652b4d93c9932b1ec3785c6993baea7e789df8dc1b29712306dc2bcfea60b`;
+`browse_escape` returns nothing and the tree loop's `Esc` arm no longer
+breaks; the todo board quit on `Esc` with an empty filter too (todo.rs
+about line 1456) and no longer does; help rows `esc` and `q` updated
+in both views; one test renamed and updated; checks 470 + 146 passed;
+about 26k agent tokens. REVIEW dispatched at 22:26 CEST
+(`nz-reviewer`), RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_fY-g` In
+flight. Then branch push, CI, merge, cleanup; then NZ-34, NZ-3, NZ-5,
+NZ-32, NZ-28, NZ-30.
 
-NZ-36 (tables and footnotes): ACCEPTED at 22:18 CEST (about 55k
+NZ-36 (tables and footnotes) is DONE: accepted at 22:18 CEST (about 55k
 reviewer tokens, no blockers; follow-ups: footnote markers overflow at
 pane widths under 4 like other container prefixes; footnote label keys
-use `to_lowercase` while pulldown case-folds). Committed as `60c3b76`
-(hash `5b9227b9...`), branch pushed at 22:19 CEST, merges cleanly onto
-`38f91a5` (checked with a dry-run merge); integration chain running in
-the background since 22:20 CEST; this file is committed after it
-reports.
+use `to_lowercase` while pulldown case-folds), committed as `60c3b76`
+(hash `5b9227b9...`), merged into `main` as `97455ab`, branch run and
+`main` run `37838822484` green, remote branch deleted, worktree and
+local branch removed at 22:28 CEST, board Done. Not yet installed.
 
 NZ-31 is Done (merge `38f91a5` at 22:18 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
@@ -3764,8 +3771,24 @@ during a prompt must not happen; CPU when idle for an hour.
 
 #### NZ-36: render markdown tables and footnotes in the preview
 
-Status: In flight since 22:08 CEST on 2026-10-08 (second slot beside
-NZ-31; it touches `tui/markdown.rs`, which NZ-31 does not). Requested
+Status: Done. Merged into `main` as `97455ab` at 22:25 CEST on
+2026-10-08 and pushed; branch run and `main` run `37838822484` green;
+board Done; remote branch deleted. Not yet installed by Andreas.
+Record: base `75bb3dc`, branch `feat/NZ-36-markdown-tables`, ticket
+commit `60c3b76` (`tui/markdown.rs`, `README.md`; 575 insertions, 33
+deletions), merge `97455ab` with `git merge --no-ff`; undo with `git
+revert -m 1 97455ab`. One `nz-worker` (opus, about 91k tokens), one
+`nz-reviewer` (opus, about 55k), accepted first time; committed diff
+hashes to the accepted
+`5b9227b93b91deedf1a5b77753fbdad42015774276d5cb9d39ad8792efd47ae0`.
+Lead checks: build clean, notez-cli 475 passed, notez-core 146 passed.
+Leftovers: footnote markers and other container prefixes overflow at
+pane widths under 4; footnote label keys lowercase rather than
+case-fold; an undefined footnote reference shows as written (pulldown
+behaviour).
+
+Ran in the second slot beside NZ-31 (it touches `tui/markdown.rs`,
+which NZ-31 does not). Requested
 by Andreas at 22:05 CEST ("the togglable markdown/code reader isn't
 really translating the markdown completely yet, for instance it cannot
 generate tables and similar. is this something we'd need additional
