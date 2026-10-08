@@ -420,8 +420,21 @@ NZ-26 (soft name rule). Dispatched 2026-10-08 at 18:05 CEST by lead
 --short` before dispatch: only this file modified. Base `82fae54`
 (= `main` = `origin/main`), branch `fix/NZ-26-soft-name-rule`,
 worktree `.claude/worktrees/NZ-26`, model `opus` via `nz-worker`, one
-pass. RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY` In flight.
-Then review, branch push, CI, merge, `main` run, cleanup; then NZ-24.
+pass. Worker REPORTED at 18:12 CEST: `tui/tree.rs` and `README.md`,
+119 insertions, 19 deletions, uncommitted diff against `82fae54`
+hashing to
+`8ef332a8083b412c2f81bd9334c3e0b49d54b2c70ab56288e7563ecdefb6371a`;
+worker checks: build clean, notez-cli 327 passed, notez-core 146
+passed; about 45k agent tokens. As built: `soft_name` (trim,
+lowercase, whitespace runs to `-`) mirrors `sanitize::name` before its
+character filter; a name is refused only when `cleaned != soft_name`
+and `cleaned` is not empty; `My Note`, `Ideas`, `Ä` accepted,
+`00_quick`, `a.b` refused; NZ-20's `ALTERED` test const split into
+`ALTERED` and `SOFTENED`, three NZ-20 tests adjusted accordingly, two
+new Enter-path tests. REVIEW dispatched at 18:15 CEST (`nz-reviewer`,
+opus) on that hash, RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY`
+In flight. Then branch push, CI, merge, `main` run, cleanup; then
+NZ-24.
 
 NZ-22 is Done (merge `82fae54` at 18:00 CEST; branch run and `main` run
 `37776056271` green; remote branch deleted; worktree and local branch
