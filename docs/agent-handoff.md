@@ -3719,7 +3719,19 @@ deps for or?"). Answer given: no dependency; pulldown-cmark already
 emits table events, NZ-25 passed tables through as source text as a
 scope cut. Board item `PVTI_lAHOCU842c4BmE5Zzg_fWGg`. Base `75bb3dc`,
 branch `feat/NZ-36-markdown-tables`, worktree `.claude/worktrees/NZ-36`,
-model `opus` via `nz-worker`, one pass.
+model `opus` via `nz-worker`, one pass. Worker REPORTED at 22:17 CEST:
+`tui/markdown.rs` and `README.md`, 575 insertions, 33 deletions,
+uncommitted diff against `75bb3dc` hashing to
+`5b9227b93b91deedf1a5b77753fbdad42015774276d5cb9d39ad8792efd47ae0`;
+worker checks: build clean, notez-cli 475 passed, notez-core 146
+passed; about 91k agent tokens; 13 of 14 new tests red on the old
+code. Lead decisions on the report (accepted): an undefined footnote
+reference shows as written (pulldown 0.13 emits a reference only for
+defined labels; the alternative is `ENABLE_OLD_FOOTNOTES`); unreferenced
+definitions are rendered after the referenced ones rather than dropped.
+REVIEW dispatched at 22:20 CEST (`nz-reviewer`, opus) on that hash,
+RUNNING; then branch push, CI, merge after NZ-31's chain (one chain at
+a time on `main`), cleanup.
 
 Decisions (lead, working rule): tables laid out from the events with
 pulldown's column alignments, natural widths when they fit, else
