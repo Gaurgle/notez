@@ -326,6 +326,12 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   Agents still never tag or release; the relayed permission is NOT in
   force. Revisit when NZ-17 has produced a first version; until then the
   standing rule in `docs/agent-workflow.md` is unchanged.
+- 2026-10-08 about 10:50 CEST: RELAYED by the advisor session
+  (`repos-f9`), Andreas's words "we need to brainstorm, think and find a
+  way to include Pinz notes within Notez. as a special type of note."
+  RECORD ONLY as NZ-18 (Draft, design first). Not an instruction to run;
+  the standing scope does not cover it. Andreas names it in a lead
+  session before any brainstorming session or code starts.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -1618,6 +1624,51 @@ Board: see the settled note under NZ-12 (the project board at
 `https://github.com/users/Gaurgle/projects/2`; the lead reports state
 changes, the advisor or Andreas edits the board, until Andreas says
 otherwise).
+
+#### NZ-18: include Pinz notes in notez as a special note type (brainstorm and design)
+
+Status: Draft, RECORD ONLY. Relayed on 2026-10-08 at about 10:50 CEST by
+the advisor session (`repos-f9`) with Andreas's words: "we need to
+brainstorm, think and find a way to include Pinz notes within Notez. as a
+special type of note." Not authorized to run: the standing scope does not
+cover it and Andreas has not named it in a lead session. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_WCBU` created by the advisor session, Status
+Draft; the lead only keeps its Status current.
+
+This is a DESIGN ticket first. Its output is an approved design note under
+`docs/`; no code until Andreas approves the design, and any `notez-core`
+change needs his explicit approval (epoz pins the crate by rev).
+
+Facts, as relayed and spot-checked by the lead against `~/Repos/pinz`
+(crates `pinz-core` and `pinz-tui` exist; README line 21: "Your pins live
+in a second repo of your own, not in this one: `~/pinz-board` by default,
+or wherever `$PINZ_HOME` points"): pins are one file per pin in their own
+git repo `~/pinz-board`; boards are directories, plus a last-world file;
+Pinz has its own pull, commit and push (`pinz-core/src/sync.rs`) and a
+board lock; its README says it deliberately does not ride on notes repos,
+because an auto-push would sweep up unrelated work. Any design keeps
+Pinz's isolation and sync rules intact.
+
+Questions the design must answer:
+
+1. Is a Pinz pin a note in the notez vault, a view onto `~/pinz-board`
+   that notez reads without owning, or an import?
+2. How it appears in the tree browser and the NZ-13 unified view: a new
+   scope badge or a note type marker; reading only?
+3. Who writes: read-only in notez first, edit through Pinz only?
+4. Sync and conflicts: notez must never commit into `~/pinz-board`.
+5. The file format, and whether `notez-core` changes at all or the CLI
+   reads it.
+6. Tags, rename, move, delete and multi-select (NZ-14 to NZ-16) on a
+   Pinz item: allowed or blocked?
+7. epoz impact.
+
+Method: design-heavy work. The lead runs the `superpowers:brainstorming`
+skill with Andreas in the lead session, one question at a time, ending in
+a short design note under `docs/` that the ticket links; implementation
+tickets follow only from the approved note. Proposed order: after NZ-14 to
+NZ-16, since it touches the same browser code; Andreas can pull it
+forward.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
