@@ -23,11 +23,12 @@ use notez_core::core::Scope;
 use notez_core::filter::{self, Filter};
 use notez_core::note_tags;
 use notez_core::tags::FLAG_DEFS;
+use notez_core::util::sanitize;
 
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle};
 use super::help::{self, HelpState};
 use super::{VimCommandMode, VimKey, theme};
-use crate::commands::{add, rename};
+use crate::commands::{add, mkdir, rename};
 
 /// What the title bar shows.
 pub struct TreeContext {
@@ -68,6 +69,9 @@ pub struct SectionSpec {
     pub icon: &'static str,
     pub is_doc: bool,
     pub files: Vec<PathBuf>,
+    /// Every directory under `root` (absolute paths, hidden names and
+    /// symlinks skipped), so a folder with no notes in it still gets a row.
+    pub dirs: Vec<PathBuf>,
     /// The scope a note created in this section gets.
     pub scope: Scope,
     /// The project the section belongs to; `None` for the global store.
@@ -155,8 +159,9 @@ impl Forest {
     /// session state (see [`carry_state`]). Returns the row the cursor goes
     /// to: `deleted` itself if it is still listed (the delete failed), else
     /// the next note in its folder, else the one before it, else the nearest
-    /// listed ancestor, skipping rows the filter `search` hides. An emptied
-    /// folder is not listed, since folders come from the files in them.
+    /// listed ancestor, skipping rows the filter `search` hides. A folder
+    /// the delete emptied stays listed (sections list their folders), so it
+    /// is that nearest ancestor.
     fn rebuild_after_delete(
         &mut self,
         sections: Vec<SectionSpec>,
@@ -232,6 +237,14 @@ impl DirTmp {
         }
     }
 
+    /// Add the directory at `comps` (and every directory above it), with or
+    /// without files in it.
+    fn insert_dir(&mut self, comps: &[String]) {
+        if let [dir, rest @ ..] = comps {
+            self.dirs.entry(dir.clone()).or_default().insert_dir(rest);
+        }
+    }
+
     fn file_count(&self) -> usize {
         self.files.len() + self.dirs.values().map(DirTmp::file_count).sum::<usize>()
     }
@@ -243,15 +256,15 @@ fn is_numbered(name: &str) -> bool {
     b.len() >= 3 && b[0].is_ascii_digit() && b[1].is_ascii_digit() && b[2] == b'_'
 }
 
-/// Build the flattened forest: one depth-0 wrapper node per section, with
-/// intermediate directories derived from the files' relative paths. Returns
-/// the nodes plus the dedup'd tag-root list they index into.
+/// Build the flattened forest: one depth-0 wrapper node per section, with a
+/// folder row for every listed directory and every directory a file sits
+/// in. Returns the nodes plus the dedup'd tag-root list they index into.
 fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<PathBuf>) {
     let mut nodes: Vec<TreeNode> = Vec::new();
     let mut tag_roots: Vec<PathBuf> = Vec::new();
 
     for (section_idx, spec) in sections.iter().enumerate() {
-        if spec.files.is_empty() {
+        if spec.files.is_empty() && spec.dirs.is_empty() {
             continue;
         }
         let root_idx = match tag_roots.iter().position(|r| r == &spec.tag_root) {
@@ -272,6 +285,16 @@ fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<PathBuf>) {
                 .map(|c| c.as_os_str().to_string_lossy().into_owned())
                 .collect();
             tmp.insert(&comps);
+        }
+        for dir in &spec.dirs {
+            let Ok(rel) = dir.strip_prefix(&spec.root) else {
+                continue;
+            };
+            let comps: Vec<String> = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            tmp.insert_dir(&comps);
         }
 
         let wrapper_idx = nodes.len();
@@ -754,16 +777,19 @@ struct NewNoteTarget {
 /// replaces `target` and leaves the typed title alone. `origin` is the
 /// target the prompt opened on, which `Tab` returns to after a full cycle,
 /// and `project` the project whose scopes `Tab` cycles through.
+/// `is_folder` marks the same prompt opened by `N`, which creates a folder
+/// named by the buffer instead of a note.
 struct NewNotePrompt {
     target: NewNoteTarget,
     origin: NewNoteTarget,
     project: Option<String>,
     buffer: String,
+    is_folder: bool,
 }
 
 impl NewNotePrompt {
     fn open(target: NewNoteTarget, project: Option<String>) -> Self {
-        Self { origin: target.clone(), target, project, buffer: String::new() }
+        Self { origin: target.clone(), target, project, buffer: String::new(), is_folder: false }
     }
 }
 
@@ -928,15 +954,108 @@ fn new_note_lead(label: &str, buffer: &str) -> Vec<Span<'static>> {
     ]
 }
 
+// --- New folder ---
+
+/// The footer message for `N` in a docs section: those are the repository's
+/// own files, and `n` there writes to the personal store instead.
+const FOLDER_IN_DOCS: &str = "new folder: not in a docs section";
+
+/// The footer message for a folder name that sanitizes to nothing.
+const FOLDER_NAME_EMPTY: &str = "new folder: the name is empty";
+
+/// The prompt `N` opens for the row at `row`: the new-note prompt on the
+/// same target (see [`open_new_note_prompt`]), creating a folder instead.
+/// `Err` is the footer message for a row in a docs section.
+fn open_new_folder_prompt(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+    ctx: &TreeContext,
+) -> std::result::Result<NewNotePrompt, &'static str> {
+    let spec = row.and_then(|i| nodes.get(i)).and_then(|n| sections.get(n.section));
+    if spec.is_some_and(|s| s.is_doc) {
+        return Err(FOLDER_IN_DOCS);
+    }
+    let mut prompt = open_new_note_prompt(nodes, sections, row, ctx);
+    prompt.is_folder = true;
+    Ok(prompt)
+}
+
+/// The new-folder prompt that leads the footer while a name is typed.
+fn new_folder_lead(label: &str, buffer: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(format!(" new folder in {label}: "), Style::default().fg(theme::MAUVE)),
+        Span::styled(buffer.to_string(), Style::default().fg(theme::TEXT)),
+        Span::styled("_", Style::default().fg(theme::OVERLAY)),
+    ]
+}
+
+/// What a confirmed new folder leaves: the row for the cursor, if the
+/// folder is listed, and the footer message, if any.
+#[derive(Debug)]
+struct FolderOutcome {
+    row: Option<usize>,
+    message: Option<String>,
+}
+
+/// Create the folder `name` in `target` through [`mkdir::create_in_dir`],
+/// the path `notez mkdir` takes. A name that sanitizes to nothing, or to
+/// the name of anything already in the target (file or folder; a
+/// case-insensitive file system matches regardless of case), is refused
+/// before anything is created, so nothing is merged or overwritten. On
+/// success the forest is rebuilt from `rebuild` and the new folder's row,
+/// expanded with its ancestors, is returned.
+fn create_folder(
+    forest: &mut Forest,
+    target: &NewNoteTarget,
+    name: &str,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+) -> FolderOutcome {
+    let refuse = |message: String| FolderOutcome { row: None, message: Some(message) };
+    let cleaned = sanitize::name(name);
+    if cleaned.is_empty() {
+        return refuse(FOLDER_NAME_EMPTY.to_string());
+    }
+    if std::fs::symlink_metadata(target.dir.join(&cleaned)).is_ok() {
+        return refuse(format!("new folder: {cleaned} already exists in {}", target.label));
+    }
+    let path = match mkdir::create_in_dir(&target.dir, name, target.scope) {
+        Ok(path) => path,
+        Err(e) => return refuse(format!("new folder failed: {e:#}")),
+    };
+    let sections = match rebuild() {
+        Ok(sections) => sections,
+        Err(e) => {
+            return refuse(format!(
+                "created {}, but the list could not be refreshed: {e:#}",
+                path.display()
+            ));
+        }
+    };
+    match forest.rebuild(sections, &path) {
+        Some(row) => FolderOutcome { row: Some(row), message: None },
+        None => refuse(format!("created {}", path.display())),
+    }
+}
+
 // --- Delete ---
 
-/// The footer message for `d` on a folder row.
-const FOLDER_DELETE_UNAVAILABLE: &str = "folder delete is not available yet";
+/// The footer message for `d` on a section row.
+const SECTION_DELETE: &str = "delete: a section cannot be deleted";
 
-/// The open delete confirmation for one note: its path, its path when the
-/// session started (a rename moves `path` only), the tag root its `.tags`
-/// key lives under, its path relative to its section's root, and the scope
-/// it is deleted from with that scope's label.
+/// The footer message for `d` on a folder in a docs section: those are the
+/// repository's own files, which the browser does not remove wholesale.
+const DOCS_FOLDER_DELETE: &str = "delete: not for folders in a docs section";
+
+/// The footer message for `d` on a folder that holds another section.
+const FOLDER_HOLDS_SECTION: &str = "delete: this folder holds another section";
+
+/// The open delete confirmation for one note or folder: its path, its path
+/// when the session started (a rename moves `path` only), the tag root its
+/// `.tags` keys live under, its path relative to its section's root, and
+/// the scope it is deleted from with that scope's label. For a folder,
+/// `folder` holds what the question counts, and `section_root` with
+/// `section_roots` is what [`remove_folder`] checks before removing.
 #[derive(Debug, Clone)]
 struct DeletePrompt {
     path: PathBuf,
@@ -945,11 +1064,87 @@ struct DeletePrompt {
     rel: String,
     scope: Scope,
     label: String,
+    folder: Option<FolderContents>,
+    section_root: PathBuf,
+    /// The root of every section in the view.
+    section_roots: Vec<PathBuf>,
+}
+
+/// What a folder holds, for the delete question: the markdown notes the
+/// tree lists (regular `.md` files, not hidden, at any depth) and whether
+/// anything else would go with them (other files, hidden entries,
+/// symlinks). Folders themselves are not counted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FolderContents {
+    notes: usize,
+    has_other_files: bool,
+}
+
+/// Count what `dir` holds (see [`FolderContents`]). Symlinks are not
+/// followed, like the aggregator's walk; an unreadable directory adds
+/// nothing.
+fn folder_contents(dir: &Path) -> FolderContents {
+    let mut contents = FolderContents::default();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return contents;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            contents.has_other_files = true;
+            continue;
+        };
+        let path = entry.path();
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        let is_note = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if hidden {
+            contents.has_other_files = true;
+        } else if kind.is_dir() {
+            let below = folder_contents(&path);
+            contents.notes += below.notes;
+            contents.has_other_files |= below.has_other_files;
+        } else if kind.is_file() && is_note {
+            contents.notes += 1;
+        } else {
+            contents.has_other_files = true;
+        }
+    }
+    contents
+}
+
+/// Whether a folder delete or rename may touch `path`: it lies strictly
+/// inside `section_root` through plain names only (no `.` or `..` step),
+/// and it is not, and does not hold, the root of any section in
+/// `section_roots`. This keeps a section root and everything outside the
+/// row's section out of reach.
+fn folder_change_allowed(path: &Path, section_root: &Path, section_roots: &[PathBuf]) -> bool {
+    let Ok(rel) = path.strip_prefix(section_root) else {
+        return false;
+    };
+    let mut steps = rel.components().peekable();
+    if steps.peek().is_none() || !steps.all(|c| matches!(c, std::path::Component::Normal(_))) {
+        return false;
+    }
+    !section_roots.iter().any(|root| root.starts_with(path))
+}
+
+/// Remove the folder at `path` with everything in it, after
+/// [`folder_change_allowed`] passes; otherwise nothing is touched. The only
+/// place the browser calls `remove_dir_all`.
+fn remove_folder(path: &Path, section_root: &Path, section_roots: &[PathBuf]) -> std::io::Result<()> {
+    if !folder_change_allowed(path, section_root, section_roots) {
+        return Err(std::io::Error::other(format!(
+            "{} is not a folder inside its section",
+            path.display()
+        )));
+    }
+    std::fs::remove_dir_all(path)
 }
 
 /// What `d` does with the cursor on `row`: `Ok(Some)` opens the prompt on a
-/// note, `Err` is the footer message for a folder row, and `Ok(None)` (no
-/// row under the cursor) does nothing.
+/// note or a folder, `Err` is the footer message for a section row, a docs
+/// folder, or a folder holding another section, and `Ok(None)` (no row
+/// under the cursor) does nothing. A folder's contents are counted from
+/// the disk when the prompt opens.
 fn delete_request(
     nodes: &[TreeNode],
     sections: &[SectionSpec],
@@ -959,11 +1154,23 @@ fn delete_request(
     let Some(node) = row.and_then(|i| nodes.get(i)) else {
         return Ok(None);
     };
-    if node.is_dir {
-        return Err(FOLDER_DELETE_UNAVAILABLE);
+    if node.depth == 0 {
+        return Err(SECTION_DELETE);
     }
     let Some(spec) = sections.get(node.section) else {
         return Ok(None);
+    };
+    let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
+    let folder = if node.is_dir {
+        if spec.is_doc {
+            return Err(DOCS_FOLDER_DELETE);
+        }
+        if !folder_change_allowed(&node.path, &spec.root, &section_roots) {
+            return Err(FOLDER_HOLDS_SECTION);
+        }
+        Some(folder_contents(&node.path))
+    } else {
+        None
     };
     let rel = node.path.strip_prefix(&spec.root).unwrap_or(&node.path);
     Ok(Some(DeletePrompt {
@@ -973,14 +1180,31 @@ fn delete_request(
         rel: rel.to_string_lossy().into_owned(),
         scope: spec.scope,
         label: scope_label(spec.scope, spec.project.as_deref(), current_project),
+        folder,
+        section_root: spec.root.clone(),
+        section_roots,
     }))
 }
 
-/// The confirmation question. Local scratch notes are not in any
-/// repository, so the question says a delete there cannot be undone.
+/// The confirmation question. For a folder it names what goes with it: `delete
+/// ideas/ and its 2 notes from personal? y/n` (`1 note`, `no notes`), with
+/// `and other files` when it holds anything but notes. Local scratch is not
+/// in any repository, so the question says a delete there cannot be undone.
 fn delete_question(prompt: &DeletePrompt) -> String {
     let warning = if prompt.scope == Scope::Local { " (not recoverable)" } else { "" };
-    format!("delete {} from {}?{warning} y/n", prompt.rel, prompt.label)
+    let what = match prompt.folder {
+        None => prompt.rel.clone(),
+        Some(contents) => {
+            let notes = match contents.notes {
+                0 => " (no notes)".to_string(),
+                1 => " and its 1 note".to_string(),
+                n => format!(" and its {n} notes"),
+            };
+            let other = if contents.has_other_files { " and other files" } else { "" };
+            format!("{}/{notes}{other}", prompt.rel)
+        }
+    };
+    format!("delete {what} from {}?{warning} y/n", prompt.label)
 }
 
 /// The delete confirmation that leads the footer while it is open.
@@ -998,10 +1222,12 @@ struct DeleteOutcome {
 
 /// Answer the open delete prompt with `key`. Anything but `y` cancels and
 /// returns `None` without touching the disk or the forest. On `y` the note
-/// is removed, its `.tags` keys (current and original path) are added to
-/// `retired`, and the forest is rebuilt from `rebuild` whether or not the
-/// removal worked, so the tree matches the disk. If `rebuild` fails, the
-/// current rows minus the deleted note are used instead.
+/// is removed (or the folder, through [`remove_folder`]), the `.tags` keys
+/// of what went are added to `retired` (see [`retire_folder_keys`] for a
+/// folder; a note's current and original path), and the forest is rebuilt
+/// from `rebuild` whether or not the removal worked, so the tree matches
+/// the disk. If `rebuild` fails, the current rows minus what went are used
+/// instead.
 fn answer_delete(
     key: KeyCode,
     forest: &mut Forest,
@@ -1013,14 +1239,22 @@ fn answer_delete(
     if key != KeyCode::Char('y') {
         return None;
     }
-    let removed = std::fs::remove_file(&prompt.path);
+    let is_folder = prompt.folder.is_some();
+    let removed = if is_folder {
+        remove_folder(&prompt.path, &prompt.section_root, &prompt.section_roots)
+    } else {
+        std::fs::remove_file(&prompt.path)
+    };
+    // A refused folder delete touched nothing, so nothing is retired.
+    if is_folder && folder_change_allowed(&prompt.path, &prompt.section_root, &prompt.section_roots) {
+        retire_folder_keys(forest, prompt, retired);
+    }
     let mut message = match &removed {
+        Ok(()) if is_folder => format!("deleted {}/", prompt.rel),
         Ok(()) => {
             for path in [&prompt.path, &prompt.origin] {
                 if let Some(tag_key) = rel_key(&prompt.tag_root, path) {
-                    if !retired.iter().any(|(r, k)| *r == prompt.tag_root && *k == tag_key) {
-                        retired.push((prompt.tag_root.clone(), tag_key));
-                    }
+                    retire(retired, &prompt.tag_root, tag_key);
                 }
             }
             format!("deleted {}", prompt.rel)
@@ -1029,36 +1263,214 @@ fn answer_delete(
     };
     let sections = rebuild().unwrap_or_else(|e| {
         message = format!("{message}, but the list could not be refreshed: {e:#}");
-        let gone = removed.is_ok().then_some(prompt.path.as_path());
-        current_sections_without(forest, gone)
+        if is_folder {
+            let gone = |p: &Path| p.starts_with(&prompt.path) && std::fs::symlink_metadata(p).is_err();
+            current_sections_without(forest, &gone)
+        } else {
+            let gone = |p: &Path| removed.is_ok() && p == prompt.path;
+            current_sections_without(forest, &gone)
+        }
     });
     let row = forest.rebuild_after_delete(sections, &prompt.path, search);
     Some(DeleteOutcome { row, message })
 }
 
-/// The forest's sections listing its current file rows, minus `gone`: the
-/// fallback listing when the rebuild closure fails. Takes the sections out
-/// of `forest`; the caller puts a rebuilt set back.
-fn current_sections_without(forest: &mut Forest, gone: Option<&Path>) -> Vec<SectionSpec> {
+/// Add `(tag_root, key)` to `retired` unless it is listed already.
+fn retire(retired: &mut Vec<(PathBuf, String)>, tag_root: &Path, key: String) {
+    if !retired.iter().any(|(r, k)| r == tag_root && *k == key) {
+        retired.push((tag_root.to_path_buf(), key));
+    }
+}
+
+/// Retire the `.tags` keys of every note a folder delete removed, keys
+/// relative to the section's tag root: for each note row under the folder
+/// that is gone from the disk, its current and original key, and every key
+/// of the session's loaded map under the folder whose file is gone (notes
+/// tagged on disk but not listed). Called after the removal, so a delete
+/// that failed midway retires exactly the notes that went.
+fn retire_folder_keys(forest: &Forest, prompt: &DeletePrompt, retired: &mut Vec<(PathBuf, String)>) {
+    let tag_root = &prompt.tag_root;
+    let gone = |p: &Path| std::fs::symlink_metadata(p).is_err();
+    for node in &forest.nodes {
+        if node.is_dir || !node.path.starts_with(&prompt.path) || !gone(&node.path) {
+            continue;
+        }
+        for path in [&node.path, &node.origin] {
+            if let Some(key) = rel_key(tag_root, path) {
+                retire(retired, tag_root, key);
+            }
+        }
+    }
+    let Some(folder_key) = rel_key(tag_root, &prompt.path) else {
+        return;
+    };
+    let Some(i) = forest.tag_roots.iter().position(|r| r == tag_root) else {
+        return;
+    };
+    let mut keys: Vec<&String> = forest.initial[i]
+        .keys()
+        .filter(|k| Path::new(k.as_str()).starts_with(&folder_key) && gone(&tag_root.join(k.as_str())))
+        .collect();
+    keys.sort();
+    for key in keys {
+        retire(retired, tag_root, key.clone());
+    }
+}
+
+/// The forest's sections listing its current file rows and their listed
+/// folders, minus the paths `gone` matches: the fallback listing when the
+/// rebuild closure fails. Takes the sections out of `forest`; the caller
+/// puts a rebuilt set back.
+fn current_sections_without(forest: &mut Forest, gone: &dyn Fn(&Path) -> bool) -> Vec<SectionSpec> {
     let mut sections = std::mem::take(&mut forest.sections);
     for (i, spec) in sections.iter_mut().enumerate() {
         spec.files = forest
             .nodes
             .iter()
-            .filter(|n| !n.is_dir && n.section == i && Some(n.path.as_path()) != gone)
+            .filter(|n| !n.is_dir && n.section == i && !gone(&n.path))
             .map(|n| n.path.clone())
             .collect();
+        spec.dirs.retain(|d| !gone(d));
     }
     sections
 }
 
+// --- Rename ---
+
+/// The footer message for `r` on a section row.
+const SECTION_RENAME: &str = "rename: a section cannot be renamed";
+
+/// The footer message for a folder name that sanitizes to nothing.
+const FOLDER_RENAME_EMPTY: &str = "rename: the name is empty";
+
+/// What `r` does with the cursor on `row`: `Ok(Some)` opens the rename
+/// prompt with that text (a note's editable title, a folder's name), `Err`
+/// is the footer message for a section row, and `Ok(None)` does nothing:
+/// no row under the cursor, or a folder in a docs section.
+fn rename_request(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+) -> std::result::Result<Option<String>, &'static str> {
+    let Some(node) = row.and_then(|i| nodes.get(i)) else {
+        return Ok(None);
+    };
+    if node.depth == 0 {
+        return Err(SECTION_RENAME);
+    }
+    if !node.is_dir {
+        return Ok(Some(rename::editable_title(&node.name)));
+    }
+    let is_doc = sections.get(node.section).map_or(true, |s| s.is_doc);
+    Ok((!is_doc).then(|| node.name.clone()))
+}
+
+/// Rename the folder row at `idx` to `name` within its parent, sanitized
+/// like `notez mkdir` names. Refused, with nothing changed, for an empty
+/// name, a row [`folder_change_allowed`] rejects, or a target that already
+/// exists (file or folder). On a case-insensitive file system a case-only
+/// change finds the folder itself at the target; that is renamed, and
+/// refused if the file system keeps the old spelling. On success every row
+/// under the folder, and the stored sections' listings, take the new path;
+/// rows keep their `origin`, so the exit write moves their `.tags` keys
+/// and no `.tags` file is touched here. The rows stay where they are, so
+/// the cursor stays on the folder.
+fn rename_folder(
+    nodes: &mut [TreeNode],
+    sections: &mut [SectionSpec],
+    idx: usize,
+    name: &str,
+) -> std::result::Result<(), String> {
+    let Some(node) = nodes.get(idx).filter(|n| n.is_dir && n.depth > 0) else {
+        return Ok(());
+    };
+    let Some(spec) = sections.get(node.section) else {
+        return Ok(());
+    };
+    // Enter on the untouched prompt keeps the name as it is, even one
+    // sanitizing would change (`00_quick-notes`, `_todos`, `IDEAS`).
+    if name.trim() == node.name {
+        return Ok(());
+    }
+    let cleaned = sanitize::name(name);
+    if cleaned.is_empty() {
+        return Err(FOLDER_RENAME_EMPTY.to_string());
+    }
+    let old = node.path.clone();
+    let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
+    if !folder_change_allowed(&old, &spec.root, &section_roots) {
+        return Err(format!("rename: {} is not a folder inside its section", old.display()));
+    }
+    let new = old.with_file_name(&cleaned);
+    if new == old {
+        return Ok(());
+    }
+    let case_only = std::fs::symlink_metadata(&new).is_ok();
+    if case_only && !is_same_entry(&old, &new) {
+        return Err(format!("rename: {cleaned} already exists"));
+    }
+    std::fs::rename(&old, &new).map_err(|e| format!("rename failed: {e}"))?;
+    if case_only && !has_entry_named(new.parent().unwrap_or(&new), &cleaned) {
+        return Err(format!("rename: the file system kept the name {}", node.name));
+    }
+    for node in nodes.iter_mut() {
+        if let Some(moved) = moved_path(&node.path, &old, &new) {
+            node.path = moved;
+        }
+    }
+    nodes[idx].name = cleaned;
+    for spec in sections.iter_mut() {
+        for path in spec.files.iter_mut().chain(spec.dirs.iter_mut()) {
+            if let Some(moved) = moved_path(path, &old, &new) {
+                *path = moved;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `path` with its `old` prefix replaced by `new`, if it lies under `old`.
+fn moved_path(path: &Path, old: &Path, new: &Path) -> Option<PathBuf> {
+    let rest = path.strip_prefix(old).ok()?;
+    Some(if rest.as_os_str().is_empty() { new.to_path_buf() } else { new.join(rest) })
+}
+
+/// Whether `a` and `b` name the same directory entry (the case-insensitive
+/// match of a case-only rename).
+#[cfg(unix)]
+fn is_same_entry(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)) {
+        (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+        _ => false,
+    }
+}
+
+/// Without inode numbers a match cannot be told from another entry, so an
+/// existing target is always refused.
+#[cfg(not(unix))]
+fn is_same_entry(_a: &Path, _b: &Path) -> bool {
+    false
+}
+
+/// Whether `dir` lists an entry spelled exactly `name`.
+fn has_entry_named(dir: &Path, name: &str) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| entries.flatten().any(|e| e.file_name() == name))
+        .unwrap_or(false)
+}
+
 // --- Rebuild ---
 
-/// [`carry_state`], then expand the ancestors of `created` so it is
-/// visible; its index is returned.
+/// [`carry_state`], then expand the ancestors of `created` (a note or a
+/// folder) so it is visible, and a created folder itself; its index is
+/// returned.
 fn restore_state(old: &[TreeNode], new: &mut [TreeNode], created: &Path) -> Option<usize> {
     carry_state(old, new);
-    let idx = new.iter().position(|n| !n.is_dir && n.path == created)?;
+    let idx = new.iter().position(|n| n.depth > 0 && n.path == created)?;
+    if new[idx].is_dir {
+        new[idx].expanded = true;
+    }
     let mut parent = new[idx].parent_idx;
     while let Some(p) = parent {
         new[p].expanded = true;
@@ -1148,7 +1560,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key("click", "select", "click a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("o", "open", "open file / toggle directory (also Enter)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(1), None),
     key("t", "tags", "tag mode on / off", theme::PEACH, Group::Edit, BROWSE_AND_TAG, Slot::Priority(2), Some(Toggle::Tag)),
-    key("r", "rename", "rename note", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(6), None),
+    key("r", "rename", "rename note or folder", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(6), None),
     key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the note", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(1), None),
     key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
     key("click dot", "tag", "click a note's tag dot to toggle that tag", theme::PEACH, Group::Edit, BROWSE, Slot::HelpOnly, None),
@@ -1156,12 +1568,13 @@ const TREE_KEYS: &[KeyHint] = &[
     key("esc", "cancel", "rename: cancel", theme::PEACH, Group::Edit, RENAMING, Slot::Priority(2), None),
     key("bksp", "delete", "rename: delete the last char", theme::TEXT, Group::Edit, RENAMING, Slot::Priority(3), None),
     key("n", "new", "new note in the folder under the cursor (the prompt names the scope)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(3), None),
-    key("enter", "create", "new note: create it and open it in the editor", theme::GREEN, Group::Edit, NEW_NOTE, Slot::Priority(1), None),
-    key("esc", "cancel", "new note: cancel, nothing is created", theme::PEACH, Group::Edit, NEW_NOTE, Slot::Priority(2), None),
-    key("tab", "scope", "new note: next scope (personal, public, local, global), at its root", theme::SAPPHIRE, Group::Edit, NEW_NOTE, Slot::Priority(3), None),
-    key("bksp", "delete", "new note: delete the last char", theme::TEXT, Group::Edit, NEW_NOTE, Slot::Priority(4), None),
-    key("d", "delete", "delete the note under the cursor (asks first; no undo)", theme::RED, Group::Edit, BROWSE, Slot::Priority(7), None),
-    key("y", "confirm", "delete: yes, delete the note", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
+    key("N", "folder", "new folder in the folder under the cursor (the prompt names the scope)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(8), None),
+    key("enter", "create", "new note or folder: create it (a note opens in the editor)", theme::GREEN, Group::Edit, NEW_NOTE, Slot::Priority(1), None),
+    key("esc", "cancel", "new note or folder: cancel, nothing is created", theme::PEACH, Group::Edit, NEW_NOTE, Slot::Priority(2), None),
+    key("tab", "scope", "new note or folder: next scope (personal, public, local, global), at its root", theme::SAPPHIRE, Group::Edit, NEW_NOTE, Slot::Priority(3), None),
+    key("bksp", "delete", "new note or folder: delete the last char", theme::TEXT, Group::Edit, NEW_NOTE, Slot::Priority(4), None),
+    key("d", "delete", "delete note or folder under the cursor (asks first; no undo)", theme::RED, Group::Edit, BROWSE, Slot::Priority(7), None),
+    key("y", "confirm", "delete: yes, delete it", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
     key("n/esc", "cancel", "delete: cancel (any other key too), nothing is deleted", theme::PEACH, Group::Edit, CONFIRMING, Slot::Priority(2), None),
     key("/", "filter", "filter: text and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
     key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
@@ -1606,7 +2019,11 @@ fn event_loop(
                     }
                     _ if new_note.is_some() => {
                         let prompt = new_note.as_ref().expect("checked by the guard");
-                        let lead = new_note_lead(&prompt.target.label, &prompt.buffer);
+                        let lead = if prompt.is_folder {
+                            new_folder_lead(&prompt.target.label, &prompt.buffer)
+                        } else {
+                            new_note_lead(&prompt.target.label, &prompt.buffer)
+                        };
                         lead_with_hints(lead, Mode::NewItem, &toggles, width)
                     }
                     StatusSlot::Rename(buffer) => {
@@ -1766,6 +2183,28 @@ fn event_loop(
                         ctx.current_project.as_deref(),
                     );
                 }
+                KeyCode::Enter if prompt.is_folder => {
+                    let NewNotePrompt { target, buffer, .. } =
+                        new_note.take().expect("the prompt is open");
+                    let old_nodes = forest.nodes.clone();
+                    let outcome = create_folder(forest, &target, &buffer, rebuild);
+                    pre_focus_expanded =
+                        remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
+                    status_message = outcome.message;
+                    let Some(row) = outcome.row else {
+                        continue;
+                    };
+                    let mut visible = compute_visible(&forest.nodes, &search_buffer);
+                    if !visible.contains(&row) {
+                        search_buffer.clear();
+                        cursor_pos = 0;
+                        search_mode = false;
+                        visible = compute_visible(&forest.nodes, &search_buffer);
+                        status_message =
+                            Some("filter cleared to show the new folder".to_string());
+                    }
+                    state.select(visible.iter().position(|&i| i == row));
+                }
                 KeyCode::Enter => {
                     let NewNotePrompt { target, buffer, .. } =
                         new_note.take().expect("the prompt is open");
@@ -1828,7 +2267,17 @@ fn event_loop(
                     rename_buffer = None;
                     let visible = compute_visible(nodes, &search_buffer);
                     let vs = state.selected().unwrap_or(0);
-                    if let Some(&ri) = visible.get(vs) {
+                    if let Some(&ri) = visible.get(vs).filter(|&&ri| nodes[ri].is_dir) {
+                        match rename_folder(nodes, &mut forest.sections, ri, &title) {
+                            Ok(()) => {
+                                let visible = compute_visible(nodes, &search_buffer);
+                                if let Some(pos) = visible.iter().position(|&i| i == ri) {
+                                    state.select(Some(pos));
+                                }
+                            }
+                            Err(message) => status_message = Some(message),
+                        }
+                    } else if let Some(&ri) = visible.get(vs) {
                         match rename::rename_note(&nodes[ri].path, &title) {
                             Ok(new_path) => {
                                 nodes[ri].name = file_name_of(&new_path);
@@ -2039,8 +2488,9 @@ fn event_loop(
                 flag_mode = true;
             }
             KeyCode::Char('r') => {
-                if selected < visible.len() && !nodes[real_idx].is_dir {
-                    rename_buffer = Some(rename::editable_title(&nodes[real_idx].name));
+                match rename_request(nodes, &forest.sections, visible.get(selected).copied()) {
+                    Ok(text) => rename_buffer = text,
+                    Err(message) => status_message = Some(message.to_string()),
                 }
             }
             KeyCode::Char('n') => {
@@ -2050,6 +2500,17 @@ fn event_loop(
                     visible.get(selected).copied(),
                     ctx,
                 ));
+            }
+            KeyCode::Char('N') => {
+                match open_new_folder_prompt(
+                    nodes,
+                    &forest.sections,
+                    visible.get(selected).copied(),
+                    ctx,
+                ) {
+                    Ok(prompt) => new_note = Some(prompt),
+                    Err(message) => status_message = Some(message.to_string()),
+                }
             }
             KeyCode::Char('d') => {
                 match delete_request(
@@ -2226,7 +2687,7 @@ mod tests {
 
     #[test]
     fn normal_and_focus_footers_hint_the_browse_keys() {
-        let expected = vec!["o", "t", "r", "n", "d", "/", "f", "v", "?", "q"];
+        let expected = vec!["o", "t", "r", "n", "N", "d", "/", "f", "v", "?", "q"];
         assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
         assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
     }
@@ -2414,6 +2875,7 @@ mod tests {
             icon: "",
             is_doc: false,
             files: files.iter().map(|f| PathBuf::from(root).join(f)).collect(),
+            dirs: Vec::new(),
             scope: Scope::Global,
             project: None,
             new_note_root: PathBuf::from(root),
@@ -3227,6 +3689,7 @@ mod tests {
                 icon: "",
                 is_doc: false,
                 files: md_files(root),
+                dirs: Vec::new(),
                 scope: *scope,
                 project: (*scope != Scope::Global).then(|| "proj".to_string()),
                 new_note_root: root.clone(),
@@ -3339,18 +3802,21 @@ mod tests {
     }
 
     #[test]
-    fn d_on_a_folder_or_an_empty_tree_changes_nothing() {
+    fn d_on_a_section_a_docs_folder_or_an_empty_tree_changes_nothing() {
         let sections = project_sections();
         let (nodes, _) = build_forest(&sections);
-        for path in ["/n/personal/proj", "/n/personal/proj/ideas", "/p/docs/design", "/n"] {
+        for path in ["/n/personal/proj", "/p/docs", "/p/.notez", "/n"] {
             let request = delete_request(&nodes, &sections, Some(row(&nodes, path)), None);
-            assert_eq!(request.err(), Some(FOLDER_DELETE_UNAVAILABLE), "{path}");
+            assert_eq!(request.err(), Some(SECTION_DELETE), "{path}");
         }
+        let docs = delete_request(&nodes, &sections, Some(row(&nodes, "/p/docs/design")), None);
+        assert_eq!(docs.err(), Some(DOCS_FOLDER_DELETE));
+        let folder = delete_request(&nodes, &sections, Some(row(&nodes, "/n/personal/proj/ideas")), None);
+        assert!(folder.unwrap().unwrap().folder.is_some(), "a note folder opens the folder prompt");
         assert!(matches!(delete_request(&nodes, &sections, None, None), Ok(None)));
         assert!(matches!(delete_request(&nodes, &sections, Some(nodes.len()), None), Ok(None)));
         assert!(matches!(delete_request(&[], &[], Some(0), None), Ok(None)));
         assert!(matches!(delete_request(&[], &[], None, None), Ok(None)));
-        assert!(FOLDER_DELETE_UNAVAILABLE.contains("folder delete is not available yet"));
     }
 
     fn delete_and_select(
@@ -3588,5 +4054,752 @@ mod tests {
         assert!(rendered.starts_with(" delete e.md from global? y/n"), "{rendered}");
         assert!(rendered.contains("y confirm") && rendered.contains("n/esc cancel"), "{rendered}");
         assert!(!rendered.contains("quit"));
+    }
+
+    // --- Folders ---
+
+    /// [`spec`] with `dirs` (relative to `root`) listed as its directories.
+    fn spec_with_dirs(root: &str, files: &[&str], dirs: &[&str]) -> SectionSpec {
+        SectionSpec {
+            dirs: dirs.iter().map(|d| PathBuf::from(root).join(d)).collect(),
+            ..spec(root, "S", files)
+        }
+    }
+
+    #[test]
+    fn a_listed_directory_is_a_folder_row_with_or_without_files() {
+        let s = spec_with_dirs("/r", &["full/a.md"], &["full", "empty", "outer/inner"]);
+        let (nodes, _) = build_forest(&[s]);
+        for (path, depth, count) in
+            [("/r/full", 1, 1), ("/r/empty", 1, 0), ("/r/outer", 1, 0), ("/r/outer/inner", 2, 0)]
+        {
+            let node = &nodes[row(&nodes, path)];
+            assert!(node.is_dir, "{path}");
+            assert_eq!((node.depth, node.child_count), (depth, count), "{path}");
+        }
+        let inner = row(&nodes, "/r/outer/inner");
+        assert_eq!(nodes[inner].parent_idx, Some(row(&nodes, "/r/outer")));
+        assert_eq!(nodes.iter().filter(|n| n.path == Path::new("/r/full")).count(), 1);
+    }
+
+    #[test]
+    fn a_section_with_only_empty_folders_still_has_a_row() {
+        let (nodes, roots) = build_forest(&[spec_with_dirs("/r", &[], &["empty"])]);
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(roots, vec![PathBuf::from("/r")]);
+        assert_eq!(nodes[1].path, PathBuf::from("/r/empty"));
+    }
+
+    #[test]
+    fn a_directory_outside_the_section_root_is_ignored() {
+        let mut s = spec("/r", "S", &["a.md"]);
+        s.dirs = vec![PathBuf::from("/elsewhere/x")];
+        let (nodes, _) = build_forest(&[s]);
+        assert!(!nodes.iter().any(|n| n.path.starts_with("/elsewhere")));
+    }
+
+    /// The prompt `N` opens at `path` in [`project_sections`].
+    fn folder_prompt_at(path: &str, current: Option<&str>) -> Result<NewNotePrompt, &'static str> {
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        open_new_folder_prompt(&nodes, &sections, Some(row(&nodes, path)), &ctx_with(current, roots()))
+    }
+
+    #[test]
+    fn new_folder_targets_the_folder_under_the_cursor_like_n() {
+        let here = Some("proj");
+        let cases = [
+            ("/n/personal/proj/ideas", target("/n/personal/proj/ideas", Scope::Personal, "personal/ideas")),
+            ("/n/personal/proj/ideas/a.md", target("/n/personal/proj/ideas", Scope::Personal, "personal/ideas")),
+            ("/n/personal/proj", target("/n/personal/proj", Scope::Personal, "personal")),
+            ("/p/notez", target("/p/notez", Scope::Public, "public (committed with the project)")),
+            ("/p/notez/plans/b.md", target("/p/notez/plans", Scope::Public, "public (committed with the project)/plans")),
+            ("/p/.notez", target("/p/.notez", Scope::Local, "local scratch")),
+            ("/p/.notez/d.md", target("/p/.notez", Scope::Local, "local scratch")),
+            ("/n", target("/n", Scope::Global, "global")),
+            ("/n/e.md", target("/n", Scope::Global, "global")),
+        ];
+        for (path, expected) in cases {
+            let prompt = folder_prompt_at(path, here).expect(path);
+            assert!(prompt.is_folder, "{path}");
+            assert_eq!(prompt.target, expected, "{path}");
+            assert_eq!(prompt.origin, expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn new_folder_tab_cycles_the_scopes_as_n_does() {
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        let ctx = ctx_with(Some("proj"), roots());
+        let at = Some(row(&nodes, "/n/personal/proj/ideas/a.md"));
+        let note = open_new_note_prompt(&nodes, &sections, at, &ctx);
+        let folder = open_new_folder_prompt(&nodes, &sections, at, &ctx).unwrap();
+        assert_eq!(folder.project, note.project);
+        let (mut a, mut b) = (folder.target.clone(), note.target.clone());
+        for _ in 0..4 {
+            a = next_scope_target(&a, &folder.origin, folder.project.as_deref(), &ctx.new_note_roots, Some("proj"));
+            b = next_scope_target(&b, &note.origin, note.project.as_deref(), &ctx.new_note_roots, Some("proj"));
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn new_folder_in_a_docs_section_is_refused() {
+        for path in ["/p/docs", "/p/docs/design", "/p/docs/design/c.md"] {
+            assert_eq!(folder_prompt_at(path, Some("proj")).err(), Some(FOLDER_IN_DOCS), "{path}");
+        }
+    }
+
+    #[test]
+    fn new_folder_on_an_empty_tree_targets_what_n_targets() {
+        let ctx = ctx_with(Some("proj"), roots());
+        let folder = open_new_folder_prompt(&[], &[], None, &ctx).unwrap();
+        let note = open_new_note_prompt(&[], &[], None, &ctx);
+        assert_eq!(folder.target, note.target);
+        let past_end = open_new_folder_prompt(&[], &[], Some(0), &ctx).unwrap();
+        assert_eq!(past_end.target, note.target);
+    }
+
+    #[test]
+    fn new_folder_lead_names_the_scope_and_folder() {
+        let lead = new_folder_lead("personal/ideas", "drafts");
+        let rendered = text_of(&lead_with_hints(lead, Mode::NewItem, &[], 120));
+        assert!(rendered.starts_with(" new folder in personal/ideas: drafts_"), "{rendered}");
+        assert!(rendered.contains("create") && rendered.contains("cancel"), "{rendered}");
+    }
+
+    /// A temp tree ([`temp_tree`]) listed with its directories, as the real
+    /// listing does.
+    fn list_sections_with_dirs(roots: &[(Scope, PathBuf)]) -> Vec<SectionSpec> {
+        let mut sections = list_sections(roots);
+        for spec in &mut sections {
+            spec.dirs = all_dirs(&spec.root);
+        }
+        sections
+    }
+
+    fn all_dirs(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            if entry.file_type().unwrap().is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+                out.push(entry.path());
+                out.extend(all_dirs(&entry.path()));
+            }
+        }
+        out
+    }
+
+    fn folder_target(roots: &[(Scope, PathBuf)], scope: Scope, sub: &str) -> NewNoteTarget {
+        let root = &roots.iter().find(|(s, _)| *s == scope).unwrap().1;
+        NewNoteTarget { dir: root.join(sub), scope, label: format!("{scope:?}") }
+    }
+
+    #[test]
+    fn enter_creates_exactly_that_folder_selected_and_expanded_in_every_scope() {
+        for (scope, name) in SCOPES {
+            for sub in ["", "ideas"] {
+                let (_dir, roots) = temp_tree();
+                let rebuild = || Ok(list_sections_with_dirs(&roots));
+                let mut forest = forest_of(list_sections_with_dirs(&roots));
+                let target = folder_target(&roots, scope, sub);
+                let before = all_files(&roots);
+
+                let outcome = create_folder(&mut forest, &target, "New Stuff", &rebuild);
+
+                let made = target.dir.join("new-stuff");
+                assert!(made.is_dir(), "{name}/{sub}");
+                assert_eq!(std::fs::read_dir(&made).unwrap().count(), 0, "{name}/{sub}");
+                assert_eq!(all_files(&roots), before, "{name}/{sub}");
+                assert_eq!(outcome.message, None, "{name}/{sub}");
+                let row_idx = outcome.row.expect("the new folder is listed");
+                let node = &forest.nodes[row_idx];
+                assert_eq!(node.path, made, "{name}/{sub}");
+                assert!(node.is_dir && node.expanded, "{name}/{sub}");
+                assert!(get_visible_nodes(&forest.nodes).contains(&row_idx), "{name}/{sub}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_local_folder_gets_the_scratch_gitignore_step() {
+        let repo = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        let store = repo.path().join(".notez");
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::write(store.join("s.md"), "# s\n").unwrap();
+        let roots = vec![(Scope::Local, store.clone())];
+        let rebuild = || Ok(list_sections_with_dirs(&roots));
+        let mut forest = forest_of(list_sections_with_dirs(&roots));
+        let target = folder_target(&roots, Scope::Local, "");
+
+        create_folder(&mut forest, &target, "scratchpad", &rebuild);
+
+        assert!(store.join("scratchpad").is_dir());
+        let ignore = std::fs::read_to_string(repo.path().join(".gitignore")).unwrap();
+        assert!(ignore.lines().any(|l| l == ".notez"), "{ignore:?}");
+    }
+
+    #[test]
+    fn an_empty_name_creates_nothing_and_says_so() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || -> Result<Vec<SectionSpec>> { panic!("nothing to rebuild") };
+        let mut forest = forest_of(list_sections_with_dirs(&roots));
+        let rows_before = forest.nodes.len();
+        let target = folder_target(&roots, Scope::Personal, "");
+        let dirs_before = all_dirs(&target.dir);
+
+        for name in ["", "   ", "?!"] {
+            let outcome = create_folder(&mut forest, &target, name, &rebuild);
+            assert_eq!(outcome.message.as_deref(), Some(FOLDER_NAME_EMPTY), "{name:?}");
+            assert_eq!(outcome.row, None);
+        }
+        assert_eq!(all_dirs(&target.dir), dirs_before);
+        assert_eq!(forest.nodes.len(), rows_before);
+    }
+
+    #[test]
+    fn an_existing_name_is_refused_and_nothing_is_merged_or_overwritten() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || -> Result<Vec<SectionSpec>> { panic!("nothing to rebuild") };
+        let mut forest = forest_of(list_sections_with_dirs(&roots));
+        let target = folder_target(&roots, Scope::Personal, "");
+        std::fs::write(target.dir.join("plain"), "not a note").unwrap();
+        let files_before = all_files(&roots);
+        let dirs_before = all_dirs(&target.dir);
+
+        for name in ["ideas", "Ideas", "plain"] {
+            let outcome = create_folder(&mut forest, &target, name, &rebuild);
+            let message = outcome.message.expect("a refusal");
+            assert!(message.contains("already exists"), "{name}: {message}");
+            assert_eq!(outcome.row, None);
+        }
+        assert_eq!(all_files(&roots), files_before);
+        assert_eq!(all_dirs(&target.dir), dirs_before);
+        assert_eq!(std::fs::read_to_string(target.dir.join("plain")).unwrap(), "not a note");
+    }
+
+    #[test]
+    fn a_folder_the_rebuild_does_not_list_is_reported_by_path() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let target = folder_target(&roots, Scope::Global, "");
+
+        let outcome = create_folder(&mut forest, &target, "unlisted", &rebuild);
+
+        assert!(target.dir.join("unlisted").is_dir());
+        assert_eq!(outcome.row, None);
+        assert!(outcome.message.unwrap().contains("unlisted"));
+    }
+
+    #[test]
+    fn new_folder_key_is_a_browse_key_in_the_table_and_the_help() {
+        let rows: Vec<(usize, &KeyHint)> =
+            TREE_KEYS.iter().enumerate().filter(|(_, k)| k.key == "N").collect();
+        assert_eq!(rows.len(), 1);
+        let (idx, hint) = rows[0];
+        assert_eq!(hint.modes, BROWSE);
+        assert_eq!(hint.group, Group::Edit);
+        assert!(hint.help.starts_with("new folder"), "{}", hint.help);
+        assert!(help::rows(TREE_KEYS).contains(&help::Row::Key(idx)));
+        let n = TREE_KEYS.iter().position(|k| k.key == "n").unwrap();
+        assert_eq!(idx, n + 1, "listed right after n");
+        assert!(shown_keys(Mode::Normal, &[], 200).contains(&"N"));
+        assert!(shown_keys(Mode::Focus, &[], 200).contains(&"N"));
+        for mode in [Mode::Tag, Mode::Filter, Mode::Rename, Mode::NewItem, Mode::ConfirmDelete, Mode::VimCommand] {
+            assert!(!shown_keys(mode, &[], 200).contains(&"N"), "{mode:?}");
+        }
+    }
+
+    /// The listing's directories survive a rebuild after a note delete: a
+    /// folder emptied by the delete keeps its row and takes the cursor.
+    #[test]
+    fn deleting_the_last_note_in_a_listed_folder_keeps_the_folder() {
+        let (_dir, roots) = temp_tree();
+        let personal = roots[0].1.clone();
+        std::fs::create_dir_all(personal.join("solo")).unwrap();
+        std::fs::write(personal.join("solo/only.md"), "# o\n").unwrap();
+        let rebuild = || Ok(list_sections_with_dirs(&roots));
+        let mut forest = forest_of(list_sections_with_dirs(&roots));
+        let mut retired = Vec::new();
+        let prompt = prompt_at(&mut forest, &personal.join("solo/only.md"));
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        let solo = row(&forest.nodes, path_str(&personal.join("solo")));
+        assert_eq!(outcome.row, Some(solo));
+    }
+
+    // --- Folder rename and delete ---
+
+    /// A vault laid out like the real one: the notez root `n` is the tag
+    /// root of the personal section `n/personal/proj`, so its `.tags` keys
+    /// read `personal/proj/...`. The section holds `ideas/a.md`,
+    /// `ideas/deep/deeper/n.md` (two levels under `ideas`), the empty
+    /// `ideas/empty/`, `plans/p.md` and `top.md`; the global section holds
+    /// `g.md`. Returns the temp dir, the notez root and the section root.
+    fn vault() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let notez = dir.path().join("n");
+        let root = notez.join("personal/proj");
+        for sub in ["ideas/deep/deeper", "ideas/empty", "plans"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for file in ["ideas/a.md", "ideas/deep/deeper/n.md", "plans/p.md", "top.md"] {
+            std::fs::write(root.join(file), "# note\n").unwrap();
+        }
+        std::fs::write(notez.join("g.md"), "# g\n").unwrap();
+        std::fs::write(
+            notez.join(".tags"),
+            "personal/proj/ideas/a.md:1\n\
+             personal/proj/ideas/deep/deeper/n.md:2\n\
+             personal/proj/ideas/gone-before.md:1\n\
+             personal/proj/plans/p.md:4\n\
+             personal/proj/ideas-other.md:1\n\
+             g.md:1\n",
+        )
+        .unwrap();
+        (dir, notez, root)
+    }
+
+    /// The rebuild closure's work for [`vault`]: the personal section with
+    /// its folders, then the global section (which leaves `personal/` out).
+    fn vault_sections(notez: &Path) -> Vec<SectionSpec> {
+        let root = notez.join("personal/proj");
+        let personal = SectionSpec {
+            root: root.clone(),
+            tag_root: notez.to_path_buf(),
+            label: "proj (personal)".to_string(),
+            icon: "",
+            is_doc: false,
+            files: md_files(&root),
+            dirs: all_dirs(&root),
+            scope: Scope::Personal,
+            project: Some("proj".to_string()),
+            new_note_root: root.clone(),
+            is_current: true,
+        };
+        let global = SectionSpec {
+            root: notez.to_path_buf(),
+            tag_root: notez.to_path_buf(),
+            label: "NOTEZ".to_string(),
+            icon: "",
+            is_doc: false,
+            files: vec![notez.join("g.md")],
+            dirs: Vec::new(),
+            scope: Scope::Global,
+            project: None,
+            new_note_root: notez.to_path_buf(),
+            is_current: false,
+        };
+        vec![personal, global]
+    }
+
+    /// Every entry under `dir`, files and folders, relative to it.
+    fn disk_entries(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(at) = stack.pop() {
+            for entry in std::fs::read_dir(&at).unwrap().flatten() {
+                let path = entry.path();
+                out.push(path.strip_prefix(dir).unwrap().to_string_lossy().into_owned());
+                if entry.file_type().unwrap().is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// `rename_request` then `rename_folder` with the cursor on `path`, as
+    /// `r`, a typed name and `Enter` do.
+    fn rename_at(forest: &mut Forest, path: &Path, name: &str) -> std::result::Result<(), String> {
+        let i = row(&forest.nodes, path_str(path));
+        let shown = rename_request(&forest.nodes, &forest.sections, Some(i))
+            .expect("a folder row opens the prompt")
+            .expect("a row under the cursor");
+        assert_eq!(shown, forest.nodes[i].name, "the prompt shows the current name");
+        rename_folder(&mut forest.nodes, &mut forest.sections, i, name)
+    }
+
+    /// Enter on the untouched prompt keeps a name `sanitize::name` would
+    /// change (underscores, capitals): nothing on disk, in the rows or in
+    /// the tags moves.
+    #[test]
+    fn folder_rename_with_the_shown_name_unchanged_changes_nothing() {
+        let (_dir, notez, root) = vault();
+        for sub in ["00_quick-notes", "_todos/IDEAS"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for file in ["00_quick-notes/q.md", "_todos/t.md", "_todos/IDEAS/i.md"] {
+            std::fs::write(root.join(file), "# note\n").unwrap();
+        }
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        let paths = |f: &Forest| f.nodes.iter().map(|n| n.path.clone()).collect::<Vec<_>>();
+        let rows = paths(&forest);
+
+        for sub in ["00_quick-notes", "_todos", "_todos/IDEAS"] {
+            let path = root.join(sub);
+            let shown = forest.nodes[row(&forest.nodes, path_str(&path))].name.clone();
+            assert_eq!(rename_at(&mut forest, &path, &shown), Ok(()), "{sub}");
+            assert_eq!(disk_entries(&notez), before, "{sub}");
+            assert_eq!(paths(&forest), rows, "{sub}");
+        }
+        assert!(changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial).is_empty());
+    }
+
+    #[test]
+    fn folder_rename_moves_every_note_and_the_tags_follow_on_exit() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        let initial = note_tags::load_tags(&notez);
+        let ideas = row(&forest.nodes, path_str(&root.join("ideas")));
+
+        rename_at(&mut forest, &root.join("ideas"), "Thoughts").expect("renamed");
+
+        let thoughts = root.join("thoughts");
+        assert!(!root.join("ideas").exists());
+        for file in ["a.md", "deep/deeper/n.md"] {
+            assert!(thoughts.join(file).is_file(), "{file}");
+        }
+        assert!(thoughts.join("empty").is_dir());
+        assert_eq!(forest.nodes[ideas].path, thoughts, "the cursor row is the renamed folder");
+        assert_eq!(forest.nodes[ideas].name, "thoughts");
+        let deep = forest.nodes.iter().find(|n| n.name == "n.md").unwrap();
+        assert_eq!(deep.path, thoughts.join("deep/deeper/n.md"));
+        assert_eq!(deep.origin, root.join("ideas/deep/deeper/n.md"), "origin is kept");
+        assert!(forest.nodes.iter().all(|n| !n.path.starts_with(root.join("ideas"))));
+        assert!(forest.sections[0].dirs.contains(&thoughts.join("deep/deeper")));
+        assert!(forest.sections[0].files.contains(&thoughts.join("a.md")));
+
+        let mut expected = initial.clone();
+        for (old, new) in [("ideas/a.md", "thoughts/a.md"), ("ideas/deep/deeper/n.md", "thoughts/deep/deeper/n.md")] {
+            let flags = expected.remove(&format!("personal/proj/{old}")).unwrap();
+            expected.insert(format!("personal/proj/{new}"), flags);
+        }
+        let changed = changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial);
+        assert_eq!(changed, vec![(notez.clone(), expected.clone())]);
+        assert!(expected.contains_key("personal/proj/ideas/gone-before.md"), "keys without a row stay");
+        assert!(expected.contains_key("personal/proj/ideas-other.md"), "a look-alike prefix stays");
+
+        // A later rebuild (a new note, say) lists the new paths and keeps
+        // the origins, so the exit write is the same.
+        forest.rebuild(vault_sections(&notez), Path::new("/nothing/created"));
+        let after = changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial);
+        assert_eq!(after, vec![(notez.clone(), expected)]);
+    }
+
+    #[test]
+    fn folder_rename_onto_an_existing_name_changes_nothing() {
+        let (_dir, notez, root) = vault();
+        std::fs::write(root.join("plain"), "not a note").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let disk = disk_entries(&notez);
+        let rows: Vec<PathBuf> = forest.nodes.iter().map(|n| n.path.clone()).collect();
+
+        // A sibling folder (any case), a sibling file, and a nested folder
+        // onto its own sibling.
+        for (folder, name) in [("ideas", "plans"), ("ideas", "Plans"), ("ideas", "plain"), ("ideas/deep", "empty")] {
+            let message = rename_at(&mut forest, &root.join(folder), name).expect_err(name);
+            assert!(message.contains("already exists"), "{name}: {message}");
+        }
+        assert_eq!(disk_entries(&notez), disk, "nothing moved");
+        let now: Vec<PathBuf> = forest.nodes.iter().map(|n| n.path.clone()).collect();
+        assert_eq!(now, rows, "no row path changed");
+        assert!(changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial).is_empty());
+    }
+
+    #[test]
+    fn folder_rename_refuses_an_empty_name_and_keeps_the_same_name() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        let disk = disk_entries(&notez);
+        for name in ["", "  ", "?!"] {
+            assert_eq!(rename_at(&mut forest, &root.join("ideas"), name), Err(FOLDER_RENAME_EMPTY.to_string()));
+        }
+        assert_eq!(rename_at(&mut forest, &root.join("ideas"), "Ideas"), Ok(()), "same name: nothing to do");
+        assert_eq!(disk_entries(&notez), disk);
+        assert!(changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial).is_empty());
+    }
+
+    /// `Ideas` to `ideas`: on a case-insensitive file system the target
+    /// "exists" as the folder itself, which is no reason to refuse.
+    #[test]
+    fn folder_rename_can_change_only_the_case() {
+        let (_dir, notez, root) = vault();
+        std::fs::create_dir_all(root.join("Caps")).unwrap();
+        std::fs::write(root.join("Caps/c.md"), "# c\n").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+
+        rename_at(&mut forest, &root.join("Caps"), "caps").expect("a case-only rename");
+
+        let names: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"caps".to_string()) && !names.contains(&"Caps".to_string()), "{names:?}");
+        assert!(forest.nodes.iter().any(|n| n.path == root.join("caps/c.md")));
+    }
+
+    #[test]
+    fn r_on_a_section_a_docs_folder_or_an_empty_tree_changes_nothing() {
+        let sections = project_sections();
+        let (nodes, _) = build_forest(&sections);
+        for path in ["/n/personal/proj", "/p/docs", "/n"] {
+            assert_eq!(rename_request(&nodes, &sections, Some(row(&nodes, path))), Err(SECTION_RENAME), "{path}");
+        }
+        assert_eq!(rename_request(&nodes, &sections, Some(row(&nodes, "/p/docs/design"))), Ok(None));
+        assert_eq!(
+            rename_request(&nodes, &sections, Some(row(&nodes, "/p/docs/design/c.md"))),
+            Ok(Some("c".to_string())),
+            "a docs note renames as before"
+        );
+        assert_eq!(
+            rename_request(&nodes, &sections, Some(row(&nodes, "/n/personal/proj/ideas"))),
+            Ok(Some("ideas".to_string()))
+        );
+        assert_eq!(rename_request(&nodes, &sections, None), Ok(None));
+        assert_eq!(rename_request(&nodes, &sections, Some(nodes.len())), Ok(None));
+        assert_eq!(rename_request(&[], &[], Some(0)), Ok(None));
+        assert_eq!(rename_request(&[], &[], None), Ok(None));
+    }
+
+    /// The delete prompt `d` opens on the folder at `path`, whose parents
+    /// are expanded as they are when the cursor can reach it.
+    fn folder_prompt(forest: &mut Forest, path: &Path) -> DeletePrompt {
+        let i = row(&forest.nodes, path_str(path));
+        let mut up = forest.nodes[i].parent_idx;
+        while let Some(p) = up {
+            forest.nodes[p].expanded = true;
+            up = forest.nodes[p].parent_idx;
+        }
+        delete_request(&forest.nodes, &forest.sections, Some(i), Some("proj"))
+            .expect("a folder row")
+            .expect("a row under the cursor")
+    }
+
+    #[test]
+    fn d_then_y_on_a_folder_removes_it_and_nothing_else_and_retires_its_keys() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        let initial = note_tags::load_tags(&notez);
+        let ideas = root.join("ideas");
+        let disk: Vec<String> = disk_entries(&notez)
+            .into_iter()
+            .filter(|e| !Path::new(e).starts_with("personal/proj/ideas"))
+            .collect();
+
+        let prompt = folder_prompt(&mut forest, &ideas);
+        assert_eq!(delete_question(&prompt), "delete ideas/ and its 2 notes from personal? y/n");
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild)
+            .expect("y confirms");
+
+        assert!(!ideas.exists());
+        assert_eq!(disk_entries(&notez), disk, "only the folder went");
+        assert_eq!(outcome.message, "deleted ideas/");
+        assert!(!forest.nodes.iter().any(|n| n.path.starts_with(&ideas)));
+        assert_eq!(outcome.row, Some(row(&forest.nodes, path_str(&root.join("plans")))), "the next sibling");
+
+        let changed = changed_tag_maps_retiring(&forest.nodes, &forest.tag_roots, &forest.initial, &retired);
+        let mut expected = initial.clone();
+        expected.retain(|k, _| !Path::new(k).starts_with("personal/proj/ideas"));
+        assert!(expected.contains_key("personal/proj/ideas-other.md"));
+        assert!(expected.contains_key("g.md") && expected.contains_key("personal/proj/plans/p.md"));
+        assert_eq!(changed, vec![(notez.clone(), expected)]);
+    }
+
+    #[test]
+    fn deleting_a_renamed_folder_retires_the_original_keys() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        rename_at(&mut forest, &root.join("ideas"), "thoughts").unwrap();
+
+        let prompt = folder_prompt(&mut forest, &root.join("thoughts"));
+        answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        let changed = changed_tag_maps_retiring(&forest.nodes, &forest.tag_roots, &forest.initial, &retired);
+        let (_, map) = &changed[0];
+        assert!(!map.keys().any(|k| k.contains("/thoughts/")), "{map:?}");
+        for old in ["personal/proj/ideas/a.md", "personal/proj/ideas/deep/deeper/n.md"] {
+            assert!(!map.contains_key(old), "{old}: {map:?}");
+        }
+        assert!(map.contains_key("personal/proj/ideas-other.md"));
+    }
+
+    #[test]
+    fn the_folder_prompt_counts_notes_and_mentions_other_files() {
+        let (_dir, notez, root) = vault();
+        std::fs::create_dir_all(root.join("one")).unwrap();
+        std::fs::write(root.join("one/x.md"), "# x\n").unwrap();
+        std::fs::create_dir_all(root.join("mixed/sub")).unwrap();
+        std::fs::write(root.join("mixed/sub/m.md"), "# m\n").unwrap();
+        std::fs::write(root.join("mixed/sub/upper.MD"), "# m\n").unwrap();
+        std::fs::write(root.join("mixed/pic.png"), "png").unwrap();
+        std::fs::create_dir_all(root.join("hidden-only")).unwrap();
+        std::fs::write(root.join("hidden-only/.DS_Store"), "").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut question = |sub: &str| delete_question(&folder_prompt(&mut forest, &root.join(sub)));
+
+        assert_eq!(question("ideas/empty"), "delete ideas/empty/ (no notes) from personal? y/n");
+        assert_eq!(question("one"), "delete one/ and its 1 note from personal? y/n");
+        assert_eq!(question("ideas"), "delete ideas/ and its 2 notes from personal? y/n");
+        assert_eq!(question("mixed"), "delete mixed/ and its 2 notes and other files from personal? y/n");
+        assert_eq!(question("hidden-only"), "delete hidden-only/ (no notes) and other files from personal? y/n");
+    }
+
+    /// A symlink inside the folder goes as a link: its target, and the
+    /// notes in it, stay; the prompt counts it as another file.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_delete_removes_a_symlink_inside_it_but_not_its_target() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || Ok(vault_sections(&notez));
+        std::os::unix::fs::symlink(root.join("plans"), root.join("ideas/link")).unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+
+        let prompt = folder_prompt(&mut forest, &root.join("ideas"));
+        assert_eq!(delete_question(&prompt), "delete ideas/ and its 2 notes and other files from personal? y/n");
+        answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(!root.join("ideas").exists());
+        assert!(root.join("plans/p.md").is_file(), "the link's target is untouched");
+        assert!(!retired.iter().any(|(_, k)| k.contains("plans")), "{retired:?}");
+    }
+
+    #[test]
+    fn a_local_folder_prompt_says_not_recoverable() {
+        let (_dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections_with_dirs(&roots));
+        for (scope, _) in SCOPES {
+            let root = &roots.iter().find(|(s, _)| *s == scope).unwrap().1;
+            let q = delete_question(&folder_prompt(&mut forest, &root.join("ideas")));
+            assert_eq!(q.contains("(not recoverable)"), scope == Scope::Local, "{q}");
+            assert!(q.starts_with("delete ideas/ and its 2 notes from "), "{q}");
+        }
+    }
+
+    #[test]
+    fn any_answer_but_y_on_a_folder_removes_nothing() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        let prompt = folder_prompt(&mut forest, &root.join("ideas"));
+        let disk = disk_entries(&notez);
+        for code in [KeyCode::Char('n'), KeyCode::Esc, KeyCode::Enter, KeyCode::Char('Y')] {
+            assert!(answer_delete(code, &mut forest, &mut retired, &prompt, "", &rebuild).is_none());
+        }
+        assert_eq!(disk_entries(&notez), disk);
+        assert!(retired.is_empty());
+    }
+
+    #[test]
+    fn remove_dir_all_is_unreachable_for_a_section_root_or_a_path_outside_it() {
+        let (_dir, notez, root) = vault();
+        let roots = vec![root.clone(), notez.clone()];
+        let refused = [
+            (root.clone(), root.clone(), "the section root"),
+            (notez.clone(), root.clone(), "above the section root"),
+            (notez.join("elsewhere"), root.clone(), "outside the section"),
+            (root.join("ideas/../plans"), root.clone(), "a parent step"),
+            (root.join(".."), root.clone(), "a parent step alone"),
+            (notez.join("personal"), notez.clone(), "a folder holding another section"),
+            (notez.join("personal/proj"), notez.clone(), "another section's root"),
+        ];
+        std::fs::create_dir_all(notez.join("elsewhere")).unwrap();
+        let disk = disk_entries(&notez);
+        for (path, section_root, why) in refused {
+            assert!(!folder_change_allowed(&path, &section_root, &roots), "{why}");
+            let err = remove_folder(&path, &section_root, &roots).expect_err(why);
+            assert!(err.to_string().contains("not a folder inside its section"), "{why}: {err}");
+        }
+        assert_eq!(disk_entries(&notez), disk, "nothing removed");
+        assert!(folder_change_allowed(&root.join("ideas/deep"), &root, &roots));
+    }
+
+    #[test]
+    fn a_prompt_aimed_at_a_section_root_removes_nothing() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        let mut prompt = folder_prompt(&mut forest, &root.join("ideas"));
+        prompt.path = root.clone();
+        let disk = disk_entries(&notez);
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(outcome.message.starts_with("delete failed: "), "{}", outcome.message);
+        assert_eq!(disk_entries(&notez), disk);
+        assert!(retired.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_delete_that_fails_midway_reports_rebuilds_and_retires_only_what_went() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, notez, root) = vault();
+        let locked = root.join("ideas/deep/deeper");
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        let prompt = folder_prompt(&mut forest, &root.join("ideas"));
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = outcome.unwrap();
+
+        assert!(outcome.message.starts_with("delete failed: "), "{}", outcome.message);
+        assert!(locked.join("n.md").is_file(), "the locked note is left");
+        assert!(root.join("plans/p.md").is_file() && root.join("top.md").is_file());
+        assert!(forest.nodes.iter().any(|n| n.path == locked.join("n.md")), "the tree shows what is left");
+        assert_eq!(outcome.row, Some(row(&forest.nodes, path_str(&root.join("ideas")))));
+        let keys: Vec<&str> = retired.iter().map(|(_, k)| k.as_str()).collect();
+        assert!(!keys.contains(&"personal/proj/ideas/deep/deeper/n.md"), "{keys:?}");
+        assert_eq!(
+            keys.contains(&"personal/proj/ideas/a.md"),
+            !root.join("ideas/a.md").exists(),
+            "a note's key goes exactly when the note went: {keys:?}"
+        );
+        assert!(keys.contains(&"personal/proj/ideas/gone-before.md"), "a key whose note is not on disk goes");
+    }
+
+    #[test]
+    fn a_failed_rebuild_after_a_folder_delete_drops_the_folder_rows() {
+        let (_dir, notez, root) = vault();
+        let rebuild = || -> Result<Vec<SectionSpec>> { anyhow::bail!("listing broke") };
+        let mut forest = forest_of(vault_sections(&notez));
+        let mut retired = Vec::new();
+        let prompt = folder_prompt(&mut forest, &root.join("ideas"));
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &rebuild).unwrap();
+
+        assert!(!root.join("ideas").exists());
+        assert!(outcome.message.contains("listing broke"), "{}", outcome.message);
+        assert!(!forest.nodes.iter().any(|n| n.path.starts_with(root.join("ideas"))));
+        assert!(forest.nodes.iter().any(|n| n.path == root.join("plans/p.md")));
+    }
+
+    #[test]
+    fn r_and_d_help_cover_folders_and_keep_their_footer_slots() {
+        let hint = |k: &str| TREE_KEYS.iter().find(|h| h.key == k && h.modes == BROWSE).unwrap();
+        assert!(hint("r").help.starts_with("rename note or folder"), "{}", hint("r").help);
+        assert!(hint("d").help.starts_with("delete note or folder"), "{}", hint("d").help);
+        assert_eq!(hint("r").slot, Slot::Priority(6));
+        assert_eq!(hint("d").slot, Slot::Priority(7));
     }
 }

@@ -83,6 +83,32 @@ content, never overwriting an existing file; an empty title becomes
 `untitled`), opens it in the editor, and selects it in the refreshed tree;
 `Esc` cancels.
 
+**Folders in the tree.** Every folder under a section's root is listed,
+including empty ones; hidden folders (names starting with `.`) are not.
+`N` creates a folder with the same prompt as `n`: the target is the folder
+under the cursor, the footer names it (`new folder in personal/ideas: _`)
+and `Tab` cycles the scope the same way. `Enter` creates the folder the way
+`notez mkdir` does (same name sanitizing, the same `.gitignore` step for
+local scratch), then selects and expands it in the refreshed tree; `Esc`
+cancels. An empty name, or the name of anything already in the target
+folder, is refused in the footer and creates nothing. `N` does nothing in a
+`docs` section.
+
+`r` on a folder renames it in place: the prompt shows the current name,
+`Enter` renames it with the same name sanitizing, and every note inside
+moves with it; their `.tags` entries move to the new paths on exit. A name
+already taken in that folder (file or folder, in any case) is refused and
+nothing changes; changing only the case of a name works where the file
+system allows it. `d` on a folder asks first, counting what goes, for
+example `delete ideas/ and its 2 notes from personal? y/n` (`and its 1 note`,
+or `(no notes)` for an empty folder), adding `and other files` when the folder holds anything but
+notes and `(not recoverable)` in local scratch. `y` removes the folder with
+everything in it, drops the `.tags` entries of the notes that went, and
+refreshes the tree with the cursor on the next row. If the delete fails
+partway, the footer says `delete failed: ...` and the tree shows what is
+left. `r` and `d` on a section row, and on a folder in a `docs` section,
+change nothing.
+
 **Deleting notes in the tree.** `d` on a note asks first in the footer,
 naming the file and its scope, for example
 `delete ideas/2026-10-07-x.md from personal? y/n`; a local scratch note's
@@ -91,8 +117,8 @@ deletes the file and refreshes the tree, keeping open folders, unsaved tag
 changes and the filter, with the cursor on the next note in the folder (or
 the one before it). `n`, `Esc` or any other key cancels. The note's `.tags`
 entry goes on exit, and the exit sync commits the deletion like any other
-change. There is no trash and no undo. `d` on a folder only says folder
-delete is not available yet.
+change. There is no trash and no undo. `d` on a folder is covered under
+**Folders in the tree** above.
 
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a

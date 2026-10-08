@@ -4,7 +4,7 @@
 //! project docs, no symlink walking) and hands them to `tui::tree`. On
 //! exit, only `.tags` roots whose tag maps actually changed are written.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
@@ -245,6 +245,11 @@ fn sections_from_entries(
         } else {
             root.clone()
         };
+        // The global walk leaves `personal/` to the projects, as the
+        // aggregator does for the notes in it.
+        let personal_root = notez_root.join("personal");
+        let skip = is_global.then_some(personal_root.as_path());
+        let dirs = section_dirs(&root, skip);
         out.push(SectionSpec {
             root,
             tag_root,
@@ -252,11 +257,39 @@ fn sections_from_entries(
             icon,
             is_doc,
             files,
+            dirs,
             scope: if is_global { Scope::Global } else { scope },
             project: (!is_global).then_some(project),
             new_note_root,
             is_current: bucket == BUCKET_CURRENT,
         });
+    }
+    out
+}
+
+/// Every directory under `root`, depth first, as absolute paths: the
+/// section's folders, including ones with no notes in them. Mirrors the
+/// aggregator's note walk: hidden names (starting with `.`) are skipped with
+/// everything under them, symlinks are not followed, and an unreadable
+/// directory just ends that branch. `skip`, if set, is left out with its
+/// subtree. A missing `root` lists nothing.
+fn section_dirs(root: &Path, skip: Option<&Path>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(read) = std::fs::read_dir(root) else {
+        return out;
+    };
+    let mut children: Vec<PathBuf> = read
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| e.path())
+        .filter(|p| Some(p.as_path()) != skip)
+        .collect();
+    children.sort();
+    for child in children {
+        let below = section_dirs(&child, skip);
+        out.push(child);
+        out.extend(below);
     }
     out
 }
@@ -772,6 +805,48 @@ mod tests {
         let (labels, _, title, _) = view_of_vault(View::Only(Scope::Personal), false);
         assert_eq!(labels, OUTSIDE_LABELS);
         assert_eq!(title, "notez");
+    }
+
+    /// A vault whose global store holds a note, an empty folder, a nested
+    /// empty folder, a hidden folder and a symlinked folder, next to a
+    /// project's personal folder with an empty subfolder of its own.
+    #[test]
+    fn sections_list_empty_folders_but_not_hidden_or_linked_ones() {
+        let vault = tempfile::tempdir().unwrap();
+        let root = vault.path();
+        for dir in ["empty", "outer/inner", ".hidden/sub", "personal/proj/drafts"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("top.md"), "# x\n").unwrap();
+        std::fs::write(root.join("personal/proj/n.md"), "# x\n").unwrap();
+        std::os::unix::fs::symlink(root.join("outer"), root.join("linked")).unwrap();
+        let mut config = Config::defaults();
+        config.paths.notez_root = root.to_string_lossy().into_owned();
+        let note = |path: PathBuf, scope, project: Option<&str>| NoteEntry {
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            path,
+            scope,
+            project: project.map(str::to_string),
+            kind: SourceKind::Note,
+        };
+        let entries = vec![
+            note(root.join("top.md"), Scope::Global, None),
+            note(root.join("personal/proj/n.md"), Scope::Personal, Some("proj")),
+        ];
+
+        let sections = sections_from_entries(entries, &config, &ProjectRegistry::default(), None);
+
+        let global = sections.iter().find(|s| s.scope == Scope::Global).unwrap();
+        let expected: Vec<PathBuf> =
+            ["empty", "outer", "outer/inner"].iter().map(|d| root.join(d)).collect();
+        assert_eq!(global.dirs, expected, "no hidden, linked or personal folders");
+        let personal = sections.iter().find(|s| s.scope == Scope::Personal).unwrap();
+        assert_eq!(personal.dirs, vec![root.join("personal/proj/drafts")]);
+    }
+
+    #[test]
+    fn a_missing_section_root_lists_no_folders() {
+        assert!(section_dirs(Path::new("/no/such/notez/root"), None).is_empty());
     }
 
     #[test]
