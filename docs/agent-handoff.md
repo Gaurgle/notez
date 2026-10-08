@@ -386,7 +386,21 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-21 (tree rows: badge indented, count aligned). Dispatched 2026-10-08
+NZ-22 (preview scroll keys). Dispatched 2026-10-08 at 17:05 CEST by
+lead `4ffb11e2` on Andreas's direct request ("i want shift + j/k &
+up/down to scroll document in the right pane", 15:55 CEST). `git
+status --short` before dispatch: only this file modified. Base
+`d667999` (= `main` = `origin/main`), branch
+`feat/NZ-22-preview-scroll-keys`, worktree `.claude/worktrees/NZ-22`,
+model `opus` via `nz-worker`, one pass. RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_Y3NA` In flight. Then review, branch push,
+CI, merge, `main` run, cleanup.
+
+NZ-21 is Done (merge `d667999` at 17:00 CEST; branch run and `main` run
+`37774540545` green; remote branch deleted; worktree and local branch
+removed; board Done).
+
+NZ-21 record, for history. Dispatched 2026-10-08
 at 16:10 CEST by lead `4ffb11e2` on Andreas's direct request ("two
 things directly", 15:55 CEST). `git status --short` before dispatch:
 only this file modified. Base `483cb1c` (= `main` = `origin/main`),
@@ -405,7 +419,15 @@ byte-count error on section rows); badge drawn as `icon` plus a space
 before the name; `LIST_TEXT_WIDTH` test constant keeps its value with a
 corrected comment. Two pre-existing tests updated to the new badge
 position, every assertion kept. REVIEW dispatched at 16:38 CEST
-(`nz-reviewer`, opus) on that hash, RUNNING. Board item
+(`nz-reviewer`, opus) on that hash; ACCEPTED at 16:48 CEST first time
+(about 41k tokens; follow-ups: `BADGE_COL` naming now means the blank
+gutter; a very long nested folder name can still overflow the row,
+pre-existing). Lead checks: build clean, 318 + 146 passed. Committed
+as `9ce0dae` (diff against `9a6c0e0` hashes to the accepted
+`031b6acb...`), branch pushed at 16:52 CEST; the integration chain
+(branch run, merge `--no-ff`, checks on `main`, push, `main` run,
+remote branch deletion, worktree removal) is running as one background
+command and stops at the first failure. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_Y3Lk` (In flight), created under the 16:35
 permission. Then branch push, CI, merge, `main` run, cleanup; then
 NZ-22 (board `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`, Ready).
@@ -2429,7 +2451,27 @@ the message when the cleaned name is empty.
 
 #### NZ-21: tree rows: badge indented with the row, count column aligned
 
-Status: Ready. Requested by Andreas in the lead session on 2026-10-08
+Status: Done. Merged into `main` as `d667999` at 17:00 CEST on
+2026-10-08 and pushed; branch run and `main` run `37774540545` green;
+board Done; remote branch deleted. Not yet installed by Andreas; the
+look is his to judge installed.
+
+Record: base `9a6c0e0`, branch `fix/NZ-21-tree-row-alignment`, ticket
+commit `9ce0dae` (`tui/tree.rs` only, 174 insertions, 32 deletions),
+merge `d667999` with `git merge --no-ff`; undo with `git revert -m 1
+d667999`. One `nz-worker` (opus, about 120k tokens over two rounds), one
+`nz-reviewer` (opus, about 41k), accepted first time; committed diff
+hashes to the accepted
+`031b6acbdbcccaaa9631c41f4702f7c09eac4316e24af90c4969b412b62cf5a2`.
+Lead checks: build clean, notez-cli 318 passed, notez-core 146 passed.
+As built: badge `icon` plus a space right before the name on nested
+rows, blank gutter kept; leader measured in display columns; the
+list's text width corrected to pane minus 8 (`list_text_width`), which
+is why section counts looked right before while nested ones did not.
+Leftovers: `BADGE_COL` test constant now names the blank gutter; a very
+long nested folder name can still overflow its row (pre-existing).
+
+Brief as run. Requested by Andreas in the lead session on 2026-10-08
 at about 15:55 CEST with two screenshots ("the expanding of tree
 structure is a bit weird, visibly, the icons for the expanded branch
 are visibly to the left ... indent correctly. Same for number of
@@ -2535,7 +2577,19 @@ path, not from a registration. So the docs are invisible because no
 registered project covers `~/Repos/bonsai`, and `notez attach` works
 from inside a git repository, which the umbrella directory is not.
 
-Options put to Andreas: (a) move the five docs into
+RESOLVED for the note itself at 17:00 CEST: the note Andreas meant is
+`~/notez/2026-10-06-bonsai.md` (`# Bonsai`, 1055 bytes, written
+2026-10-06 18:22). He ran `notez` inside the umbrella directory, which
+is not a git repository, so the scope fell back to Global
+(`Scope::resolve`: outside a project the default is Global) and the
+note landed at the vault root, listed under NOTEZ, not under any bonsai
+section. Nothing is lost; `m` can move it. Follow-up idea for the
+brief: when a note is created and the scope fell back to Global
+because the directory is not a project, the footer or the CLI output
+should say so and name the path. The five docs in
+`~/Repos/bonsai/docs/` remain invisible for the reason above.
+
+Options put to Andreas for the docs and the registry: (a) move the five docs into
 `~/Repos/bonsai/bonsai-education/docs/` and `notez attach` there (then
 they list as `bonsai-education (docs)`); (b) a ticket to let `attach`
 register a plain directory as a project (docs and notes stores only, no
@@ -2880,9 +2934,9 @@ Current lead):
    standing permission (Authorized by the owner, 15:15 CEST): every
    accepted ticket branch is pushed, waits for a green run, merges, and
    its remote branch is deleted after the `main` run.
-6. NZ-21 (tree row alignment) then NZ-22 (preview scroll keys), both
-   requested directly by Andreas on 2026-10-08; briefs Ready under
-   Tickets; board items pending his leave. Then the UI tickets NZ-4,
+6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-22 (preview scroll
+   keys) in flight, requested directly by Andreas on 2026-10-08; board
+   items exist for NZ-21 to NZ-25. Then the UI tickets NZ-4,
    NZ-5, NZ-3. NZ-11 and NZ-6 in the second slot when their files are
    free. NZ-23 (bonsai docs) waits for his answer; NZ-24 (todo icon) and
    NZ-25 (markdown preview) are drafts needing his decisions; NZ-18
