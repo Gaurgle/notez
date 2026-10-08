@@ -502,7 +502,21 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-34 (reload on demand and on change). Dispatched 2026-10-08 at 22:29
+NZ-38 (fixed tag field, two tags per cell). Dispatched 2026-10-08 at
+22:52 CEST by lead `4ffb11e2` on Andreas's request of 22:37 CEST. `git
+status --short` before dispatch: only this file modified. Base
+`12521d3` (= `main` = `origin/main`, the NZ-34 merge), branch
+`fix/NZ-38-fixed-tag-field`, worktree `.claude/worktrees/NZ-38`, model
+`opus` via `nz-worker`, one pass. RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fr30` In flight. Then review, branch push,
+CI, merge, `main` run, cleanup; then NZ-39, NZ-3, NZ-5, NZ-32, NZ-28,
+NZ-30.
+
+NZ-34 is Done (merge `12521d3` at 22:50 CEST; branch run and `main` run
+green; remote branch deleted; worktree and local branch removed; board
+Done).
+
+NZ-34 record, for history. Dispatched 2026-10-08 at 22:29
 CEST by lead `4ffb11e2` on Andreas's request of about 22:00 CEST. `git
 status --short` before dispatch: only this file modified. Base
 `5ff3745` (= `main` = `origin/main`, the NZ-37 merge), branch
@@ -549,10 +563,16 @@ and refreshes only on a successful reload; two new tests; checks 500 +
 146 passed; new diff against `5ff3745` 2 files, 573 insertions, 12
 deletions, hashing to
 `028c1312d6b075f1ddb061d760ff70e2a391b98762542d32516ab25a3f66ce5a`.
-RE-REVIEW (third look) sent at 23:14 CEST, RUNNING. Then branch push,
-CI, merge, `main` run, cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32,
-NZ-28, NZ-30. This was the second fix cycle on NZ-34; a third on the
-same blocker stops the ticket and asks Andreas (stop condition).
+RE-REVIEW (third look) sent at 23:14 CEST; ACCEPTED at 23:20 CEST on
+`028c1312...` (about 94k tokens; follow-ups: no test for a rename whose
+reload fails; the footer then says only `reload failed`, could say
+`renamed, but reload failed`; the earlier notes on content-only edits,
+1 s mtimes and a failed automatic reload's message stand). Lead
+checks: build clean, 500 + 146 passed. Committed as `9ce30b1`, branch
+pushed at 23:22 CEST; integration chain running in the background
+(runs selected by SHA); this file is committed after it reports. Then
+NZ-38, NZ-39, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30. Two fix cycles were
+used on NZ-34; the stop condition was not reached.
 
 NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
@@ -3794,7 +3814,29 @@ One worker pass, one review.
 
 #### NZ-34: reload the tree on demand and when files change
 
-Status: Ready, runs after NZ-31. Requested by Andreas on 2026-10-08 at
+Status: Done. Merged into `main` as `12521d3` at 22:50 CEST on
+2026-10-08 and pushed; branch run and `main` run green; board Done;
+remote branch deleted. Not yet installed by Andreas.
+Record: base `5ff3745`, branch `feat/NZ-34-reload`, ticket commit
+`9ce30b1` (`tui/tree.rs`, `README.md`; 573 insertions, 12 deletions),
+merge `12521d3` with `git merge --no-ff`; undo with `git revert -m 1
+12521d3`. One `nz-worker` (opus, about 167k tokens over four rounds),
+one `nz-reviewer` (opus, about 94k) with two fix cycles (F1 own-action
+refresh, then B1/B2 refresh only after a successful relist), accepted
+on `028c1312d6b075f1ddb061d760ff70e2a391b98762542d32516ab25a3f66ce5a`.
+Lead checks: build clean, notez-cli 500 passed, notez-core 146 passed.
+As built: `R` reloads (help-only key) keeping cursor, expansion,
+filter, marks and tag flags; `event::poll` every 2 s, probe of section
+roots and expanded folders by directory mtime (follows symlinks),
+gated during input modes, help and drags; own actions refresh the
+reading only after a successful relist; todo board unchanged (holds
+unsaved edits). Leftovers: no test for a rename whose reload fails
+(footer then says only `reload failed`); content-only edits of the
+previewed note are not probed (preview updates on the next key); 1 s
+mtime filesystems may miss a same-second second change; a failed
+automatic reload's error replaces a showing message.
+
+Brief as run. Requested by Andreas on 2026-10-08 at
 22:00 CEST ("should we have some kind of update or reload function? if
 stuff are added while in the tui?"). Board item
 `PVTI_lAHOCU842c4BmE5Zzg_fMvo`.
@@ -4450,8 +4492,9 @@ Current lead):
    `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 DONE (merge
    `38f91a5`), NZ-35 DONE (merge `cafd169`, install.sh), NZ-36 DONE
    (merge `97455ab`, tables), NZ-37 DONE (merge `5ff3745`, Esc), NZ-34
-   (reload) IN FLIGHT, then NZ-3, NZ-5, NZ-32 (type filter), NZ-28
-   (linting), NZ-30 (symbol outline),
+   DONE (merge `12521d3`, reload), NZ-38 (fixed tag field) IN FLIGHT,
+   then NZ-39 (suffix indicator and `p`), NZ-3, NZ-5, NZ-32 (type
+   filter), NZ-28 (linting), NZ-30 (symbol outline),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
