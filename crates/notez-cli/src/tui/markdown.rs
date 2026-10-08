@@ -5,14 +5,14 @@
 //! ratatui's own wrapping, so `lines.len()` is the exact line count to
 //! scroll and clamp against.
 //!
-//! Parsing is `pulldown-cmark` with tables, strikethrough and task lists
-//! on. Nothing is rendered as HTML: raw HTML and tables are shown as their
+//! Parsing is `pulldown-cmark` with tables, footnotes, strikethrough and
+//! task lists on. Nothing is rendered as HTML: raw HTML is shown as its
 //! source text.
 
 use std::borrow::Cow;
-use std::ops::Range;
+use std::collections::HashMap;
 
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -26,6 +26,13 @@ const TAB: &str = "    ";
 const CODE_INDENT: &str = "  ";
 const QUOTE_BAR: &str = "▎ ";
 const BULLET: &str = "• ";
+/// Between two table cells; [`TABLE_JOINT`] is its header rule crossing.
+const TABLE_SEPARATOR: &str = " │ ";
+const TABLE_JOINT: &str = "─┼─";
+/// A table column is shrunk no narrower than this before the table clips.
+const MIN_COLUMN_WIDTH: usize = 3;
+/// The rule above the footnote definitions, at most this wide.
+const FOOTNOTE_RULE_WIDTH: usize = 10;
 
 /// Render `text` as markdown, wrapped to `width` columns.
 ///
@@ -35,7 +42,11 @@ const BULLET: &str = "• ";
 /// is wider than the available width. Code block lines wrap by character
 /// instead, keeping every space, and a fenced block whose tag names a
 /// shipped language is syntax highlighted, unless the document is over
-/// [`MAX_HIGHLIGHT_BYTES`]. An empty document gives no lines.
+/// [`MAX_HIGHLIGHT_BYTES`]. A table is laid out in columns: too wide, its
+/// widest columns shrink and wrap, and if even [`MIN_COLUMN_WIDTH`] per
+/// column does not fit, its lines are clipped with `…`. A footnote
+/// reference shows as `[n]`, numbered in order of first reference, and the
+/// definitions follow the document. An empty document gives no lines.
 pub fn render_markdown(text: &str, width: u16) -> Vec<Line<'static>> {
     let normalized;
     let source = if text.contains('\r') {
@@ -44,13 +55,54 @@ pub fn render_markdown(text: &str, width: u16) -> Vec<Line<'static>> {
     } else {
         text
     };
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS;
     let mut renderer = Renderer::new(source, usize::from(width.max(1)));
-    for (event, range) in Parser::new_ext(source, options).into_offset_iter() {
-        renderer.event(event, range);
+    for event in Parser::new_ext(source, options) {
+        renderer.event(event);
     }
     renderer.finish()
+}
+
+/// A table's styled inline text in one cell.
+type Cell<'s> = Vec<(Cow<'s, str>, Style)>;
+
+/// A table being collected, laid out once it ends.
+struct Table<'s> {
+    alignments: Vec<Alignment>,
+    /// The header row first, then the body rows.
+    rows: Vec<Vec<Cell<'s>>>,
+    row: Vec<Cell<'s>>,
+}
+
+/// Footnote state. Labels are keyed lowercase, as pulldown-cmark matches
+/// them case-insensitively.
+#[derive(Default)]
+struct Footnotes<'s> {
+    /// The definition being read: its key and its events, replayed after
+    /// the document.
+    open: Option<(String, Vec<Event<'s>>)>,
+    /// Definitions in source order; the first one for a label wins.
+    definitions: Vec<(String, Vec<Event<'s>>)>,
+    definition_index: HashMap<String, usize>,
+    /// Keys in numbering order: `order[n - 1]` is footnote `n`.
+    order: Vec<String>,
+    numbers: HashMap<String, usize>,
+}
+
+impl Footnotes<'_> {
+    /// The number of footnote `key`, assigning the next one on first use.
+    fn number(&mut self, key: String) -> usize {
+        if let Some(&number) = self.numbers.get(&key) {
+            return number;
+        }
+        self.order.push(key.clone());
+        let number = self.order.len();
+        self.numbers.insert(key, number);
+        number
+    }
 }
 
 /// A block that prefixes every line inside it: a block quote's bar or a
@@ -64,7 +116,6 @@ struct Container {
 }
 
 struct Renderer<'s> {
-    source: &'s str,
     width: usize,
     lines: Vec<Line<'static>>,
     containers: Vec<Container>,
@@ -84,14 +135,14 @@ struct Renderer<'s> {
     /// Whether fenced code is highlighted at all; off for a large document.
     is_highlighting: bool,
     html: Option<String>,
-    in_table: bool,
+    table: Option<Table<'s>>,
+    footnotes: Footnotes<'s>,
     needs_blank: bool,
 }
 
 impl<'s> Renderer<'s> {
-    fn new(source: &'s str, width: usize) -> Self {
+    fn new(source: &str, width: usize) -> Self {
         Self {
-            source,
             width,
             lines: Vec::new(),
             containers: Vec::new(),
@@ -106,7 +157,8 @@ impl<'s> Renderer<'s> {
             code_language: None,
             is_highlighting: source.len() as u64 <= MAX_HIGHLIGHT_BYTES,
             html: None,
-            in_table: false,
+            table: None,
+            footnotes: Footnotes::default(),
             needs_blank: false,
         }
     }
@@ -119,25 +171,41 @@ impl<'s> Renderer<'s> {
         if let Some(html) = self.html.take() {
             self.emit_source(&html);
         }
+        self.emit_footnotes();
         self.lines
     }
 
-    fn event(&mut self, event: Event<'s>, range: Range<usize>) {
-        if self.in_table {
-            if matches!(event, Event::End(TagEnd::Table)) {
-                self.in_table = false;
-                self.needs_blank = true;
+    fn event(&mut self, event: Event<'s>) {
+        if let Some((_, events)) = self.footnotes.open.as_mut() {
+            if !matches!(event, Event::End(TagEnd::FootnoteDefinition)) {
+                events.push(event);
+                return;
+            }
+            if let Some((key, events)) = self.footnotes.open.take() {
+                if !self.footnotes.definition_index.contains_key(&key) {
+                    let index = self.footnotes.definitions.len();
+                    self.footnotes.definition_index.insert(key.clone(), index);
+                    self.footnotes.definitions.push((key, events));
+                }
             }
             return;
         }
         match event {
-            Event::Start(tag) => self.start(tag, range),
+            Event::Start(tag) => self.start(tag),
             Event::End(tag) => self.end(tag),
             Event::Text(text)
             | Event::InlineHtml(text)
             | Event::InlineMath(text)
-            | Event::DisplayMath(text)
-            | Event::FootnoteReference(text) => self.text(text),
+            | Event::DisplayMath(text) => self.text(text),
+            Event::FootnoteReference(label) => {
+                let number = self.footnotes.number(label.to_lowercase());
+                let reference = format!("[{number}]");
+                if self.image_depth > 0 {
+                    self.image_alt.push_str(&reference);
+                } else {
+                    self.inline.push((Cow::Owned(reference), theme::link_url()));
+                }
+            }
             Event::Html(text) => match self.html.as_mut() {
                 Some(html) => html.push_str(&text),
                 None => self.text(text),
@@ -171,7 +239,7 @@ impl<'s> Renderer<'s> {
         }
     }
 
-    fn start(&mut self, tag: Tag<'s>, range: Range<usize>) {
+    fn start(&mut self, tag: Tag<'s>) {
         match tag {
             Tag::Paragraph => self.begin_block(),
             Tag::Heading { level, .. } => {
@@ -227,11 +295,17 @@ impl<'s> Renderer<'s> {
                 });
                 self.item_depth += 1;
             }
-            Tag::Table(_) => {
+            Tag::Table(alignments) => {
                 self.begin_block();
-                let source = self.source;
-                self.emit_source(&source[range]);
-                self.in_table = true;
+                self.table = Some(Table {
+                    alignments,
+                    rows: Vec::new(),
+                    row: Vec::new(),
+                });
+            }
+            Tag::TableHead => self.push_style(Style::default().add_modifier(Modifier::BOLD)),
+            Tag::FootnoteDefinition(label) => {
+                self.footnotes.open = Some((label.to_lowercase(), Vec::new()));
             }
             Tag::Emphasis => self.push_style(Style::default().add_modifier(Modifier::ITALIC)),
             Tag::Strong => self.push_style(Style::default().add_modifier(Modifier::BOLD)),
@@ -288,6 +362,27 @@ impl<'s> Renderer<'s> {
                 self.flush_inline();
                 self.containers.pop();
                 self.item_depth = self.item_depth.saturating_sub(1);
+            }
+            TagEnd::TableCell => {
+                let cell = std::mem::take(&mut self.inline);
+                if let Some(table) = self.table.as_mut() {
+                    table.row.push(cell);
+                }
+            }
+            TagEnd::TableHead | TagEnd::TableRow => {
+                if tag == TagEnd::TableHead {
+                    self.styles.pop();
+                }
+                if let Some(table) = self.table.as_mut() {
+                    let row = std::mem::take(&mut table.row);
+                    table.rows.push(row);
+                }
+            }
+            TagEnd::Table => {
+                if let Some(table) = self.table.take() {
+                    self.emit_table(table);
+                }
+                self.needs_blank = true;
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
                 self.styles.pop();
@@ -428,8 +523,8 @@ impl<'s> Renderer<'s> {
         }
     }
 
-    /// Source text shown as is (tables, raw HTML), one wrapped line group
-    /// per source line.
+    /// Source text shown as is (raw HTML), one wrapped line group per
+    /// source line.
     fn emit_source(&mut self, text: &str) {
         let body = text.trim_end_matches('\n');
         if body.is_empty() {
@@ -439,6 +534,124 @@ impl<'s> Renderer<'s> {
             let line = line.strip_suffix('\r').unwrap_or(line);
             self.emit_wrapped(&[(Cow::Borrowed(line), Style::default())], "");
         }
+    }
+
+    /// Lay a table out in columns within the available width (see
+    /// [`fit_columns`]): cells wrap inside their column, a row is as tall as
+    /// its tallest cell, and the header row is followed by a rule.
+    fn emit_table(&mut self, table: Table<'s>) {
+        let row_width = table.rows.iter().map(Vec::len).max().unwrap_or(0);
+        let columns = row_width.max(table.alignments.len());
+        if columns == 0 {
+            return;
+        }
+        let mut natural = vec![0; columns];
+        for row in &table.rows {
+            for (column, cell) in row.iter().enumerate() {
+                natural[column] = natural[column].max(cell_width(cell));
+            }
+        }
+        let avail = self.avail();
+        let separators = str_width(TABLE_SEPARATOR) * (columns - 1);
+        let widths = fit_columns(&natural, avail.saturating_sub(separators));
+        for (index, row) in table.rows.iter().enumerate() {
+            let mut cells: Vec<Vec<Vec<Span<'static>>>> = (0..columns)
+                .map(|column| match row.get(column) {
+                    Some(cell) => wrap(cell, widths[column]),
+                    None => vec![Vec::new()],
+                })
+                .collect();
+            let height = cells.iter().map(Vec::len).max().unwrap_or(1);
+            for line in 0..height {
+                let mut spans = Vec::new();
+                for (column, cell) in cells.iter_mut().enumerate() {
+                    if column > 0 {
+                        spans.push(Span::styled(TABLE_SEPARATOR, theme::rule()));
+                    }
+                    let content = cell.get_mut(line).map(std::mem::take).unwrap_or_default();
+                    let alignment = table.alignments.get(column).copied();
+                    pad_cell(&mut spans, content, widths[column], alignment);
+                }
+                self.emit_table_line(spans, avail);
+            }
+            if index == 0 {
+                let rule: Vec<String> = widths.iter().map(|&width| "─".repeat(width)).collect();
+                let rule = Span::styled(rule.join(TABLE_JOINT), theme::rule());
+                self.emit_table_line(vec![rule], avail);
+            }
+        }
+    }
+
+    /// One table line without its trailing padding, clipped with `…` when
+    /// it is still wider than `avail`.
+    fn emit_table_line(&mut self, mut spans: Vec<Span<'static>>, avail: usize) {
+        trim_end_spans(&mut spans);
+        let width: usize = spans.iter().map(|span| str_width(&span.content)).sum();
+        if width > avail {
+            spans = clip_spans(spans, avail);
+        }
+        self.emit_line(spans);
+    }
+
+    /// The footnote definitions under a short rule, in number order, each
+    /// prefixed `[n] `. Definitions never referenced follow in source order.
+    fn emit_footnotes(&mut self) {
+        if self.footnotes.definitions.is_empty() {
+            return;
+        }
+        self.begin_block();
+        let rule = "─".repeat(FOOTNOTE_RULE_WIDTH.min(self.avail()));
+        self.emit_line(vec![Span::styled(rule, theme::rule())]);
+        self.needs_blank = true;
+        let mut next = 0;
+        let mut unreferenced = 0;
+        loop {
+            if next == self.footnotes.order.len() {
+                let definitions = &self.footnotes.definitions;
+                while unreferenced < definitions.len()
+                    && self
+                        .footnotes
+                        .numbers
+                        .contains_key(&definitions[unreferenced].0)
+                {
+                    unreferenced += 1;
+                }
+                let Some((key, _)) = definitions.get(unreferenced) else {
+                    break;
+                };
+                let key = key.clone();
+                self.footnotes.number(key);
+            }
+            let key = &self.footnotes.order[next];
+            next += 1;
+            let Some(&index) = self.footnotes.definition_index.get(key) else {
+                continue;
+            };
+            let events = std::mem::take(&mut self.footnotes.definitions[index].1);
+            self.emit_footnote(next, events);
+        }
+    }
+
+    /// Replay one definition's events inside a `[n] ` marker container.
+    fn emit_footnote(&mut self, number: usize, events: Vec<Event<'s>>) {
+        self.begin_block();
+        let marker = format!("[{number}] ");
+        let width = str_width(&marker);
+        self.containers.push(Container {
+            first: vec![Span::styled(marker, theme::link_url())],
+            rest: vec![Span::raw(" ".repeat(width))],
+            is_first_used: false,
+            width,
+        });
+        for event in events {
+            self.event(event);
+        }
+        self.flush_inline();
+        if self.containers.last().is_some_and(|c| !c.is_first_used) {
+            self.emit_line(Vec::new());
+        }
+        self.containers.pop();
+        self.needs_blank = true;
     }
 
     fn emit_wrapped(&mut self, segments: &[(Cow<'_, str>, Style)], indent: &'static str) {
@@ -512,6 +725,128 @@ fn str_width(text: &str) -> usize {
 fn char_width(ch: char) -> usize {
     let mut buf = [0u8; 4];
     str_width(ch.encode_utf8(&mut buf))
+}
+
+/// The width of a cell's widest line when it is not wrapped.
+fn cell_width(cell: &[(Cow<'_, str>, Style)]) -> usize {
+    wrap(cell, usize::MAX)
+        .iter()
+        .map(|line| line.iter().map(|span| str_width(&span.content)).sum())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Column widths for a table whose columns want `natural` widths and may
+/// use `budget` columns in total. Natural widths are kept when they fit.
+/// Otherwise the widest columns shrink first: every column is capped at
+/// the largest common width that fits, never below [`MIN_COLUMN_WIDTH`],
+/// and the columns left over go to the capped columns from the left. When
+/// even that minimum does not fit, the result is wider than `budget` and
+/// the caller clips.
+fn fit_columns(natural: &[usize], budget: usize) -> Vec<usize> {
+    let capped = |cap: usize| -> usize { natural.iter().map(|&width| width.min(cap)).sum() };
+    if natural.iter().sum::<usize>() <= budget {
+        return natural.to_vec();
+    }
+    if capped(MIN_COLUMN_WIDTH) >= budget {
+        return natural
+            .iter()
+            .map(|&width| width.min(MIN_COLUMN_WIDTH))
+            .collect();
+    }
+    // `low` fits and `high` does not; the natural total is over budget.
+    let mut low = MIN_COLUMN_WIDTH;
+    let mut high = natural.iter().copied().max().unwrap_or(MIN_COLUMN_WIDTH);
+    while high - low > 1 {
+        let middle = low + (high - low) / 2;
+        if capped(middle) <= budget {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    let mut spare = budget - capped(low);
+    let mut widths: Vec<usize> = natural.iter().map(|&width| width.min(low)).collect();
+    for (width, &wanted) in widths.iter_mut().zip(natural) {
+        if spare == 0 {
+            break;
+        }
+        if wanted > low {
+            *width += 1;
+            spare -= 1;
+        }
+    }
+    widths
+}
+
+/// Append one line of a cell, padded to `width` by its alignment.
+fn pad_cell(
+    spans: &mut Vec<Span<'static>>,
+    content: Vec<Span<'static>>,
+    width: usize,
+    alignment: Option<Alignment>,
+) {
+    let used: usize = content.iter().map(|span| str_width(&span.content)).sum();
+    let gap = width.saturating_sub(used);
+    let (left, right) = match alignment {
+        Some(Alignment::Right) => (gap, 0),
+        Some(Alignment::Center) => (gap / 2, gap - gap / 2),
+        _ => (0, gap),
+    };
+    if left > 0 {
+        spans.push(Span::raw(" ".repeat(left)));
+    }
+    spans.extend(content);
+    if right > 0 {
+        spans.push(Span::raw(" ".repeat(right)));
+    }
+}
+
+/// Drop trailing whitespace from the end of a line.
+fn trim_end_spans(spans: &mut Vec<Span<'static>>) {
+    while let Some(last) = spans.last_mut() {
+        let trimmed = last.content.trim_end();
+        if trimmed.is_empty() {
+            spans.pop();
+        } else {
+            if trimmed.len() < last.content.len() {
+                let trimmed = trimmed.to_string();
+                last.content = trimmed.into();
+            }
+            return;
+        }
+    }
+}
+
+/// Cut a line to `avail - 1` columns and end it with `…` in the style of
+/// the span it cuts.
+fn clip_spans(spans: Vec<Span<'static>>, avail: usize) -> Vec<Span<'static>> {
+    let limit = avail.saturating_sub(1);
+    let mut clipped = Vec::new();
+    let mut width = 0;
+    for span in spans {
+        let span_width = str_width(&span.content);
+        if width + span_width <= limit {
+            width += span_width;
+            clipped.push(span);
+            continue;
+        }
+        let mut kept = String::new();
+        for ch in span.content.chars() {
+            let ch_width = char_width(ch);
+            if width + ch_width > limit {
+                break;
+            }
+            width += ch_width;
+            kept.push(ch);
+        }
+        if !kept.is_empty() {
+            clipped.push(Span::styled(kept, span.style));
+        }
+        clipped.push(Span::styled("…", span.style));
+        return clipped;
+    }
+    clipped
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -940,13 +1275,196 @@ mod tests {
     }
 
     #[test]
-    fn tables_pass_through_as_their_source_lines() {
+    fn a_table_renders_as_columns_with_a_rule_under_the_header() {
         let source = "| a | b |\n|---|---|\n| 1 | **2** |\n\nafter";
+        let lines = render_markdown(source, 80);
+        assert_eq!(texts(&lines), ["a │ b", "──┼──", "1 │ 2", "", "after"]);
+        assert!(has(span(&lines, "a").style, Modifier::BOLD));
+        assert!(!has(span(&lines, "1").style, Modifier::BOLD));
+        assert!(has(span(&lines, "2").style, Modifier::BOLD));
+        assert_eq!(span(&lines, " │ ").style, theme::rule());
+        assert_eq!(span(&lines, "──┼──").style, theme::rule());
+    }
+
+    #[test]
+    fn table_columns_honour_left_centre_and_right_alignment() {
+        let source = "| Left | Centre | Right |\n|:-----|:------:|------:|\n\
+                      | a | b | c |\n| long cell | mid | 1234567 |\n";
         let lines = render_markdown(source, 80);
         assert_eq!(
             texts(&lines),
-            ["| a | b |", "|---|---|", "| 1 | **2** |", "", "after"]
+            [
+                "Left      │ Centre │   Right",
+                "──────────┼────────┼────────",
+                "a         │   b    │       c",
+                "long cell │  mid   │ 1234567",
+            ]
         );
+    }
+
+    #[test]
+    fn a_table_wider_than_the_pane_shrinks_the_widest_column_and_wraps_it() {
+        let source = "| k | description |\n|---|---|\n| x | one two three four five |\n";
+        let lines = render_markdown(source, 20);
+        let rule = format!("──┼{}", "─".repeat(17));
+        assert_eq!(
+            texts(&lines),
+            [
+                "k │ description",
+                rule.as_str(),
+                "x │ one two three",
+                "  │ four five",
+            ]
+        );
+        for line in &lines {
+            assert!(line.width() <= 20, "{:?}", text_of(line));
+        }
+    }
+
+    #[test]
+    fn a_table_that_cannot_fit_is_clipped_with_an_ellipsis() {
+        let source = "| aaaaa | bbbbb | ccccc | ddddd |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |\n";
+        let lines = render_markdown(source, 10);
+        assert_eq!(text_of(&lines[0]), "aaa │ bbb…");
+        assert_eq!(text_of(&lines[2]), "────┼────…");
+        assert_eq!(lines.len(), 4);
+        for line in &lines {
+            assert!(line.width() <= 10, "{:?}", text_of(line));
+            assert!(text_of(line).ends_with('…'), "{:?}", text_of(line));
+        }
+    }
+
+    #[test]
+    fn inline_code_and_emphasis_inside_a_cell_keep_their_styles() {
+        let lines = render_markdown("| h |\n|---|\n| `x` *y* |", 80);
+        assert_eq!(texts(&lines), ["h", "───", "x y"]);
+        assert_eq!(span(&lines, "x").style, theme::code());
+        assert!(has(span(&lines, "y").style, Modifier::ITALIC));
+    }
+
+    /// NZ-25 follow-up 2: the table's container prefix appears once.
+    #[test]
+    fn a_table_inside_a_quote_has_one_bar_per_line() {
+        let lines = render_markdown("> | a | b |\n> |---|---|\n> | 1 | 2 |", 80);
+        assert_eq!(texts(&lines), ["▎ a │ b", "▎ ──┼──", "▎ 1 │ 2"]);
+        for line in &lines {
+            assert_eq!(text_of(line).matches('▎').count(), 1);
+        }
+    }
+
+    #[test]
+    fn a_table_inside_a_list_item_is_indented_once() {
+        let source = "- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n\nafter";
+        let lines = render_markdown(source, 80);
+        assert_eq!(
+            texts(&lines),
+            ["• item", "", "  a │ b", "  ──┼──", "  1 │ 2", "", "after"]
+        );
+    }
+
+    #[test]
+    fn a_table_with_only_a_header_shows_the_header_and_rule() {
+        let lines = render_markdown("before\n\n| a | b |\n|---|---|\n\nafter", 80);
+        assert_eq!(texts(&lines), ["before", "", "a │ b", "──┼──", "", "after"]);
+    }
+
+    #[test]
+    fn a_row_with_fewer_cells_than_the_header_leaves_the_rest_empty() {
+        let lines = render_markdown("| a | b | c |\n|---|---|---|\n| 1 |\n| 1 | 2 | 3 |", 80);
+        assert_eq!(
+            texts(&lines),
+            ["a │ b │ c", "──┼───┼──", "1 │   │", "1 │ 2 │ 3"]
+        );
+    }
+
+    #[test]
+    fn a_footnote_reference_is_numbered_and_its_definition_follows_the_document() {
+        let source = "[^a]: Defined first.\n\nBody[^a] text.\n\nMore.";
+        let lines = render_markdown(source, 40);
+        let rule = "─".repeat(10);
+        assert_eq!(
+            texts(&lines),
+            [
+                "Body[1] text.",
+                "",
+                "More.",
+                "",
+                rule.as_str(),
+                "",
+                "[1] Defined first."
+            ]
+        );
+        assert_eq!(span(&lines, "[1]").style, theme::link_url());
+        assert_eq!(span(&lines, "[1] ").style, theme::link_url());
+        assert_eq!(span(&lines, rule.as_str()).style, theme::rule());
+    }
+
+    #[test]
+    fn footnotes_are_numbered_in_the_order_first_referenced() {
+        let source = "x[^b] y[^a] z[^b]\n\n[^a]: Alpha.\n\n[^b]: Beta.";
+        let lines = render_markdown(source, 40);
+        let rule = "─".repeat(10);
+        assert_eq!(
+            texts(&lines),
+            [
+                "x[1] y[2] z[1]",
+                "",
+                rule.as_str(),
+                "",
+                "[1] Beta.",
+                "",
+                "[2] Alpha."
+            ]
+        );
+    }
+
+    #[test]
+    fn a_wrapped_footnote_definition_aligns_with_its_text() {
+        let lines = render_markdown("a[^1]\n\n[^1]: one two three", 12);
+        assert_eq!(texts(&lines)[4..], ["[1] one two", "    three"]);
+    }
+
+    #[test]
+    fn wide_characters_in_cells_keep_every_table_line_within_the_width() {
+        let source = "| 名前 | 説明 |\n|---|---|\n| 漢字 | 漢字漢字漢字漢字漢字漢字 |\n";
+        for width in [0, 1, 5, 9, 12, 20, 40] {
+            let lines = render_markdown(source, width);
+            let limit = usize::from(width.max(1));
+            for line in &lines {
+                assert!(line.width() <= limit, "{width}: {:?}", text_of(line));
+            }
+        }
+        assert_eq!(
+            texts(&render_markdown(source, 40)),
+            [
+                "名前 │ 説明",
+                "─────┼─────────────────────────",
+                "漢字 │ 漢字漢字漢字漢字漢字漢字"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unreferenced_footnote_definition_follows_the_referenced_ones() {
+        let lines = render_markdown("a[^r]\n\n[^u]: Unused.\n\n[^r]: Used.", 40);
+        assert_eq!(
+            texts(&lines)[2..],
+            [
+                "─".repeat(10),
+                String::new(),
+                "[1] Used.".into(),
+                String::new(),
+                "[2] Unused.".into()
+            ]
+        );
+    }
+
+    /// With GFM footnotes, pulldown-cmark emits a reference without a
+    /// definition as plain text, so it shows as written.
+    #[test]
+    fn an_undefined_footnote_reference_shows_as_written() {
+        let lines = render_markdown("see[^nope] here", 40);
+        assert_eq!(texts(&lines), ["see[^nope] here"]);
     }
 
     #[test]
@@ -1242,6 +1760,26 @@ mod tests {
         assert!(
             elapsed.as_secs_f64() < 5.0,
             "rendering 2 MB took {elapsed:?}"
+        );
+    }
+
+    /// A guard against quadratic table layout: one 2 MB table of 200k rows.
+    /// The 10 s bound is loose on purpose, like the guard above.
+    #[test]
+    fn a_two_megabyte_table_of_200k_rows_renders_in_bounded_time() {
+        let mut doc = String::from("| a | b |\n|---|---|\n");
+        for _ in 0..200_000 {
+            doc.push_str("| x | y |\n");
+        }
+        let started = Instant::now();
+        let lines = render_markdown(&doc, 80);
+        let elapsed = started.elapsed();
+        eprintln!("200k-row table: {} bytes, {elapsed:?}", doc.len());
+        assert_eq!(lines.len(), 200_002);
+        assert_eq!(text_of(&lines[2]), "x │ y");
+        assert!(
+            elapsed.as_secs_f64() < 10.0,
+            "rendering the table took {elapsed:?}"
         );
     }
 }
