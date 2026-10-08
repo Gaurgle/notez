@@ -415,7 +415,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-22 (preview scroll keys). Dispatched 2026-10-08 at 17:05 CEST by
+NZ-26 (soft name rule). Dispatched 2026-10-08 at 18:05 CEST by lead
+`4ffb11e2` on Andreas's "2. go with b" (17:20 CEST). `git status
+--short` before dispatch: only this file modified. Base `82fae54`
+(= `main` = `origin/main`), branch `fix/NZ-26-soft-name-rule`,
+worktree `.claude/worktrees/NZ-26`, model `opus` via `nz-worker`, one
+pass. RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY` In flight.
+Then review, branch push, CI, merge, `main` run, cleanup; then NZ-24.
+
+NZ-22 is Done (merge `82fae54` at 18:00 CEST; branch run and `main` run
+`37776056271` green; remote branch deleted; worktree and local branch
+removed; board Done).
+
+NZ-22 record, for history. Dispatched 2026-10-08 at 17:05 CEST by
 lead `4ffb11e2` on Andreas's direct request ("i want shift + j/k &
 up/down to scroll document in the right pane", 15:55 CEST). `git
 status --short` before dispatch: only this file modified. Base
@@ -438,8 +450,18 @@ and iTerm2 send `ESC[1;2A/B`; the worker verified crossterm's parser
 and probed through tmux, not the terminals themselves). One pre-existing
 test changed (`normal_and_focus_footers_hint_the_browse_keys` gains
 `J/K` before `q`). REVIEW dispatched at 17:40 CEST (`nz-reviewer`,
-opus) on that hash, RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`
-In flight. Then branch push, CI, merge, `main` run, cleanup.
+opus) on that hash; ACCEPTED at 17:50 CEST first time (about 41k
+tokens; follow-ups: in tag mode Shift+Down/Up scroll the preview while
+J/K and the page keys are swallowed; the help overlay lists the two
+rows after `wheel` and `click`; no test pins `PgDn/PgUp` as HelpOnly;
+README's terminal list is stated as fact, not tested). Lead checks:
+build clean, 324 + 146 passed. Committed as `75e2a88` (diff against
+`d667999` hashes to the accepted `05b21b4b...`), branch pushed at
+17:55 CEST; the integration chain (branch run, merge `--no-ff`, checks
+on `main`, push, `main` run, remote branch deletion, worktree removal)
+is running as one background command and stops at the first failure.
+Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3NA` In flight until the chain
+reports. Next after it: NZ-26.
 
 NZ-21 is Done (merge `d667999` at 17:00 CEST; branch run and `main` run
 `37774540545` green; remote branch deleted; worktree and local branch
@@ -2570,9 +2592,29 @@ accept; under the delegation it merges and he tries it installed.
 
 #### NZ-22: scroll the preview pane with Shift+Up/Down
 
-Status: Ready. Requested by Andreas in the lead session on 2026-10-08
+Status: Done. Merged into `main` as `82fae54` at 18:00 CEST on
+2026-10-08 and pushed; branch run and `main` run `37776056271` green;
+board Done; remote branch deleted. Not yet installed by Andreas.
+
+Record: base `d667999`, branch `feat/NZ-22-preview-scroll-keys`,
+ticket commit `75e2a88` (`tui/tree.rs`, `README.md`; 123 insertions,
+13 deletions), merge `82fae54` with `git merge --no-ff`; undo with
+`git revert -m 1 82fae54`. One `nz-worker` (opus, about 147k tokens
+over two rounds), one `nz-reviewer` (opus, about 41k), accepted first
+time; committed diff hashes to the accepted
+`05b21b4beac5bd0bbbf3545caa15bc495882d43eb947860b564648c4f88ec0e8`.
+Lead checks: build clean, notez-cli 324 passed, notez-core 146 passed.
+As built: Shift+Down/Up one line like `J`/`K`, PgDn/PgUp a page, one
+clamped `scrolled` helper for every path, `J/K preview` visible at the
+footer's right end (first hint dropped), README with the Terminal.app
+caveat. Leftovers: tag mode lets Shift+Down/Up through but swallows
+`J`/`K` and the page keys; help lists the two rows after `wheel` and
+`click`; no test pins `PgDn/PgUp` as HelpOnly; README's terminal list
+is untested fact.
+
+Brief as run. Requested by Andreas in the lead session on 2026-10-08
 ("i want shift + j/k & up/down to scroll document in the right pane"),
-the second of "two things directly". Runs after NZ-21 (same file).
+the second of "two things directly". Ran after NZ-21 (same file).
 Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`.
 
 Facts (verified at `483cb1c`): `J` and `K` (that is Shift+j/k) already
@@ -3123,9 +3165,9 @@ Current lead):
    accepted ticket branch is pushed, waits for a green run, merges, and
    its remote branch is deleted after the `main` run.
 6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-23: DONE without code
-   (files moved). NZ-22 (preview scroll keys) in review.
-7. Queue after NZ-22, all authorized on 2026-10-08 17:20 CEST, one at
-   a time on `tui/tree.rs`: NZ-26 (soft name rule), NZ-24 (todo icon),
+   (files moved). NZ-22: DONE 2026-10-08, merge `82fae54`.
+7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
+   `tui/tree.rs`: NZ-26 (soft name rule, IN FLIGHT), NZ-24 (todo icon),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
