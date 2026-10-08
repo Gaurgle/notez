@@ -29,6 +29,7 @@ use notez_core::util::sanitize;
 
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle};
 use super::help::{self, HelpState};
+use super::highlight::{self, Language};
 use super::markdown;
 use super::move_path;
 use super::{VimCommandMode, VimKey, theme};
@@ -2886,23 +2887,48 @@ fn is_markdown(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
 }
 
-/// The file type the footer names for a row: `markdown` for a `.md` note,
-/// otherwise the lowercase extension, `file` when there is none. Folder and
-/// section rows have none.
+/// The language a file's extension maps to (`.md` is markdown).
+fn file_language(path: &Path) -> Option<Language> {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .and_then(Language::from_extension)
+}
+
+/// Whether a file of `len` bytes is too large to highlight.
+fn is_too_large_to_highlight(len: u64) -> bool {
+    len > highlight::MAX_HIGHLIGHT_BYTES
+}
+
+/// The file type the footer names for a row: the highlighting language's
+/// name when the extension maps to one (`rust`, `kotlin`, `markdown`),
+/// otherwise the lowercase extension, `file` when there is none. A language
+/// whose grammar failed to load reads `<name> (highlighter unavailable)`, a
+/// file over the highlighting limit `<name> (not highlighted, large)`.
+/// Folder and section rows have none.
 fn file_type(path: &Path, is_dir: bool) -> Option<String> {
     if is_dir {
         return None;
     }
-    if is_markdown(path) {
-        return Some("markdown".to_string());
+    if let Some(language) = file_language(path) {
+        let name = language.name();
+        if !highlight::language_available(language) {
+            return Some(format!("{name} (highlighter unavailable)"));
+        }
+        let len = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+        if is_too_large_to_highlight(len) {
+            return Some(format!("{name} (not highlighted, large)"));
+        }
+        return Some(name.to_string());
     }
     let ext = path.extension().map(|ext| ext.to_string_lossy().to_lowercase());
     Some(ext.filter(|ext| !ext.is_empty()).unwrap_or_else(|| "file".to_string()))
 }
 
 /// What a cached file preview was built from. Any difference rebuilds it:
-/// another file, a resize (`width`), the toggle (`rendered`), or the file
-/// being written (`modified`, `len`).
+/// another file, a resize (`width`), the toggle (`rendered`), the file
+/// being written (`modified`, `len`), or the language the whole file is
+/// highlighted as (`language`, `None` for rendered markdown, plain text and
+/// files over the limit).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreviewKey {
     path: PathBuf,
@@ -2910,18 +2936,22 @@ struct PreviewKey {
     rendered: bool,
     modified: Option<std::time::SystemTime>,
     len: u64,
+    language: Option<Language>,
 }
 
 impl PreviewKey {
     /// The key of `path` as it is on disk now; `None` when it cannot be read.
     fn of(path: &Path, width: u16, rendered: bool) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
+        let len = meta.len();
+        let language = file_language(path).filter(|_| !rendered && !is_too_large_to_highlight(len));
         Some(PreviewKey {
             path: path.to_path_buf(),
             width,
             rendered,
             modified: meta.modified().ok(),
-            len: meta.len(),
+            len,
+            language,
         })
     }
 }
@@ -2971,19 +3001,29 @@ impl Preview {
 
     /// The preview lines of the file at `path` for a pane `width` columns
     /// wide inside its borders and padding: rendered markdown, already
-    /// wrapped to `width`, or the raw lines unwrapped.
+    /// wrapped to `width`, or the raw lines unwrapped, highlighted when the
+    /// extension maps to a language and the file is within the limit.
     fn file_lines(&mut self, path: &Path, width: u16) -> &[Line<'static>] {
         let rendered = self.mode == PreviewMode::Rendered && is_markdown(path);
         let key = PreviewKey::of(path, width, rendered);
-        self.cache.get(key, || file_preview_lines(path, rendered, width))
+        let language = key.as_ref().and_then(|key| key.language);
+        self.cache.get(key, || file_preview_lines(path, rendered, width, language))
     }
 }
 
 /// Reads `path` and builds its preview lines; see [`Preview::file_lines`].
-fn file_preview_lines(path: &Path, rendered: bool, width: u16) -> Vec<Line<'static>> {
+fn file_preview_lines(
+    path: &Path,
+    rendered: bool,
+    width: u16,
+    language: Option<Language>,
+) -> Vec<Line<'static>> {
     match std::fs::read_to_string(path) {
         Ok(content) if rendered => markdown::render_markdown(&content, width),
-        Ok(content) => content.lines().map(raw_preview_line).collect(),
+        Ok(content) => match language {
+            Some(language) => highlighted_preview_lines(&content, language),
+            None => content.lines().map(raw_preview_line).collect(),
+        },
         Err(_) => vec![Line::from(Span::styled(
             "  unable to read file",
             Style::default().fg(theme::OVERLAY),
@@ -2991,20 +3031,53 @@ fn file_preview_lines(path: &Path, rendered: bool, width: u16) -> Vec<Line<'stat
     }
 }
 
+/// The raw preview of `content` highlighted as `language`. A line no
+/// capture touched looks exactly as [`raw_preview_line`] draws it; in a
+/// touched line the captured text has its capture style and the rest takes
+/// the line's raw style (so a markdown heading's text stays a heading).
+fn highlighted_preview_lines(content: &str, language: Language) -> Vec<Line<'static>> {
+    let highlighted = highlight::highlight_lines(content, language);
+    if highlighted.len() != content.lines().count() {
+        return content.lines().map(raw_preview_line).collect();
+    }
+    content
+        .lines()
+        .zip(highlighted)
+        .map(|(text, spans)| {
+            if spans.iter().all(|span| span.style == Style::default()) {
+                return raw_preview_line(text);
+            }
+            let base = raw_line_style(text);
+            let spans: Vec<Span<'static>> = spans
+                .into_iter()
+                .map(|span| {
+                    if span.style == Style::default() {
+                        span.style(base)
+                    } else {
+                        span
+                    }
+                })
+                .collect();
+            Line::from(spans)
+        })
+        .collect()
+}
+
 /// One line of the raw preview, coloured by its leading markdown syntax.
 fn raw_preview_line(line: &str) -> Line<'static> {
-    let owned = line.to_string();
-    if owned.starts_with('#') {
-        Line::from(Span::styled(
-            owned,
-            Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD),
-        ))
-    } else if owned.starts_with("- [") {
-        Line::from(Span::styled(owned, Style::default().fg(theme::SAPPHIRE)))
-    } else if owned.starts_with("- ") || owned.starts_with("* ") {
-        Line::from(Span::styled(owned, Style::default().fg(theme::TEXT)))
+    Line::from(Span::styled(line.to_string(), raw_line_style(line)))
+}
+
+/// The raw preview style of a line, by its leading markdown syntax.
+fn raw_line_style(line: &str) -> Style {
+    if line.starts_with('#') {
+        Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)
+    } else if line.starts_with("- [") {
+        Style::default().fg(theme::SAPPHIRE)
+    } else if line.starts_with("- ") || line.starts_with("* ") {
+        Style::default().fg(theme::TEXT)
     } else {
-        Line::from(Span::styled(owned, Style::default().fg(theme::SUBTEXT)))
+        Style::default().fg(theme::SUBTEXT)
     }
 }
 
@@ -4706,13 +4779,151 @@ mod tests {
         assert_eq!(file_type(Path::new("/n/a.md"), false).as_deref(), Some("markdown"));
         assert_eq!(file_type(Path::new("/n/A.MD"), false).as_deref(), Some("markdown"));
         assert_eq!(file_type(Path::new("/n/Cargo.toml"), false).as_deref(), Some("toml"));
-        assert_eq!(file_type(Path::new("/n/main.RS"), false).as_deref(), Some("rs"));
+        assert_eq!(file_type(Path::new("/n/main.RS"), false).as_deref(), Some("rust"));
         assert_eq!(file_type(Path::new("/n/notes.txt"), false).as_deref(), Some("txt"));
         assert_eq!(file_type(Path::new("/n/Makefile"), false).as_deref(), Some("file"));
         assert_eq!(file_type(Path::new("/n/.gitignore"), false).as_deref(), Some("file"));
         assert_eq!(file_type(Path::new("/n/trailing."), false).as_deref(), Some("file"));
         assert_eq!(file_type(Path::new("/n/ideas.md"), true), None, "a folder");
         assert_eq!(file_type(Path::new("/n/ideas"), true), None, "a folder or section row");
+    }
+
+    #[test]
+    fn file_type_names_the_highlighting_language() {
+        assert_eq!(file_type(Path::new("/n/main.rs"), false).as_deref(), Some("rust"));
+        assert_eq!(file_type(Path::new("/n/App.kt"), false).as_deref(), Some("kotlin"));
+        assert_eq!(file_type(Path::new("/n/build.gradle.kts"), false).as_deref(), Some("kotlin"));
+        assert_eq!(file_type(Path::new("/n/a.md"), false).as_deref(), Some("markdown"));
+        assert_eq!(file_type(Path::new("/n/a.py"), false).as_deref(), Some("python"));
+        assert_eq!(file_type(Path::new("/n/a.txt"), false).as_deref(), Some("txt"));
+        assert_eq!(file_type(Path::new("/n/a.yaml"), false).as_deref(), Some("yaml"));
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_shown_plain_and_the_footer_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.rs");
+        let line = "fn f() {}\n";
+        let count = highlight::MAX_HIGHLIGHT_BYTES as usize / line.len() + 1;
+        std::fs::write(&big, line.repeat(count)).unwrap();
+        assert_eq!(file_type(&big, false).as_deref(), Some("rust (not highlighted, large)"));
+        let mut preview = Preview::default();
+        let lines = preview.file_lines(&big, 40);
+        assert_eq!(lines.len(), count);
+        assert_eq!(lines[0], raw_preview_line("fn f() {}"));
+        assert_eq!(PreviewKey::of(&big, 40, false).unwrap().language, None);
+
+        let small = dir.path().join("small.rs");
+        std::fs::write(&small, line).unwrap();
+        assert_eq!(file_type(&small, false).as_deref(), Some("rust"));
+        let big_md = dir.path().join("big.md");
+        std::fs::write(&big_md, "text\n".repeat(count * 2)).unwrap();
+        assert_eq!(file_type(&big_md, false).as_deref(), Some("markdown (not highlighted, large)"));
+    }
+
+    fn style_of(line: &Line<'static>, text: &str) -> Style {
+        line.spans
+            .iter()
+            .find(|span| span.content == text)
+            .unwrap_or_else(|| panic!("no span {text:?} in {line:?}"))
+            .style
+    }
+
+    #[test]
+    fn a_rust_file_is_highlighted_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("main.rs");
+        std::fs::write(&file, "// note\nfn main() {\n    let s = \"x\";\n}\n").unwrap();
+        let mut preview = Preview::default();
+        let lines = preview.file_lines(&file, 40).to_vec();
+        assert_eq!(plain(&lines), vec!["// note", "fn main() {", "    let s = \"x\";", "}"]);
+        assert_eq!(style_of(&lines[0], "// note"), theme::syntax_comment());
+        assert_eq!(style_of(&lines[1], "fn"), theme::syntax_keyword());
+        assert_eq!(style_of(&lines[2], "let"), theme::syntax_keyword());
+        assert_eq!(style_of(&lines[2], "\"x\""), theme::syntax_string());
+        assert_eq!(style_of(&lines[2], "    "), raw_line_style("    let"), "uncaptured text takes the raw style");
+    }
+
+    /// A guard, not a benchmark: selecting a 200 KB Rust file highlights it
+    /// once; drawing it again comes from the cache.
+    #[test]
+    fn a_200_kb_rust_file_highlights_on_selection_and_redraws_from_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("big.rs");
+        let block = "/// Doc comment.\n#[derive(Debug)]\npub struct Item { id: u32, name: String }\n\nfn build(n: u32) -> Vec<Item> {\n    (0..n).map(|id| Item { id, name: format!(\"item {id}\") }).collect()\n}\n\n";
+        std::fs::write(&file, block.repeat(200 * 1024 / block.len() + 1)).unwrap();
+        let mut preview = Preview::default();
+        let started = std::time::Instant::now();
+        let count = preview.file_lines(&file, 80).len();
+        let first = started.elapsed();
+        let started = std::time::Instant::now();
+        assert_eq!(preview.file_lines(&file, 80).len(), count);
+        let again = started.elapsed();
+        eprintln!("200 KB rust: {count} lines, first {first:?}, cached {again:?}");
+        assert!(first.as_secs_f64() < 5.0, "first selection took {first:?}");
+        assert!(again < first, "cached {again:?} vs first {first:?}");
+    }
+
+    #[test]
+    fn a_kotlin_file_is_highlighted_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("App.kt");
+        std::fs::write(&file, "fun main() {\n    val s = \"x\"\n}\n").unwrap();
+        let mut preview = Preview::default();
+        let lines = preview.file_lines(&file, 40).to_vec();
+        assert_eq!(plain(&lines), vec!["fun main() {", "    val s = \"x\"", "}"]);
+        assert_eq!(style_of(&lines[0], "fun"), theme::syntax_keyword());
+        assert_eq!(style_of(&lines[1], "val"), theme::syntax_keyword());
+        assert_eq!(style_of(&lines[1], "\"x\""), theme::syntax_string());
+    }
+
+    #[test]
+    fn raw_markdown_is_highlighted_and_untouched_lines_keep_the_raw_style() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("n.md");
+        std::fs::write(&note, "# Title\n\nplain words\n\n```rust\nlet x = 1;\n```\n").unwrap();
+        let mut preview = Preview { mode: PreviewMode::Raw, ..Preview::default() };
+        let lines = preview.file_lines(&note, 40).to_vec();
+        assert_eq!(plain(&lines), vec!["# Title", "", "plain words", "", "```rust", "let x = 1;", "```"]);
+        assert_eq!(lines[2], raw_preview_line("plain words"), "a line no capture touched");
+        assert_eq!(style_of(&lines[0], " Title"), raw_line_style("# Title"), "heading text keeps the heading style");
+        assert_eq!(style_of(&lines[5], "let"), theme::syntax_keyword());
+    }
+
+    #[test]
+    fn a_file_without_a_language_stays_raw() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, "# not markdown\nfn main() {}\n").unwrap();
+        let mut preview = Preview::default();
+        let lines = preview.file_lines(&file, 40).to_vec();
+        assert_eq!(lines, vec![raw_preview_line("# not markdown"), raw_preview_line("fn main() {}")]);
+        assert_eq!(PreviewKey::of(&file, 40, false).unwrap().language, None);
+    }
+
+    #[test]
+    fn the_cache_key_carries_the_language_so_a_different_one_rebuilds() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        let key = PreviewKey::of(&file, 40, false).unwrap();
+        assert_eq!(key.language, Some(Language::Rust));
+        let note = dir.path().join("n.md");
+        std::fs::write(&note, "# A\n").unwrap();
+        assert_eq!(PreviewKey::of(&note, 40, false).unwrap().language, Some(Language::Markdown));
+        assert_eq!(PreviewKey::of(&note, 40, true).unwrap().language, None, "rendered highlights fences itself");
+
+        let other = PreviewKey { language: Some(Language::Kotlin), ..key.clone() };
+        assert_ne!(key, other);
+        let mut cache = PreviewCache::default();
+        let mut builds = 0;
+        for key in [key.clone(), key.clone(), other, key] {
+            cache.get(Some(key), || {
+                builds += 1;
+                Vec::new()
+            });
+        }
+        assert_eq!(builds, 3, "same key reuses, a language change rebuilds");
     }
 
     #[test]

@@ -16,6 +16,7 @@ use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd}
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use super::highlight::{highlight_lines, Language, MAX_HIGHLIGHT_BYTES};
 use super::theme;
 
 /// What a tab becomes in rendered text. Terminal width of a raw tab is
@@ -31,7 +32,10 @@ const BULLET: &str = "• ";
 /// Every returned line is at most `width` columns wide, except where a
 /// single character is wider than the space left. A `width` of 0 is
 /// treated as 1. Words wrap on whitespace and are only split when one word
-/// is wider than the available width. An empty document gives no lines.
+/// is wider than the available width. Code block lines wrap by character
+/// instead, keeping every space, and a fenced block whose tag names a
+/// shipped language is syntax highlighted, unless the document is over
+/// [`MAX_HIGHLIGHT_BYTES`]. An empty document gives no lines.
 pub fn render_markdown(text: &str, width: u16) -> Vec<Line<'static>> {
     let normalized;
     let source = if text.contains('\r') {
@@ -75,6 +79,10 @@ struct Renderer<'s> {
     image_depth: usize,
     image_alt: String,
     code: Option<String>,
+    /// The language of the open fenced code block, when its tag maps to one.
+    code_language: Option<Language>,
+    /// Whether fenced code is highlighted at all; off for a large document.
+    is_highlighting: bool,
     html: Option<String>,
     in_table: bool,
     needs_blank: bool,
@@ -95,6 +103,8 @@ impl<'s> Renderer<'s> {
             image_depth: 0,
             image_alt: String::new(),
             code: None,
+            code_language: None,
+            is_highlighting: source.len() as u64 <= MAX_HIGHLIGHT_BYTES,
             html: None,
             in_table: false,
             needs_blank: false,
@@ -183,6 +193,7 @@ impl<'s> Renderer<'s> {
                 self.begin_block();
                 if let CodeBlockKind::Fenced(info) = kind {
                     let info = info.trim();
+                    self.code_language = Language::from_fence_tag(info);
                     if !info.is_empty() {
                         self.emit_wrapped(&[(Cow::Borrowed(info), theme::dimmed())], CODE_INDENT);
                     }
@@ -367,14 +378,53 @@ impl<'s> Renderer<'s> {
         self.emit_wrapped(&segments, "");
     }
 
+    /// A code block's lines, highlighted when its fence tag names a shipped
+    /// language, each wrapped by character inside the code indent. In a
+    /// highlighted block uncaptured text is plain text
+    /// ([`highlighted_code_base`]), so string literals stand out; a block
+    /// without a known tag stays in [`theme::code`].
     fn emit_code(&mut self, code: &str) {
+        let language = self.code_language.take();
         if code.is_empty() {
             return;
         }
         let body = code.strip_suffix('\n').unwrap_or(code);
-        for line in body.split('\n') {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            self.emit_wrapped(&[(Cow::Borrowed(line), theme::code())], CODE_INDENT);
+        let plain: Vec<&str> = body
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .collect();
+        let highlighted = language
+            .filter(|_| self.is_highlighting)
+            .map(|language| highlight_lines(code, language))
+            .filter(|lines| lines.len() == plain.len());
+        match highlighted {
+            Some(lines) => {
+                for line in lines {
+                    let spans: Vec<Span<'static>> = line
+                        .into_iter()
+                        .map(|span| {
+                            let style = highlighted_code_base().patch(span.style);
+                            span.style(style)
+                        })
+                        .collect();
+                    self.emit_code_line(&spans);
+                }
+            }
+            None => {
+                for line in plain {
+                    self.emit_code_line(&[Span::styled(line.to_string(), theme::code())]);
+                }
+            }
+        }
+    }
+
+    fn emit_code_line(&mut self, spans: &[Span<'static>]) {
+        let avail = self.avail().saturating_sub(str_width(CODE_INDENT)).max(1);
+        for content in wrap_chars(spans, avail) {
+            let mut line = Vec::with_capacity(content.len() + 1);
+            line.push(Span::raw(CODE_INDENT));
+            line.extend(content);
+            self.emit_line(line);
         }
     }
 
@@ -492,6 +542,64 @@ fn classify(bytes: &[u8], text: &str, index: usize) -> (Run, usize, bool) {
         Run::Word
     };
     (kind, ch.len_utf8(), false)
+}
+
+/// The base style of uncaptured text in a highlighted code block: plain
+/// text, not [`theme::code`], whose colour `syntax_string` shares.
+fn highlighted_code_base() -> Style {
+    Style::default().fg(theme::TEXT)
+}
+
+/// Wrap one code line to `avail` columns by character. Every character is
+/// kept, spaces included, so leading indentation and inner runs survive the
+/// break; a style continues on the next line. Tabs expand to [`TAB`]. A
+/// character wider than `avail` gets a line of its own. Always returns at
+/// least one line.
+fn wrap_chars(spans: &[Span<'static>], avail: usize) -> Vec<Vec<Span<'static>>> {
+    let avail = avail.max(1);
+    let mut lines = Vec::new();
+    let mut line: Vec<Span<'static>> = Vec::new();
+    let mut width = 0;
+    for span in spans {
+        let style = span.style;
+        let text: &str = &span.content;
+        if text.bytes().all(|b| (0x20..0x7f).contains(&b)) && width + text.len() <= avail {
+            width += text.len();
+            push_styled(&mut line, text, style);
+            continue;
+        }
+        let mut buf = [0u8; 4];
+        for ch in text.chars() {
+            let (piece, repeat): (&str, usize) = if ch == '\t' {
+                (" ", TAB.len())
+            } else {
+                (ch.encode_utf8(&mut buf), 1)
+            };
+            let piece_width = char_width(piece.chars().next().unwrap_or(' '));
+            for _ in 0..repeat {
+                if width + piece_width > avail && width > 0 {
+                    lines.push(std::mem::take(&mut line));
+                    width = 0;
+                }
+                width += piece_width;
+                push_styled(&mut line, piece, style);
+            }
+        }
+    }
+    lines.push(line);
+    lines
+}
+
+/// Append `text` to the line, merging into the last span when the style
+/// matches.
+fn push_styled(line: &mut Vec<Span<'static>>, text: &str, style: Style) {
+    if let Some(last) = line.last_mut() {
+        if last.style == style {
+            last.content.to_mut().push_str(text);
+            return;
+        }
+    }
+    line.push(Span::styled(text.to_string(), style));
 }
 
 /// Word-wrap styled segments to `avail` columns. Always returns at least
@@ -748,7 +856,7 @@ mod tests {
             ["  rust", "  fn main() {", "      go();", "  }"]
         );
         assert_eq!(span(&lines, "rust").style, theme::dimmed());
-        assert_eq!(span(&lines, "fn main() {").style, theme::code());
+        assert_eq!(span(&lines, "fn").style, theme::syntax_keyword());
     }
 
     #[test]
@@ -943,7 +1051,10 @@ mod tests {
             texts(&lines),
             ["before", "", "  sh", "  echo hi", "  # not a heading"]
         );
-        assert_eq!(span(&lines, "# not a heading").style, theme::code());
+        assert_eq!(
+            span(&lines, "# not a heading").style,
+            theme::syntax_comment()
+        );
     }
 
     #[test]
@@ -967,6 +1078,146 @@ mod tests {
     fn code_lines_wider_than_the_pane_wrap_inside_the_indent() {
         let lines = render_markdown("```\nabcdefghij\n```", 8);
         assert_eq!(texts(&lines), ["  abcdef", "  ghij"]);
+    }
+
+    /// NZ-25 follow-up 1: code wraps by character, so the leading spaces
+    /// and inner runs survive the break. Width 8 leaves 6 columns after the
+    /// two-space indent.
+    #[test]
+    fn code_wraps_by_character_keeping_leading_and_inner_spaces() {
+        let lines = render_markdown("```\n        abcdefghijkl\n```", 8);
+        assert_eq!(texts(&lines), ["        ", "    abcd", "  efghij", "  kl"]);
+        let lines = render_markdown("```\nab    cd  ef\n```", 8);
+        assert_eq!(texts(&lines), ["  ab    ", "  cd  ef"]);
+        for line in &lines {
+            assert_eq!(line.spans[0].content, CODE_INDENT);
+            assert_eq!(line.spans[0].style, Style::default());
+        }
+    }
+
+    #[test]
+    fn wrapped_highlighted_code_carries_styles_across_the_break() {
+        let lines = render_markdown("```rust\nlet s = 1; // abcdefgh\n```", 12);
+        assert_eq!(
+            texts(&lines),
+            ["  rust", "  let s = 1;", "   // abcdef", "  gh"]
+        );
+        assert_eq!(span(&lines, "let").style, theme::syntax_keyword());
+        let head = lines[2].spans.last().unwrap();
+        assert_eq!(head.content, "// abcdef");
+        assert_eq!(head.style, theme::syntax_comment());
+        let tail = &lines[3].spans[1];
+        assert_eq!(tail.content, "gh");
+        assert_eq!(tail.style, theme::syntax_comment());
+        for line in &lines {
+            assert!(line.width() <= 12, "{:?}", text_of(line));
+        }
+    }
+
+    #[test]
+    fn fenced_rust_block_is_highlighted_and_keeps_the_line_count() {
+        let source = "# T\n\n```rust\nfn main() {\n    let x = 1; // c\n}\n```\n\nafter\n";
+        let lines = render_markdown(source, 80);
+        assert_eq!(
+            texts(&lines),
+            [
+                "T",
+                "",
+                "  rust",
+                "  fn main() {",
+                "      let x = 1; // c",
+                "  }",
+                "",
+                "after"
+            ]
+        );
+        assert_eq!(span(&lines, "fn").style, theme::syntax_keyword());
+        assert_eq!(span(&lines, "let").style, theme::syntax_keyword());
+        assert_eq!(span(&lines, "// c").style, theme::syntax_comment());
+        assert_eq!(span(&lines, "rust").style, theme::dimmed());
+        assert_eq!(lines[3].spans[0].content, CODE_INDENT);
+        let plain = lines[3]
+            .spans
+            .iter()
+            .find(|s| s.content == " ")
+            .expect("uncaptured space");
+        assert_eq!(plain.style, highlighted_code_base());
+    }
+
+    #[test]
+    fn a_string_in_a_rust_fence_stands_out_from_the_uncaptured_text() {
+        let lines = render_markdown("```rust\nlet s = \"hi\";\n```", 80);
+        let line = &lines[1];
+        let string = line
+            .spans
+            .iter()
+            .position(|s| s.content == "\"hi\"")
+            .expect("string span");
+        assert_eq!(line.spans[string].style, theme::syntax_string());
+        let before = &line.spans[string - 1];
+        assert_eq!(before.content, " s = ");
+        assert_ne!(before.style.fg, theme::syntax_string().fg);
+        assert_ne!(before.style.fg, theme::code().fg);
+        assert_eq!(before.style, highlighted_code_base());
+    }
+
+    #[test]
+    fn fenced_kotlin_block_is_highlighted() {
+        let lines = render_markdown("```kotlin\nval n = 1 // c\n```", 80);
+        assert_eq!(texts(&lines), ["  kotlin", "  val n = 1 // c"]);
+        assert_eq!(span(&lines, "val").style, theme::syntax_keyword());
+        assert_eq!(span(&lines, "1").style, theme::syntax_number());
+        assert_eq!(span(&lines, "// c").style, theme::syntax_comment());
+    }
+
+    #[test]
+    fn a_document_over_the_limit_renders_fences_plain() {
+        let mut doc = String::from("```rust\nfn main() {}\n```\n\n");
+        while (doc.len() as u64) <= MAX_HIGHLIGHT_BYTES {
+            doc.push_str("filler text for the size limit.\n\n");
+        }
+        let lines = render_markdown(&doc, 80);
+        assert_eq!(texts(&lines[..2]), ["  rust", "  fn main() {}"]);
+        assert_eq!(lines[1].spans[1].content, "fn main() {}");
+        assert_eq!(lines[1].spans[1].style, theme::code());
+    }
+
+    /// A guard, not a benchmark: 500 KB of prose with 50 fenced Rust
+    /// blocks, the shape of a long note with code in it.
+    #[test]
+    fn a_500_kb_note_with_50_rust_fences_renders_in_bounded_time() {
+        let block = "```rust\n/// Doc.\n#[derive(Debug)]\npub struct Item { id: u32, name: String }\n\nfn build(n: u32) -> Vec<Item> {\n    (0..n).map(|id| Item { id, name: format!(\"item {id}\") }).collect()\n}\n```\n\n";
+        let prose = "Some *emphasised* text with `code` and a [link](https://example.com) \
+                     that goes on for a while so the wrapper has work to do.\n\n";
+        let mut doc = String::new();
+        for fence in 1..=50 {
+            doc.push_str(block);
+            while doc.len() < fence * 10 * 1024 {
+                doc.push_str(prose);
+            }
+        }
+        let started = Instant::now();
+        let lines = render_markdown(&doc, 80);
+        let elapsed = started.elapsed();
+        eprintln!(
+            "500 KB note, 50 rust fences: {} bytes, {} lines, {elapsed:?}",
+            doc.len(),
+            lines.len()
+        );
+        assert_eq!(doc.matches("```rust").count(), 50);
+        assert!(lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.content == "fn" && s.style == theme::syntax_keyword()));
+        assert!(elapsed.as_secs_f64() < 5.0, "rendering took {elapsed:?}");
+    }
+
+    #[test]
+    fn an_unknown_fence_tag_renders_plain_code() {
+        let lines = render_markdown("```yaml\nkey: \"value\" # c\n```", 80);
+        assert_eq!(texts(&lines), ["  yaml", "  key: \"value\" # c"]);
+        assert_eq!(lines[1].spans.len(), 2);
+        assert_eq!(span(&lines, "key: \"value\" # c").style, theme::code());
     }
 
     /// A guard against quadratic behaviour, not a benchmark. A debug build
