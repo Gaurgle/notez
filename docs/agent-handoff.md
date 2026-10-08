@@ -3591,6 +3591,14 @@ Outcome and decisions (lead, working rule):
    as a real tree; the leader and count math (`list_text_width`,
    NZ-21) is updated to the new prefix and stays exact (branch glyph
    widths vary per row now, measure with `Span::width`).
+6. Added 22:12 CEST (Andreas: "im also not certain that each document
+   listed in the list should have its scope listed in text ... the
+   color and icon is enough"): section rows drop the trailing scope
+   word after the label (the second `personal` in `notez (personal)
+   personal`); the label, icon and colour stay. The label's own
+   parenthetical stays for now because the bulk prompts and the
+   empty-state text reuse labels; removing it is a follow-up if Andreas
+   wants it. Sent to the running worker at 22:14 CEST.
 
 Acceptance: render tests pin the new prefix for a section row, a
 nested folder and a nested file with and without tags and marks; the
