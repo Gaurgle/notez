@@ -336,12 +336,24 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-Nothing is in flight as of 11:50 CEST on 2026-10-08. NZ-14 is Done
-(merge `ae3617e`, pushed, board Done, worktree and branch removed). No
-worker or reviewer is running. Next under the standing scope: NZ-15,
-whose brief under Tickets has three decisions marked "Andreas" with the
-lead's recommendations; the lead dispatches it on his word (or on his
-silence after being asked in the lead session, as the brief says).
+NZ-15 (move, set scope). Dispatched 2026-10-08 at 11:58 CEST by lead
+`4ffb11e2` under the standing scope, with the lead's recommended answers
+to the three "Andreas" decisions (typed folder prompt with `Tab` for
+scope; `S` as its own key; destinations are the row's project's scopes
+plus global, no other projects). Andreas was asked at 10:35 CEST and had
+not objected by dispatch; the lead told him at 11:55 CEST that it was
+starting and that he can stop it. `git status --short` before dispatch:
+clean. Base `1074141` (= `main` = `origin/main`; code is at the NZ-14
+merge `ae3617e`), branch `feat/NZ-15-move`, worktree
+`.claude/worktrees/NZ-15`, model `opus` via `nz-worker`. Pass 1
+(`move_path` helper with injectable rename for the cross-device
+fallback, `m` for notes within and across scopes, the visibility
+confirm, tag carry) RUNNING; pass 2 (folders, `S`, README) follows on
+the same worktree, then one review. Board: In flight. No second worker
+slot is in use.
+
+NZ-14 is Done (merge `ae3617e`, pushed, board Done, worktree and branch
+removed at 11:48 CEST).
 
 Two pre-existing local branches that are not Relay's,
 `feat/default-command-opens-tree` and `feat/melt-ui-refresh`, exist in
@@ -1467,10 +1479,10 @@ dispatch order so `N` never fires inside another prompt.
 
 #### NZ-15: move a note or folder, change its visibility
 
-Status: brief finalized, board still Draft; becomes Ready when Andreas
-has answered the three decisions marked "Andreas" below (the lead's
-recommendation runs if he says nothing against it when asked in the
-lead session). Confirmed in scope by Andreas on 2026-10-07 in the lead
+Status: In flight since 11:58 CEST on 2026-10-08, running with the
+lead's recommendations on the three decisions marked "Andreas" below
+(asked in the lead session at 10:35 CEST, no objection by dispatch;
+Andreas can still redirect). Confirmed in scope by Andreas on 2026-10-07 in the lead
 session ("NZ-15: move and change visibility, with the warning"). Builds
 on NZ-8 (prompt machinery, `Tab` scope cycling, `NewNoteRoots`), NZ-12
 (confirm mode, retired tag keys), NZ-13 (sections, `tag_root` per
