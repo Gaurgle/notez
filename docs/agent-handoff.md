@@ -26,14 +26,20 @@ standing scope and integration delegation (recorded 2026-10-07 16:25
 under Authorized by the owner), next ticket NZ-14; stated back to
 Andreas at takeover so he can correct it.
 
-STOPPED FOR THE DAY at 17:00 CEST on 2026-10-08 on Andreas's
-instruction ("i must go now, find a place to stop, stop the workers,
-commit and ship this"). BATON RELEASED. No lead is active. No worker or
-reviewer is running: the only agent running at the instruction (the
-NZ-4 pass 1 worker, started a minute earlier) was stopped before it
-changed a file; its clean worktree and branch were removed and NZ-4 is
-back at Ready. A new lead may take over from this file once Andreas
-says to continue; nothing here authorizes starting on its own.
+RESUMED at 21:35 CEST on 2026-10-08 by the same session (`4ffb11e2`)
+on Andreas's "can you do nz-3 and 5, and perhaps 28 & 29?" and "and do
+nz 4". Reconciled: `main` = `origin/main` = `1edfbce`, clean, no
+worktrees, no agents running, board as left. Queue in this order, all
+on `tui/tree.rs` so one at a time: NZ-4 (dispatched 21:37 CEST), NZ-3,
+NZ-5, NZ-28 (per its design note), NZ-29 (per its recommendation:
+symbol outline instead of LSP). Working rule of the afternoon applies.
+Only this session leads.
+
+Earlier the same day: STOPPED at 17:00 CEST on Andreas's instruction
+("i must go now, find a place to stop, stop the workers, commit and
+ship this"); baton released; the NZ-4 pass 1 worker running at that
+moment was stopped before it changed a file and its clean worktree and
+branch were removed.
 
 CLOCK CORRECTION: the CEST times this lead wrote into this file
 between about 12:00 and 17:00 on 2026-10-08 were estimates and run up
@@ -480,12 +486,37 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   changes; tags and releases; a ticket outside the recorded scope. The
   queue (NZ-27, the NZ-28 and NZ-29 design notes, NZ-4, NZ-5, NZ-3)
   runs on that basis. Status lines at hand-offs are not questions.
+- 2026-10-08 21:30 CEST, Andreas, in the lead session (`4ffb11e2`):
+  "can you do nz-3 and 5, and perhaps 28 & 29?" then "and do nz 4".
+  The lead's reading: CONTINUE with NZ-4, NZ-3, NZ-5 (all in the
+  standing scope since 2026-10-06, with the lead's recommended answers
+  to their open points), NZ-28 as designed in `docs/design-nz28-linting.md`
+  (two tickets NZ-28a and NZ-28b, no external tools), and NZ-29 as
+  recommended in `docs/design-nz29-lsp.md` (no LSP in the preview;
+  NZ-29a symbol outline from tree-sitter instead; NZ-29 itself closed
+  as "not now" unless he objects after reading the note). Same
+  integration delegation, branch pushes, board permissions and working
+  rule. Order chosen by the lead: NZ-4, NZ-3, NZ-5, NZ-28a, NZ-28b,
+  NZ-29a. Stop conditions unchanged.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-Nothing is in flight. STOPPED FOR THE DAY at 17:00 CEST (real clock) on
-2026-10-08 on Andreas's instruction. No worker or reviewer is running.
+NZ-4 (resizable split, preview fold, pane focus). Dispatched 2026-10-08
+at 21:37 CEST by lead `4ffb11e2` on Andreas's "and do nz 4". `git
+status --short` before dispatch: clean. Base `1edfbce` (= `main` =
+`origin/main`; code at the NZ-27 merge `299770e`), branch
+`feat/NZ-4-panes`, worktree `.claude/worktrees/NZ-4`, model `opus` via
+`nz-worker`. Pass 1 (`tui/panes.rs` model with tests, keys `<` `>` `=`
+`1` `2` `Tab`, focus semantics, fold on `2`, list and preview widths
+following the split, footer hint sets) RUNNING; pass 2 (mouse drag with
+the grip, wheel per pane, click to focus, auto-fold, README) follows on
+the same worktree; one review of the whole diff. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_KW1E` In flight. Then NZ-3, NZ-5, NZ-28a,
+NZ-28b, NZ-29a.
+
+Earlier: STOPPED at 17:00 CEST (real clock) on
+2026-10-08 on Andreas's instruction; resumed 21:35 CEST.
 NZ-27 is Done (merge `299770e`; branch run green; the real `main` run
 `37796746297` on `08deabb` green on all three jobs; remote branch
 deleted; worktree and local branch removed; board Done). NZ-4 pass 1
@@ -3458,7 +3489,30 @@ the old behaviour instead?
 
 #### NZ-3: header status segment
 
-Status: Draft. Depends on NZ-1 (it displays the open-sync result).
+Status: Ready, runs after NZ-4. In the standing scope since 2026-10-06,
+named again by Andreas on 2026-10-08 21:30 CEST ("can you do nz-3 and
+5"). Board item `PVTI_lAHOCU842c4BmE5Zzg_KWyo`. Lead decisions on
+2026-10-08 (working rule): no loading spinner (its own ticket if ever
+wanted: it needs a background pull and a reload, a concurrency change);
+the dirty count is computed in `notez-cli` by running `git status
+--porcelain` in the vault root (no `notez-core` change, so epoz is
+untouched); `AutoSync` variants stay as they are; the header is one
+line above the panes in both views and replaces the current block
+title line (`ctx.title`, `tui/tree.rs` about line 3368) rather than
+adding a second line. Current code facts: `main.rs` runs
+`notez_core::sync::pull_on_open` before the TUI and passes only a
+`warning: Option<&str>` (the stop message) into `commands::tree::run`
+and `commands::todo::run`, stored as `ctx.warning` and shown in the
+status line; the `--no-sync` flag exists; `AutoSync` is `Idle` (not a
+repo, no upstream, nothing to send, or offline), `Done`, `Stopped(msg)`.
+So the header needs the full result, not just the warning: add a
+`SyncState` enum in `tui/header.rs` (`Synced`, `Offline` or `NoUpstream`
+if `Idle` can be told apart, else `Idle` shown as "offline or no
+upstream", `Stopped`, `Off` for `--no-sync`, `NotRepo`) built in
+`main.rs` from the `AutoSync` value and the flag, passed through the
+two `run` functions next to `warning`. NZ-6 (quiet offline exit) is
+designed so this header can say "could not reach the remote"; keep the
+enum open for that variant.
 
 Outcome: a one-line header above the panes in both views showing sync state,
 dirty vault and counts.
@@ -3549,7 +3603,28 @@ pane, so this ticket leaves it alone. Fine?
 
 #### NZ-5: fuzzy search, tag filter clearing and scope cycling
 
-Status: Draft. The largest of the four and the one with real design choices.
+Status: Ready, runs after NZ-3. In the standing scope since 2026-10-06
+with the lead's recommended answers accepted by Andreas then ("tree
+keeps its order when searching, `s` cycles scope in the tree only"),
+named again on 2026-10-08 21:30 CEST. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_KW4I`. Lead decisions on 2026-10-08 (working
+rule) on the open points below: (a) the tree keeps its order, only the
+matching and the highlighting change; (b) subsequence matching is
+accepted as is, no minimum score, since nothing is ranked; (c) `s`
+cycles the scope (all, local, project, global) in the tree and the
+footer file-type slot or the header (NZ-3) names the active scope; `f`
+(focus section) stays as it is; (d) tree only, the todo board keeps its
+filter as today. Current code facts for the worker to verify:
+`tui/text.rs` already has `fuzzy_match(haystack, needle) -> bool`
+(case-insensitive subsequence) and tests; the filter is
+`notez_core::filter` (`parse`, `Filter::matches(text, flags)`,
+`#tag` tokens, `toggle_tag_in_buffer`, `active_tag_bits`); the tree's
+filter strip and `search_mode` live in `tui/tree.rs` (about line 3217);
+the reference scorer is `~/Repos/fleetz/src/fuzzy.rs` (read-only);
+`0` and `s` are unbound in the tree (NZ-15 took `S`). Where the current
+code already matches by subsequence, the ticket's work is the scoring
+port for highlighting, the highlighting itself, `0`, `s` and the "no
+matches" row; the worker reports which criteria were already met.
 
 Outcome: `/` finds notes and todos by fuzzy subsequence (`flz` finds
 `fleetz`), tag filters clear with one key, and the tree can be cycled
