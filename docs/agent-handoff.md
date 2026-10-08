@@ -352,9 +352,29 @@ NZ-16 (multi-select). Dispatched 2026-10-08 at 13:25 CEST by lead
 `origin/main`; code is at the NZ-15 merge `36699c1`), branch
 `feat/NZ-16-multi-select`, worktree `.claude/worktrees/NZ-16`, model
 `opus` via `nz-worker`. Pass 1 (marks with `Space`/`Esc`, drawing,
-footer count, action-set function, bulk delete) RUNNING; pass 2 (bulk
-`m` and `S`, README) follows on the same worktree, then one review.
-Board: In flight. No second worker slot is in use. NZ-19 (CI) waits for
+footer count, action-set function, bulk delete) REPORTED at 13:40
+CEST: only `tui/tree.rs` changed (726 insertions, 24 deletions),
+uncommitted diff against `a0773b9` hashing to
+`ae021671a1ef8014bde4c9c05dd483180ff98f093f0423cc6050c871372698ca`;
+worker checks: build clean, notez-cli 299 passed, notez-core 146
+passed; about 168k agent tokens. Pass 2 (bulk `m` and `S`, README, two
+amendments below) DISPATCHED at 13:45 CEST on the same worktree,
+RUNNING. Then one review of the whole diff. Board: In flight. No second
+worker slot is in use.
+
+Lead decisions on the pass 1 report: marks live in `event_loop` as a
+`HashSet<PathBuf>`, pruned each loop pass (a renamed or moved marked
+row drops its mark); `is_marked` ignores depth-0 rows; mark glyph in
+the gutter, bold row, no theme entry; the footer count also shows over
+a session warning; `Space` at `Slot::Priority(8)` after `N`; the `Esc`
+help reads "clear marks; with none, clear the filter; with no filter,
+quit"; bulk question singulars and `(no notes inside)` accepted; a
+successful bulk delete says `deleted <ok>`. Two amendments ordered for
+pass 2: (a) a set containing an item the guards would refuse is
+refused as a whole BEFORE the confirm (the confirm counts only items
+that will be attempted); (b) the bulk question gets the single delete's
+"and other files" clause. One existing test changed by pass 1:
+`normal_and_focus_footers_hint_the_browse_keys` gains `space`. NZ-19 (CI) waits for
 Andreas's four answers in the lead session (see Authorized by the
 owner, 2026-10-08 entry).
 
