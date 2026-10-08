@@ -502,7 +502,21 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-4 (resizable split, preview fold, pane focus). Dispatched 2026-10-08
+NZ-31 (tree margin and branch lines). Dispatched 2026-10-08 at 22:02
+CEST by lead `4ffb11e2` on Andreas's requests of 21:50 and 21:55 CEST.
+`git status --short` before dispatch: only this file modified. Base
+`554fd0c` (= `main` = `origin/main`, the NZ-4 merge), branch
+`fix/NZ-31-tree-margin`, worktree `.claude/worktrees/NZ-31`, model
+`opus` via `nz-worker`, one pass. RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fBhY` In flight. Then review, branch push,
+CI, merge, `main` run, cleanup; then NZ-34, NZ-3, NZ-5, NZ-32, NZ-28,
+NZ-30.
+
+NZ-4 is Done (merge `554fd0c` at 21:59 CEST; branch run and `main` run
+`37836071227` green; remote branch deleted; worktree and local branch
+removed; board Done). Andreas was told to install.
+
+NZ-4 record, for history. Dispatched 2026-10-08
 at 21:37 CEST by lead `4ffb11e2` on Andreas's "and do nz 4". `git
 status --short` before dispatch: clean. Base `1edfbce` (= `main` =
 `origin/main`; code at the NZ-27 merge `299770e`), branch
@@ -543,8 +557,20 @@ via `fit(width)` with a separate `auto_folded` flag, `2`/`Tab`/focus
 refused while auto-folded, the user's own fold never overwritten.
 Lead decisions (accepted): wheel over a folded preview's space reaches
 the list. Workers stopped. REVIEW dispatched at 21:57 CEST
-(`nz-reviewer`, opus) on that hash, RUNNING. Then branch push, CI,
-merge, `main` run, cleanup; then NZ-31. Board item
+(`nz-reviewer`, opus) on that hash; ACCEPTED at 22:05 CEST first time
+(about 70k tokens; follow-ups: a drag re-renders a large note once per
+column, render at a stable width during the drag if it ever shows;
+the inert set with the preview focused is not uniform (`Space` inert,
+`d m r t S` pass through) and the README overstates it; the mouse
+ignores the help overlay, pre-existing class; tag mode blocks the wheel
+over the list). Lead checks: build clean, 460 + 146 passed. Committed
+as `bbf550c` (diff against `1edfbce` hashes to the accepted
+`db90a8f0...`), branch pushed at 22:08 CEST; the integration chain is
+running as one background command, now selecting CI runs by commit SHA
+with retries (the fix for the race noted under Current lead); the lead
+commits this file only after the chain reports. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_KW1E` In flight until then. Next after it:
+NZ-31. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_KW1E` In flight. Then NZ-3, NZ-5, NZ-28a,
 NZ-28b, NZ-29a.
 
@@ -3813,16 +3839,36 @@ and deciding on it as its own ticket once NZ-1 is in use.
 
 #### NZ-4: resizable split, preview fold and pane focus (tree only)
 
-Status: Ready, NEXT. In the standing scope since 2026-10-06 (NZ-2 to
-NZ-5 and the integration delegation), confirmed in the 2026-10-07
-queue. A pass 1 worker was dispatched on 2026-10-08 at 16:58 CEST (base
-`08deabb`, branch `feat/NZ-4-panes`, worktree `.claude/worktrees/NZ-4`)
-and STOPPED one minute later on Andreas's stop instruction before it
-changed any file; worktree and branch removed. The next lead creates
-them again from `main` and dispatches pass 1 (the panes model with
-tests, the split keys `<` `>` `=`, focus `1` `2` `Tab`, the fold on `2`,
-preview-focused scrolling, footer hints) then pass 2 (mouse drag with
-the grip, wheel per pane, click to focus, auto-fold, README). The two open points below were decided by the lead on
+Status: Done. Merged into `main` as `554fd0c` at 21:59 CEST on
+2026-10-08 and pushed; branch run and `main` run `37836071227` green;
+board Done; remote branch deleted. Andreas told to install; the pane
+numbers in the titles and the grip strip are his to judge.
+
+Record: base `1edfbce`, branch `feat/NZ-4-panes`, ticket commit
+`bbf550c` (5 files: `README.md`, `tui/mod.rs`, new `tui/panes.rs`,
+`tui/theme.rs`, `tui/tree.rs`; 1357 insertions, 121 deletions), merge
+`554fd0c` with `git merge --no-ff`; undo with `git revert -m 1
+554fd0c`. Agents: two `nz-worker` (opus) passes, about 270k tokens;
+one `nz-reviewer` (opus), about 70k, accepted first time; committed
+diff hashes to the accepted
+`db90a8f0b47aca0095e59541a503f90c34dcc91b615bede3333c9bd9bcdb8db3`.
+Lead checks: build clean, notez-cli 460 passed, notez-core 146 passed.
+As built: `Panes` model (list min 24, preview min 20, list wins), `<`
+`>` `=`, `1` `2` `Tab`, `2` twice folds, grip `⠿` drag with one column
+of slop, wheel by pane, click to focus, auto-fold below 45 columns with
+the user's fold preserved, nothing persisted; two latent fixes: the
+wheel used to scroll the preview wherever the pointer was, and a click
+on the filter strip's row inside the preview used to open the filter.
+Leftovers: drag re-renders a large note per column; the preview-focused
+inert key set is not uniform (`Space` inert, `d m r t S` pass through)
+and the README overstates it; the mouse ignores the help overlay
+(pre-existing class); tag mode blocks the wheel over the list.
+
+Brief as run. In the standing scope since 2026-10-06 (NZ-2 to NZ-5 and
+the integration delegation), confirmed in the 2026-10-07 queue, named
+again on 2026-10-08 ("and do nz 4"). A first pass 1 dispatch at 16:58
+CEST was stopped a minute later on Andreas's stop instruction before
+any change; the ticket ran from 21:37 CEST. The two open points below were decided by the lead on
 2026-10-08 at 22:25 CEST under the working rule: (a) the split and fold
 are NOT remembered between runs (no state file; the standing scope
 forbids a new persisted format), (b) the todo board is left alone.
@@ -4000,8 +4046,9 @@ Current lead):
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
    `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
    `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 DONE (merge
-   `299770e`), NEXT NZ-4 (Ready, see its Status for the aborted
-   dispatch),
+   `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 IN FLIGHT, then
+   NZ-34 (reload), NZ-3, NZ-5, NZ-32 (type filter), NZ-28 (linting),
+   NZ-30 (symbol outline),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
