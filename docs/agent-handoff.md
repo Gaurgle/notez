@@ -436,9 +436,34 @@ NZ-25 merge `6a1c814`), branch `feat/NZ-27-syntax-highlighting`,
 worktree `.claude/worktrees/NZ-27`, model `opus` via `nz-worker`.
 Pass 1 (`tui/highlight.rs` with tests, theme capture styles, the
 tree-sitter dependencies and grammars, build-time and binary-size
-measurements) RUNNING; pass 2 (integration into rendered markdown and
-the raw view, footer language name, cache, README) follows on the same
-worktree; one review of the whole diff. Board item
+measurements) REPORTED at 21:35 CEST: 5 files (`Cargo.lock`,
+`crates/notez-cli/Cargo.toml`, new `tui/highlight.rs` registered with
+`git add -N`, `tui/mod.rs`, `tui/theme.rs`), 1064 insertions,
+uncommitted diff against `9e1bb20` hashing to
+`2b9d30a0a0b385c489557eba2f6a804fd67407cc0e4026af23a667a617ce48d8`;
+worker checks: build clean, notez-cli 399 passed (24 new), notez-core
+146 passed; about 110k agent tokens. Findings: `tree-sitter-kotlin
+0.3.8` cannot resolve (it pins `tree-sitter >=0.21, <0.23`), so Kotlin
+was left out of pass 1; the other ten crates compile and load; `Cargo.
+lock` gained tree-sitter 0.27.0, tree-sitter-highlight 0.27.0,
+tree-sitter-language 0.1.8, the eight grammars, streaming-iterator
+0.1.9, regex 1.13.1 (+ regex-automata, regex-syntax, aho-corasick),
+and bumped build deps cc 1.2.62 to 1.6.0, shlex 1.3.0 to 2.0.1,
+find-msvc-tools 0.1.9 to 0.1.14, serde_json 1.0.149 to 1.0.151; cold
+build 15.3 s to 17.7 s; release binary unchanged at 2,359,440 B until
+pass 2 links the grammars (static libs total about 5.2 MB); the
+bundled `tree_sitter_md` block injection query breaks fenced code, so
+the module ships its own `MARKDOWN_BLOCK_INJECTIONS`; query compile
+costs 84 ms (rust) down to under 1 ms, once per language; a 2 MB
+markdown file with many fences took about 8 s debug / 1.4 s release
+whole-file, hence per-fence highlighting and the 1 MB skip. Lead
+decisions (working rule): keep the local injections query; accept the
+build-dep bumps; ship Kotlin through `tree-sitter-kotlin-ng = "1.1.0"`
+(same grammar family as approved). Pass 2 (Kotlin, integration into
+rendered markdown and the raw view, character wrapping for code,
+footer language name, cache, measurements, README) DISPATCHED at 21:40
+CEST on the same worktree, RUNNING; one review of the whole diff after
+it. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight. Disk: 9.3 GB free; the
 grammars compile C, so the lead watches `target` size.
 
