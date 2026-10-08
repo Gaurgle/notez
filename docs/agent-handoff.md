@@ -415,7 +415,25 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-24 (todo icon). Dispatched 2026-10-08 at 18:40 CEST by lead
+NZ-25 (rendered markdown preview). Dispatched 2026-10-08 at 19:15 CEST
+by lead `4ffb11e2` on Andreas's "4. go with c, but break it up ...
+approved to add dependencies" (17:20 CEST). `git status --short`
+before dispatch: only this file modified. Base `706e169` (= `main` =
+`origin/main`), branch `feat/NZ-25-markdown-preview`, worktree
+`.claude/worktrees/NZ-25`, model `opus` via `nz-worker`. Pass 1
+(`tui/markdown.rs` renderer with tests, theme styles, dependency
+`pulldown-cmark = "0.13.4"`, `Cargo.lock`) RUNNING; pass 2 (toggle
+key, footer file type, integration in `tui/tree.rs`, README) follows
+on the same worktree; one review of the whole diff. The dependency
+change is approved for this ticket (Authorized by the owner, 17:20
+CEST), so the safe-merge rule's dependency condition is met. Board
+item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` In flight. Disk: 11 GB free.
+
+NZ-24 is Done (merge `706e169` at 19:10 CEST; branch run and `main` run
+`37778913601` green; remote branch deleted; worktree and local branch
+removed; board Done).
+
+NZ-24 record, for history. Dispatched 2026-10-08 at 18:40 CEST by lead
 `4ffb11e2` on Andreas's "3. go with b" (17:20 CEST). `git status
 --short` before dispatch: only this file modified. Base `5442854`
 (= `main` = `origin/main`), branch `feat/NZ-24-todo-icon`, worktree
@@ -433,9 +451,16 @@ calls a new `in_section_todo_store(node, spec)`; help has no legend so
 untouched; README one sentence; no existing test changed. Cost noted:
 `row_badge` calls `in_todo_store` per nested global row per draw (two
 metadata lookups for non-store paths); reviewer asked to judge. REVIEW
-dispatched at 18:53 CEST (`nz-reviewer`, opus) on that hash, RUNNING.
-Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` In flight. Then branch push,
-CI, merge, `main` run, cleanup; then NZ-25.
+dispatched at 18:53 CEST (`nz-reviewer`, opus) on that hash; ACCEPTED
+at 19:00 CEST first time (about 29k tokens; the per-draw stats judged
+acceptable, microseconds per row, with a cache on `TreeNode` as the
+fix if lag ever shows; no test for a directory named `TODO.md`). Lead
+checks: build clean, 331 + 146 passed. Committed as `092b88a` (diff
+against `5442854` hashes to the accepted `ad454819...`), branch pushed
+at 19:03 CEST; the integration chain is running as one background
+command and stops at the first failure. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` In flight until the chain reports. Next
+after it: NZ-25 (two passes).
 
 NZ-26 is Done (merge `5442854` at 18:35 CEST; branch run and `main` run
 `37777856510` green; remote branch deleted; worktree and local branch
@@ -2748,7 +2773,25 @@ lead recommends (a) now and (c) as a small ticket.
 
 #### NZ-24: an icon for the todo store and TODO.md rows
 
-Status: Ready, authorized to run after NZ-26 (Andreas, 2026-10-08
+Status: Done. Merged into `main` as `706e169` at 19:10 CEST on
+2026-10-08 and pushed; branch run and `main` run `37778913601` green;
+board Done; remote branch deleted. Not yet installed by Andreas; the
+glyph is his to judge installed.
+
+Record: base `5442854`, branch `feat/NZ-24-todo-icon`, ticket commit
+`092b88a` (`README.md`, `tui/theme.rs`, `tui/tree.rs`; 109 insertions,
+7 deletions), merge `706e169` with `git merge --no-ff`; undo with `git
+revert -m 1 706e169`. One `nz-worker` (opus, about 53k tokens), one
+`nz-reviewer` (opus, about 29k), accepted first time; committed diff
+hashes to the accepted
+`ad4548197873e5032527f9028e7bb758e3b354fe9d4e22ae5086ef46dcc108a3`.
+Lead checks: build clean, notez-cli 331 passed, notez-core 146 passed.
+As built: `ICON_TODO = "\u{f0ae}"` (nf-fa-tasks) on the `_todos` store
+row, every row under it and any `TODO.md` file, scope colour kept.
+Leftovers: two metadata lookups per nested global row per draw (cache
+on `TreeNode` if lag shows); no test for a directory named `TODO.md`.
+
+Brief as run. Authorized to run after NZ-26 (Andreas, 2026-10-08
 17:20 CEST: "3. go with b"). Requested by Andreas on 2026-10-08
 ("todo's should have it's own icon and perhaps color? if not colors
 are reserved for visibility"). Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ`.
@@ -2812,8 +2855,9 @@ Outcome and decisions:
    (`toml`, `rs`, `txt`); shown in the Hints slot's leading position
    like NZ-16's mark count, or in the preview block title if that
    reads better (worker's call, say which).
-4. Parser: `pulldown-cmark` (latest 0.13.x at the time of the brief;
-   the worker records the exact version and the `Cargo.lock` change),
+4. Parser: `pulldown-cmark = "0.13.4"` (current release on crates.io
+   at 19:05 CEST on 2026-10-08, checked with `cargo search`; pinned
+   exactly, the worker records the `Cargo.lock` change),
    default options plus tables and strikethrough; no HTML rendering
    (raw HTML blocks shown as text). It is the ONLY new dependency in
    this ticket.
@@ -3232,8 +3276,8 @@ Current lead):
 6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-23: DONE without code
    (files moved). NZ-22: DONE 2026-10-08, merge `82fae54`.
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
-   `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 (todo icon, IN
-   FLIGHT),
+   `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
+   `706e169`), NZ-25 IN FLIGHT (pass 1 running),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
