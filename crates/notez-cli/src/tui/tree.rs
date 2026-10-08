@@ -957,17 +957,25 @@ fn new_note_target(
 
 // --- Typed names ---
 //
-// The prompts `n`, `N` and `r` take a typed name only as it is: a name that
-// `sanitize::name` would alter (capitals, `_`, `.`, inner blanks) is refused
-// with what it would have become, instead of being changed without a word.
-// The CLI commands keep sanitizing.
+// The prompts `n`, `N` and `r` refuse a typed name that `sanitize::name`
+// would drop characters from (`_`, `.`), with what it would have become,
+// instead of changing it without a word. Lowercasing and blanks to `-` stay
+// silent (NZ-26). The CLI commands keep sanitizing.
 
-/// What `sanitize::name` makes of `input` when that differs from `input`
-/// trimmed; `None` when the name is taken as typed. A name that sanitizes
-/// to nothing is `None` too: the prompts' empty-name paths answer it.
+/// The soft form of a typed name: `sanitize::name`'s steps before its
+/// character filter (trim, lowercase, whitespace runs to `-`), in its order,
+/// so filtering this form gives exactly `sanitize::name(input)`.
+fn soft_name(input: &str) -> String {
+    input.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("-")
+}
+
+/// What `sanitize::name` makes of `input` when that drops characters from
+/// its [`soft_name`] form; `None` when the name is taken (lowercasing and
+/// blanks to `-` are silent). A name that sanitizes to nothing is `None`
+/// too: the prompts' empty-name paths answer it.
 fn name_would_change(input: &str) -> Option<String> {
     let cleaned = sanitize::name(input);
-    (!cleaned.is_empty() && cleaned != input.trim()).then_some(cleaned)
+    (!cleaned.is_empty() && cleaned != soft_name(input)).then_some(cleaned)
 }
 
 /// The footer message for a typed name [`name_would_change`] refuses.
@@ -8086,19 +8094,43 @@ mod tests {
 
     // --- Refused names (NZ-20) ---
 
-    /// Typed names `sanitize::name` would alter, each with what it becomes.
-    const ALTERED: [(&str, &str); 4] =
-        [("00_quick", "00quick"), ("My Note", "my-note"), ("Ideas", "ideas"), ("a.b", "ab")];
+    /// Typed names sanitizing would drop characters from, each with what it
+    /// becomes.
+    const ALTERED: [(&str, &str); 2] = [("00_quick", "00quick"), ("a.b", "ab")];
 
     /// Typed names the prompts take as they are.
     const ACCEPTED: [&str; 3] = ["00-quick", "my-note", "ideas"];
+
+    /// Typed names the prompts accept although sanitizing lowercases them or
+    /// turns their blanks into `-` (NZ-26), each with what it becomes.
+    const SOFTENED: [(&str, &str); 2] = [("My Note", "my-note"), ("Ideas", "ideas")];
+
+    #[test]
+    fn soft_name_lowercases_and_hyphenates_without_dropping_anything() {
+        assert_eq!(soft_name("My Note"), "my-note");
+        assert_eq!(soft_name("  My \t  Big\nNote  "), "my-big-note");
+        assert_eq!(soft_name("00_quick"), "00_quick");
+        assert_eq!(soft_name("a.b"), "a.b");
+        assert_eq!(soft_name("\u{c4}"), "\u{e4}");
+        assert_eq!(soft_name("   "), "");
+        for typed in ["00_quick", "a.b", "My Note", "Ideas", "!!!", "\u{c4}", "a\u{308}", "  x  y "] {
+            let soft = soft_name(typed);
+            let filtered: String = soft.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+            assert_eq!(filtered, sanitize::name(typed), "soft form then filter is sanitize::name: {typed}");
+        }
+    }
 
     #[test]
     fn name_would_change_names_what_sanitizing_makes_of_an_altered_name() {
         for (typed, cleaned) in ALTERED {
             assert_eq!(name_would_change(typed).as_deref(), Some(cleaned), "{typed}");
         }
-        assert_eq!(name_would_change("\u{c4}").as_deref(), Some("\u{e4}"), "capital A umlaut");
+        for (typed, _) in SOFTENED {
+            assert_eq!(name_would_change(typed), None, "{typed}: lowercasing and hyphens are silent");
+        }
+        assert_eq!(name_would_change("\u{c4}"), None, "capital A umlaut lowercases silently");
+        // A decomposed umlaut loses its combining mark, as before NZ-26.
+        assert_eq!(name_would_change("a\u{308}").as_deref(), Some("a"), "decomposed a umlaut");
         for typed in ACCEPTED {
             assert_eq!(name_would_change(typed), None, "{typed}");
         }
@@ -8123,7 +8155,8 @@ mod tests {
                 prompt.buffer = typed.to_string();
                 assert_eq!(new_item_refusal(&prompt), Some(altered_name_message(cleaned)), "{typed}");
             }
-            for typed in ACCEPTED.into_iter().chain(["", "  ideas  "]) {
+            let softened = SOFTENED.map(|(typed, _)| typed);
+            for typed in ACCEPTED.into_iter().chain(softened).chain(["", "  ideas  "]) {
                 prompt.buffer = typed.to_string();
                 assert_eq!(new_item_refusal(&prompt), None, "{typed}, folder {is_folder}");
             }
@@ -8145,6 +8178,39 @@ mod tests {
             assert_eq!(outcome.message, None, "{name}");
             assert!(has_entry_named(&plans.dir, name), "{name}");
         }
+    }
+
+    /// NZ-26: `n` takes `My Note` as `notez add` does (file `my-note`,
+    /// heading as typed), `N` takes `Big Plans` as the folder `big-plans`;
+    /// `00_quick` stays refused in both.
+    #[test]
+    fn new_note_and_new_folder_enter_accept_a_title_with_capitals_and_blanks() {
+        let (_dir, notez, root) = vault();
+        let target = NewNoteTarget { dir: root.clone(), scope: Scope::Personal, label: "personal".to_string() };
+        let mut note = NewNotePrompt::open(target.clone(), None);
+        note.buffer = "00_quick".to_string();
+        assert_eq!(new_item_refusal(&note), Some(altered_name_message("00quick")));
+        note.buffer = "My Note".to_string();
+        assert_eq!(new_item_refusal(&note), None);
+        let words = note.buffer.split_whitespace().map(String::from).collect();
+        let created = add::create_in_dir(words, &target.dir, target.scope).unwrap();
+        let file = file_name_of(&created.path);
+        assert!(file.ends_with("my-note.md"), "{file}");
+        let content = std::fs::read_to_string(&created.path).unwrap();
+        assert!(content.starts_with("# My Note\n"), "{content}");
+
+        let mut forest = forest_of(vault_sections(&notez));
+        let rebuild = || Ok(vault_sections(&notez));
+        let mut folder = NewNotePrompt::open(target.clone(), None);
+        folder.is_folder = true;
+        folder.buffer = "00_quick".to_string();
+        assert_eq!(new_item_refusal(&folder), Some(altered_name_message("00quick")));
+        folder.buffer = "Big Plans".to_string();
+        assert_eq!(new_item_refusal(&folder), None);
+        let outcome = create_folder(&mut forest, &target, &folder.buffer, &rebuild);
+        assert_eq!(outcome.message, None);
+        assert!(root.join("big-plans").is_dir());
+        assert!(!has_entry_named(&root, "00quick") && !has_entry_named(&root, "00_quick"));
     }
 
     /// `r` with the cursor on `path`, the buffer set to `typed`, then
@@ -8180,6 +8246,39 @@ mod tests {
         assert!(root.join("00-quick.md").is_file() && !root.join("top.md").exists());
         let renamed = row(&forest.nodes, path_str(&root.join("00-quick.md")));
         assert_eq!(forest.nodes[renamed].name, "00-quick.md");
+    }
+
+    /// NZ-26: `r` takes `My Note` on a note (file `my-note.md`, heading as
+    /// typed) and `My Ideas` on a folder (`my-ideas`); `Ideas` on the folder
+    /// `ideas` sanitizes to its own name and changes nothing, silently.
+    #[test]
+    fn rename_enter_accepts_capitals_and_blanks_for_notes_and_folders() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        assert_eq!(rename_enter_at(&mut forest, &root.join("ideas"), "Ideas"), RenameEnter::Done(None));
+        assert_eq!(disk_entries(&notez), before, "Ideas on ideas: nothing to do");
+        assert!(has_entry_named(&root, "ideas"));
+        assert!(changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial).is_empty());
+
+        assert_eq!(
+            rename_enter_at(&mut forest, &root.join("top.md"), "00_quick"),
+            RenameEnter::Keep(altered_name_message("00quick"))
+        );
+        assert_eq!(
+            rename_enter_at(&mut forest, &root.join("ideas"), "00_quick"),
+            RenameEnter::Keep(altered_name_message("00quick"))
+        );
+        assert_eq!(disk_entries(&notez), before, "nothing renamed");
+
+        assert_eq!(rename_enter_at(&mut forest, &root.join("top.md"), "My Note"), RenameEnter::Done(None));
+        let note = root.join("my-note.md");
+        assert!(note.is_file() && !root.join("top.md").exists());
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "# My Note\n");
+        assert_eq!(forest.nodes[row(&forest.nodes, path_str(&note))].name, "my-note.md");
+
+        assert_eq!(rename_enter_at(&mut forest, &root.join("ideas"), "My Ideas"), RenameEnter::Done(None));
+        assert!(root.join("my-ideas/a.md").is_file() && !root.join("ideas").exists());
     }
 
     #[test]

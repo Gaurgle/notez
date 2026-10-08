@@ -81,11 +81,12 @@ repository, so the prompt says so: `public (committed with the project)`.
 `Enter` creates the note the way `notez add` does (same file name and
 content, never overwriting an existing file; an empty title becomes
 `untitled`), opens it in the editor, and selects it in the refreshed tree;
-`Esc` cancels. A name the file name sanitizing would change (capitals, `_`,
-`.`, spaces) is refused in `n`, `N` and `r` with `name would become
-<cleaned>; use letters, digits and -`, and the prompt stays open with what
-you typed; the `notez add`, `notez mkdir` and `notez rename` commands still
-sanitize.
+`Esc` cancels. In `n`, `N` and `r` the file name is lowercased and spaces
+become hyphens without a word (`My Note` makes `my-note.md` with the heading
+`# My Note`), but a name sanitizing would drop characters from (`_`, `.`,
+punctuation) is refused with `name would become <cleaned>; use letters,
+digits and -`, and the prompt stays open with what you typed; the
+`notez add`, `notez mkdir` and `notez rename` commands still sanitize.
 
 **Folders in the tree.** Every folder under a section's root is listed,
 including empty ones; hidden folders (names starting with `.`) are not.
