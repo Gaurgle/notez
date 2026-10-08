@@ -14,7 +14,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 
@@ -2820,6 +2822,26 @@ fn carry_initial_tags(
         .collect()
 }
 
+// --- Preview scrolling ---
+
+/// Lines one mouse wheel notch scrolls the preview.
+const WHEEL_STEP: i32 = 3;
+
+/// The preview scroll offset after moving `delta` lines from `current`,
+/// clamped to `0..=max`, where `max` is the last offset that still fills the
+/// pane. Every preview scroll input (`J`/`K`, Shift+Down/Up, PgDn/PgUp, the
+/// wheel) goes through here.
+fn scrolled(current: u16, delta: i32, max: u16) -> u16 {
+    let target = i64::from(current) + i64::from(delta);
+    target.clamp(0, i64::from(max)) as u16
+}
+
+/// Lines PgDn/PgUp scroll a preview pane `height` lines tall: a page minus
+/// one, so the line at the edge stays in view; at least one.
+fn preview_page(height: u16) -> i32 {
+    i32::from(height.saturating_sub(1).max(1))
+}
+
 // --- Keys: one table for the footer and the help overlay ---
 
 const BROWSE: &[Mode] = &[Mode::Normal, Mode::Focus];
@@ -2853,7 +2875,6 @@ const TREE_KEYS: &[KeyHint] = &[
     key("j/k", "move", "move down / up (also Down / Up)", theme::TEXT, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
     key("l", "expand", "expand directory (also Right)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
     key("h", "collapse", "collapse directory / go to parent (also Left)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
-    key("J/K", "preview", "scroll preview down / up", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("wheel", "preview", "mouse wheel scrolls the preview", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("click", "select", "click a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("o", "open", "open file / toggle directory (also Enter)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(1), None),
@@ -2900,6 +2921,9 @@ const TREE_KEYS: &[KeyHint] = &[
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
     key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
     key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
+    // Navigate keys, listed last so "J/K preview" ends the footer's hints.
+    key("J/K", "preview", "scroll preview down / up (also Shift+Down/Up)", theme::TEXT, Group::Navigate, BROWSE, Slot::Priority(11), None),
+    key("PgDn/PgUp", "page", "scroll preview a page", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("q", "quit", "quit", theme::PEACH, Group::View, BROWSE, Slot::Quit, None),
 ];
 
@@ -2996,6 +3020,10 @@ fn event_loop(
     let mut rename_shown = String::new();
     let mut status_message: Option<String> = None;
     let mut preview_scroll: u16 = 0;
+    // Set on every draw: the last scroll offset that still fills the preview
+    // pane, and the pane's inner height, for the scroll keys.
+    let mut preview_max: u16 = 0;
+    let mut preview_height: u16 = 0;
     let mut last_preview_idx: usize = usize::MAX;
     let mut filter_strip_area: Rect = Rect::default();
     let mut list_inner_area: Rect = Rect::default();
@@ -3276,11 +3304,9 @@ fn event_loop(
                 };
 
                 let total_lines = preview_lines.len() as u16;
-                let preview_height = cols[1].height.saturating_sub(2);
-                let max_scroll = total_lines.saturating_sub(preview_height);
-                if preview_scroll > max_scroll {
-                    preview_scroll = max_scroll;
-                }
+                preview_height = cols[1].height.saturating_sub(2);
+                preview_max = total_lines.saturating_sub(preview_height);
+                preview_scroll = scrolled(preview_scroll, 0, preview_max);
 
                 let mut preview_title_spans = flags_slots(if real_idx < nodes.len() {
                     nodes[real_idx].flags
@@ -3447,10 +3473,10 @@ fn event_loop(
         if let Event::Mouse(mouse) = ev {
             match mouse.kind {
                 MouseEventKind::ScrollDown => {
-                    preview_scroll = preview_scroll.saturating_add(3);
+                    preview_scroll = scrolled(preview_scroll, WHEEL_STEP, preview_max);
                 }
                 MouseEventKind::ScrollUp => {
-                    preview_scroll = preview_scroll.saturating_sub(3);
+                    preview_scroll = scrolled(preview_scroll, -WHEEL_STEP, preview_max);
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
                     if mouse.row == filter_strip_area.y {
@@ -3869,6 +3895,20 @@ fn event_loop(
                     status_message = Some(message.to_string());
                 }
             }
+            // Shift+Down/Up scroll the preview; matched before the plain
+            // arrows, which move the cursor.
+            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                preview_scroll = scrolled(preview_scroll, 1, preview_max);
+            }
+            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                preview_scroll = scrolled(preview_scroll, -1, preview_max);
+            }
+            KeyCode::PageDown => {
+                preview_scroll = scrolled(preview_scroll, preview_page(preview_height), preview_max);
+            }
+            KeyCode::PageUp => {
+                preview_scroll = scrolled(preview_scroll, -preview_page(preview_height), preview_max);
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 if selected + 1 < visible.len() {
                     navigate(nodes, &mut state, &visible, selected, real_idx, focus_active, 1);
@@ -4044,10 +4084,10 @@ fn event_loop(
                 }
             }
             KeyCode::Char('J') => {
-                preview_scroll = preview_scroll.saturating_add(1);
+                preview_scroll = scrolled(preview_scroll, 1, preview_max);
             }
             KeyCode::Char('K') => {
-                preview_scroll = preview_scroll.saturating_sub(1);
+                preview_scroll = scrolled(preview_scroll, -1, preview_max);
             }
             KeyCode::Char('?') => {
                 help.open();
@@ -4207,7 +4247,7 @@ mod tests {
 
     #[test]
     fn normal_and_focus_footers_hint_the_browse_keys() {
-        let expected = vec!["o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "f", "v", "?", "q"];
+        let expected = vec!["o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "f", "v", "?", "J/K", "q"];
         assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
         assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
     }
@@ -4281,6 +4321,69 @@ mod tests {
         for group in Group::ALL {
             assert!(rows.contains(&help::Row::Heading(group)), "{group:?}");
         }
+    }
+
+    #[test]
+    fn scrolled_clamps_at_the_top() {
+        assert_eq!(scrolled(0, -1, 10), 0);
+        assert_eq!(scrolled(2, -3, 10), 0);
+        assert_eq!(scrolled(0, i32::MIN, 10), 0);
+    }
+
+    #[test]
+    fn scrolled_clamps_at_the_end() {
+        assert_eq!(scrolled(10, 1, 10), 10);
+        assert_eq!(scrolled(9, 3, 10), 10);
+        assert_eq!(scrolled(0, 5, 0), 0);
+        assert_eq!(scrolled(u16::MAX, i32::MAX, u16::MAX), u16::MAX);
+        // A stale offset past a shrunken end comes back to it.
+        assert_eq!(scrolled(15, 0, 10), 10);
+    }
+
+    #[test]
+    fn scrolled_moves_one_line_for_j_and_k() {
+        assert_eq!(scrolled(4, 1, 10), 5);
+        assert_eq!(scrolled(4, -1, 10), 3);
+    }
+
+    #[test]
+    fn wheel_step_is_three_lines() {
+        assert_eq!(scrolled(4, WHEEL_STEP, 100), 7);
+        assert_eq!(scrolled(4, -WHEEL_STEP, 100), 1);
+    }
+
+    #[test]
+    fn page_step_is_the_pane_height_minus_one_line() {
+        assert_eq!(preview_page(20), 19);
+        assert_eq!(scrolled(0, preview_page(20), 100), 19);
+        assert_eq!(scrolled(19, -preview_page(20), 100), 0);
+        assert_eq!(scrolled(90, preview_page(20), 100), 100);
+        // A pane one line tall (or none) still pages by a line.
+        assert_eq!(preview_page(1), 1);
+        assert_eq!(preview_page(0), 1);
+    }
+
+    #[test]
+    fn preview_scroll_keys_are_listed_and_j_k_shows_in_the_footer_first_to_drop() {
+        let jk = TREE_KEYS.iter().find(|k| k.key == "J/K").unwrap();
+        assert_eq!(jk.help, "scroll preview down / up (also Shift+Down/Up)");
+        assert_eq!(jk.group, Group::Navigate);
+        assert_eq!(jk.modes, BROWSE);
+        let page = TREE_KEYS.iter().find(|k| k.key == "PgDn/PgUp").unwrap();
+        assert_eq!(page.help, "scroll preview a page");
+        assert_eq!(page.group, Group::Navigate);
+        assert_eq!(page.modes, BROWSE);
+        let Slot::Priority(jk_priority) = jk.slot else {
+            panic!("J/K must show in the footer, not {:?}", jk.slot);
+        };
+        for other in TREE_KEYS.iter().filter(|k| k.key != "J/K") {
+            if let Slot::Priority(p) = other.slot {
+                assert!(p < jk_priority, "{} drops before J/K", other.key);
+            }
+        }
+        let first_width = |key: &str| (0..300).find(|&w| shown_keys(Mode::Normal, &[], w).contains(&key)).unwrap();
+        assert!(first_width("J/K") > first_width("space"), "J/K drops before space");
+        assert!(first_width("J/K") > first_width("S"), "J/K drops first");
     }
 
     fn dir_node(depth: usize) -> TreeNode {
