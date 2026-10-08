@@ -186,7 +186,14 @@ tag legend, prompt or command comes first and the keys follow in the space
 left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
 it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. While browsing the tree,
 `Esc` clears the marks if there are any (and does nothing else), otherwise
-clears the filter, otherwise quits. `?` opens a help overlay
+clears the filter, otherwise quits. In the tree, `J`/`K` (or
+Shift+Down/Up) scroll the preview pane a line, PgDn/PgUp a page, and the
+mouse wheel three lines; plain `j`/`k` and Down/Up move the cursor.
+Shift+Down/Up need a terminal that sends them as distinct keys: Ghostty,
+kitty, iTerm2
+and tmux (with its default `xterm-keys`) do; macOS Terminal.app has no
+default mapping for them, so use `J`/`K` there or add the mappings
+`\033[1;2B` and `\033[1;2A` in its keyboard settings. `?` opens a help overlay
 listing every key of that view; `?` or `Esc` closes it, and `j`/`k` scroll
 it on a short terminal.
 
