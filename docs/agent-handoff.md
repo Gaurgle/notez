@@ -507,10 +507,24 @@ CEST by lead `4ffb11e2` on Andreas's requests of 21:50 and 21:55 CEST.
 `git status --short` before dispatch: only this file modified. Base
 `554fd0c` (= `main` = `origin/main`, the NZ-4 merge), branch
 `fix/NZ-31-tree-margin`, worktree `.claude/worktrees/NZ-31`, model
-`opus` via `nz-worker`, one pass. RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_fBhY` In flight. Then review, branch push,
-CI, merge, `main` run, cleanup; then NZ-34, NZ-3, NZ-5, NZ-32, NZ-28,
-NZ-30.
+`opus` via `nz-worker`, one pass. Worker REPORTED at 22:12 CEST with
+the three mid-task additions applied (no scope word, no placeholder
+dots, file names aligned with sibling folders via two spaces):
+`README.md`, `tui/theme.rs`, `tui/tree.rs`, 524 insertions, 148
+deletions, uncommitted diff against `554fd0c` hashing to
+`95d4e3dc4012d68603a98500e7553fef7c56b1fd13eb35dad1f0cf1b16208f40`;
+worker checks: build clean, notez-cli 470 passed, notez-core 146
+passed; about 132k agent tokens. As built: section rows start at
+column 1 (was 12); `theme::selected_row()` (SURFACE0 plus bold) marks
+the cursor row across the line, no highlight symbol; compact tag field
+sized by the most-tagged visible row, zero when none; one gutter
+column with the mark glyph; `theme::TREE_GLYPHS` with `├─`/`└─`,
+`│ `, `▾ `/`▸ `, two spaces for files; `later_siblings` respects the
+filter; `list_text_width` is pane minus 4; many render and click tests
+updated to the new layout (listed in the worker report, each a layout
+contract change). REVIEW dispatched at 22:15 CEST (`nz-reviewer`,
+opus) on that hash, RUNNING. Then branch push, CI, merge, `main` run,
+cleanup; then NZ-37, NZ-34, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
 
 NZ-36 (markdown tables and footnotes) also running, dispatched 22:08
 CEST on `75bb3dc`, worktree `.claude/worktrees/NZ-36`, `tui/markdown.rs`
