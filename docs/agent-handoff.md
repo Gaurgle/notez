@@ -4022,6 +4022,18 @@ Decisions (lead, working rule):
    plain bold (no colour) when it is off or the file has no language,
    so the indicator shows the state at a glance. The large-file and
    unavailable cases show plain bold with their note.
+5. Placement (Andreas 22:45 CEST: "is the placement of the path good?
+   right now its also left bound in that same footer"; lead decision):
+   both preview facts move to the PREVIEW PANE'S BOTTOM BORDER
+   (`title_bottom`): the suffix indicator at the left, the file's path
+   at the right, right-aligned, dim, truncated from the LEFT with `…`
+   when the pane is narrow so the file name stays visible; a minimum
+   of one space between them, the path gives way first. The global
+   status bar drops the file type segment and keeps marks, messages and
+   key hints (`browse_footer` loses its `file_type` lead; NZ-25 tests
+   on that lead are updated and listed). Folder and section rows show
+   neither on the preview border (the folder listing keeps its title as
+   today).
 
 Acceptance: `file_type` (or its successor) tested for `.md`, `.RS`,
 `.ts`, no extension, folder; the footer segment's style tested for on
