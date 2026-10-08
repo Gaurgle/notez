@@ -153,7 +153,10 @@ merge a ticket branch into `main` and push when all hold:
 
 Read CI with `gh run list --branch <branch> --limit 3` and `gh run watch`.
 A run is green when every job without `continue-on-error` succeeds; the
-`lint` job never blocks.
+`lint` job never blocks. A push that changes only `*.md` or `docs/**`
+starts no run; then check that the latest run's head SHA is the last
+commit touching code, and treat the CI conditions as met for a docs-only
+ticket.
 
 Merge with `git merge --no-ff` so one ticket is one revertable unit. Stage
 only the ticket's files, never `git add -A`. After the push, confirm CI on

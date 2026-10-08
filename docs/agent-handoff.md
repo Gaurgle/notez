@@ -365,6 +365,20 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
+Nothing is in flight as of 15:05 CEST on 2026-10-08. NZ-16 is Done
+(merge `5298d54`) and NZ-19 is Done (merge `3941481`); both pushed,
+board Done, worktrees and local branches removed, the remote branch
+`feat/NZ-19-ci` deleted (approved). CI now exists: the first `main` run
+`37762203661` on `3941481` is green (lint, check ubuntu, check macos).
+No worker or reviewer is running. Next under the authorization of
+13:55 CEST: NZ-20 (brief Ready under Tickets), which still needs its
+board item from Andreas (or his word that the lead may create it); the
+lead dispatches it once the item exists. Note for every later push: a
+code push to `main` now starts a CI run; a docs-only push does not
+(`docs/agent-workflow.md`, safe-merge rule).
+
+NZ-16 and NZ-19 records, moved here for history.
+
 NZ-16 (multi-select). Dispatched 2026-10-08 at 13:25 CEST by lead
 `4ffb11e2` under the standing scope (confirmed by Andreas 2026-10-07).
 `git status --short` before dispatch: clean. Base `a0773b9` (= `main` =
@@ -1860,8 +1874,37 @@ open.
 
 #### NZ-16: multi-select with `Space`
 
-Status: Ready (NZ-15 is on `main` as of 13:15 CEST on 2026-10-08; board
-Ready). Confirmed
+Status: Done. Merged into `main` as `5298d54` at 14:55 CEST on
+2026-10-08 and pushed; board Done. Not yet installed by Andreas.
+
+Record:
+
+- Base `a0773b9`, branch `feat/NZ-16-multi-select`, ticket commit
+  `04af62c` (2 files: `README.md`, `tui/tree.rs`; 1445 insertions, 98
+  deletions), merge commit `5298d54` made with `git merge --no-ff` under
+  the integration delegation. To undo the ticket: `git revert -m 1
+  5298d54`.
+- Agents: two `nz-worker` (opus) passes, one `nz-reviewer` (opus), no
+  fix cycle. About 337k worker tokens and 109k reviewer tokens.
+- Review: accepted first time. The reviewer diffed the four refactors
+  (`remove_and_retire`, `resolve_folder`, `move_and_repoint`,
+  generalized `move_question`) against the old bodies and found the
+  single-row paths unchanged. The committed diff hashes to
+  `9f090720694db7c39fcfaa8defcfdfbac0133680ce47c289f09743aca467967a`
+  (`git diff a0773b9 04af62c | shasum -a 256`), the hash it accepted.
+- Lead verification: build and tests in the worktree and again on `main`
+  after the merge: build clean, notez-cli 304 passed, notez-core 146
+  passed.
+- Leftovers, none blocking: a missing space in the `TREE_KEYS` browse
+  `esc` row source (`quit",theme::PEACH`), cosmetic; README "Marking
+  several notes" names "a section" among refusals though sections cannot
+  be marked, and omits the "destination inside a marked folder" and
+  "already in" refusals; no bulk move test with a folder two levels deep
+  or an item leaving the view (single-move paths reused per item); the
+  event-loop wiring (`Space` swallowed in prompts, marks cleared after
+  `y`) checked by tracing only.
+
+Brief as run (confirmed
 in scope by Andreas on 2026-10-07 in the lead session ("NZ-16:
 multi-select with Space"); the mark key is `Space` by his decision the
 same day (`x` stays "check" in the todo board). Depends on NZ-12 (`d`,
@@ -2097,10 +2140,46 @@ forward.
 
 #### NZ-19: add CI (GitHub Actions) for build and tests
 
-Status: In flight since 14:05 CEST on 2026-10-08, second worker slot.
-AUTHORIZED by Andreas in the lead session at 13:55 CEST ("1, yes 2. ru
-it now 3. yes 4. yes": run, now, branch push allowed, remote branch
-deletion after merge allowed). Earlier history of this brief:
+Status: Done. Merged into `main` as `3941481` at 15:00 CEST on
+2026-10-08 and pushed; the first `main` CI run `37762203661` is green;
+board Done; remote branch `feat/NZ-19-ci` deleted (approved).
+
+Record:
+
+- Base `77c3758`, branch `feat/NZ-19-ci`, commits A `33a5793` (the
+  ticket: `.github/workflows/ci.yml` new, `CLAUDE.md`,
+  `docs/agent-workflow.md`; 61 insertions, 2 deletions), B `b528909`
+  (throwaway failing test), C `836c255` (revert of B); merge commit
+  `3941481` with `git merge --no-ff`. To undo: `git revert -m 1 3941481`.
+- Runs: `37760007328` on A green (both runners), `37760332799` on B red
+  (both check jobs failed in `cargo test` on the throwaway test only,
+  lint green), `37760452070` on C green, `37762203661` on `main` green.
+- Agents: one `nz-worker` (opus), one `nz-reviewer` (opus), no fix
+  cycle. About 38k worker tokens and 48k reviewer tokens. The lead did
+  the pushes and the red-run commits (workers never push).
+- Review: accepted first time. Pins verified by the reviewer:
+  `actions/checkout` v7.0.1 `3d3c42e5...` (lightweight tag),
+  `Swatinem/rust-cache` v2.9.2 `6323deb1...` (annotated tag
+  dereferenced), `dtolnay/rust-toolchain` branch `stable` at
+  `89b12181...` (2026-10-01; a moving branch pinned by immutable SHA,
+  acceptable). The diff `git diff 77c3758 836c255 | shasum -a 256` is
+  `830d7b902c3e3695f5f240362c825e96a75c68897415d8c58c531746c21311dd`,
+  equal to the diff at A, the hash it accepted.
+- F1 from the review (docs-only pushes start no run; how to read the
+  safe-merge condition then) was added by the lead to
+  `docs/agent-workflow.md` right after the merge, as a coordination-doc
+  edit, in the same commit as this record.
+- Leftovers, none blocking: O1 the concurrency comment says "never on
+  main" while GitHub still keeps at most one pending run per group; O2
+  `--locked` on the cargo commands would catch a stale `Cargo.lock`
+  (needs a decision, it changes the "same two commands" wording); O3
+  the `# stable` pin comment could carry its date; O4 `--no-fail-fast`
+  on `cargo test` would show every failing binary; the `ubuntu-latest`
+  label moves to Ubuntu 26 from 2026-10-19 (GitHub notice).
+
+Brief as run. AUTHORIZED by Andreas in the lead session at 13:55 CEST
+("1, yes 2. ru it now 3. yes 4. yes": run, now, branch push allowed,
+remote branch deletion after merge allowed). Earlier history of this brief:
 relayed on 2026-10-08 at about 12:30 CEST by the advisor session
 (`repos-f9`) with Andreas's words "yes, ok from me. lets set this up",
 given there in answer to adding CI to notez, and the advisor's own
@@ -2549,14 +2628,19 @@ Current lead):
    hold; they were paused, not withdrawn.
 2. NZ-14 (folders): DONE 2026-10-08, merge `ae3617e`.
 3. NZ-15 (move, set scope): DONE 2026-10-08, merge `36699c1`.
-4. NZ-16 (multi-select): brief Ready under Tickets. Create
-   `feat/NZ-16-multi-select` and `.claude/worktrees/NZ-16` from `main`,
-   pass 1 (marks, `Esc`, drawing, footer count, action set, bulk
-   delete), pass 2 (bulk `m` and `S`, README), one review, checks,
-   commit, merge, push, board, cleanup. Then the UI tickets NZ-4, NZ-5,
-   NZ-3. NZ-11 and NZ-6 in the second slot when their files are free.
-   NZ-19 (CI) runs in the second slot once Andreas answers the four
-   questions; NZ-18 (Pinz, design) waits for his word.
+4. NZ-16 (multi-select): DONE 2026-10-08, merge `5298d54`. NZ-19 (CI):
+   DONE 2026-10-08, merge `3941481`; CI is live on `main`.
+5. NZ-20 (refuse names sanitizing would alter; protect `_todos`): brief
+   Ready, authorized; needs its board item from Andreas first. Create
+   `feat/NZ-20-refuse-altered-names` and `.claude/worktrees/NZ-20` from
+   `main`, one pass, one review, checks, commit, merge (CI green on the
+   branch is now a real condition: push the branch? NOT authorized in
+   general, only NZ-19's branch was; so a lead reads the branch
+   condition as met by the lead's local checks plus the `main` run, or
+   asks Andreas for standing branch-push permission), push, board,
+   cleanup. Then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and NZ-6 in the
+   second slot when their files are free. NZ-18 (Pinz, design) waits
+   for Andreas's word.
 4. NZ-17 (versioning) and the workflow-doc board wiring wait for
    Andreas's word; tagging is off until a first version exists.
 
