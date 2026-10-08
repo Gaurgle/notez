@@ -512,6 +512,12 @@ CEST by lead `4ffb11e2` on Andreas's requests of 21:50 and 21:55 CEST.
 CI, merge, `main` run, cleanup; then NZ-34, NZ-3, NZ-5, NZ-32, NZ-28,
 NZ-30.
 
+NZ-36 (markdown tables and footnotes) also running, dispatched 22:08
+CEST on `75bb3dc`, worktree `.claude/worktrees/NZ-36`, `tui/markdown.rs`
+only; its record is under Tickets. Three agents are not running at
+once: NZ-35's worker and reviewer have reported, so the two live
+workers are NZ-31 and NZ-36 on disjoint files.
+
 NZ-35 (`install.sh` build progress and timing) in the SECOND slot.
 Dispatched 2026-10-08 at 22:10 CEST by lead `4ffb11e2` on Andreas's
 request ("can we add to it a little loading animation or bar that
@@ -522,7 +528,14 @@ Base `727dae9`, branch `chore/NZ-35-install-progress`, worktree
 diff against `727dae9` hashing to
 `fece6a9ef9cbd93484d210791793b601364d389eec0ddcbf378c0b6b6460912c`;
 `bash -n` parses; about 18k agent tokens. REVIEW dispatched at 22:15
-CEST (`nz-reviewer`), RUNNING.
+CEST (`nz-reviewer`); ACCEPTED at 22:18 CEST (about 19k tokens; probes
+under bash 3.2 confirmed the empty unquoted flag adds no argument and
+`set -e` still aborts; follow-ups: the TTY test looks at stdout while
+cargo draws on stderr, fine by decision; `copied to` and `installed`
+lines near-duplicate). Committed as `c582600` (hash `fece6a9e...`),
+branch pushed at 22:20 CEST; integration chain running in the
+background (runs selected by SHA); this file is committed after it
+reports.
 Decisions: drop `--quiet` on a TTY so cargo's own progress bar shows,
 keep `--quiet` when piped; `SECONDS` timing per build and total; one
 `ok` line per step. Board item `PVTI_lAHOCU842c4BmE5Zzg_fT_A` In
@@ -3670,6 +3683,30 @@ help; README sentence. Allowed files: `crates/notez-cli/src/tui/tree.rs`,
 `README.md`. One worker pass, one review. Reviewer probes: the probe
 never reads file contents; mtime granularity on APFS and ext4; a reload
 during a prompt must not happen; CPU when idle for an hour.
+
+#### NZ-36: render markdown tables and footnotes in the preview
+
+Status: In flight since 22:08 CEST on 2026-10-08 (second slot beside
+NZ-31; it touches `tui/markdown.rs`, which NZ-31 does not). Requested
+by Andreas at 22:05 CEST ("the togglable markdown/code reader isn't
+really translating the markdown completely yet, for instance it cannot
+generate tables and similar. is this something we'd need additional
+deps for or?"). Answer given: no dependency; pulldown-cmark already
+emits table events, NZ-25 passed tables through as source text as a
+scope cut. Board item `PVTI_lAHOCU842c4BmE5Zzg_fWGg`. Base `75bb3dc`,
+branch `feat/NZ-36-markdown-tables`, worktree `.claude/worktrees/NZ-36`,
+model `opus` via `nz-worker`, one pass.
+
+Decisions (lead, working rule): tables laid out from the events with
+pulldown's column alignments, natural widths when they fit, else
+shrink the widest columns to a minimum of 3 and wrap cells, else clip
+with `…`; light box glyphs, header bold, no outer frame; one container
+prefix per line (fixes NZ-25 follow-up 2); footnotes enabled,
+references `[n]`, definitions rendered after the document under a
+rule; raw HTML, images and math unchanged. Allowed files:
+`tui/markdown.rs`, `tui/theme.rs`, `README.md`. One review. Reviewer
+probes: CJK cells; a 200k-row table in bounded time; a table with
+ragged rows; wrapping inside a cell keeps inline styles.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
