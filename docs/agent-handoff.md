@@ -361,20 +361,38 @@ State at the stop, in short (details under In flight, Tickets, Next step):
     like a docs folder from `d`, `r`, `m` and `S`. Board item still to
     be created (the lead asked Andreas, since creating items stays with
     the owner).
+- 2026-10-08 15:15 CEST, Andreas, in the lead session (`4ffb11e2`):
+  "great. you may go ahead with NZ-20. yes, branch pushes from now."
+  The lead's reading:
+  - NZ-20 runs now (the lead's own files are free). "Go ahead" after the
+    lead said the board item was missing is read as leave to create that
+    one item; the lead created `PVTI_lAHOCU842c4BmE5Zzg_Yflc` at 15:17
+    CEST. Creating items otherwise stays with the owner.
+  - STANDING PERMISSION: for every ticket from now on the lead pushes
+    the ticket branch to `origin` after the reviewer accepts, so the
+    workflow runs on it before the merge, and deletes that remote branch
+    after the merge (the recommendation he said yes to named both).
+    Scope: ticket branches under the recorded standing scope only. No
+    force-push, no tags, no releases. If a run is red the ticket stops
+    at Ready to integrate.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-Nothing is in flight as of 15:05 CEST on 2026-10-08. NZ-16 is Done
-(merge `5298d54`) and NZ-19 is Done (merge `3941481`); both pushed,
-board Done, worktrees and local branches removed, the remote branch
-`feat/NZ-19-ci` deleted (approved). CI now exists: the first `main` run
-`37762203661` on `3941481` is green (lint, check ubuntu, check macos).
-No worker or reviewer is running. Next under the authorization of
-13:55 CEST: NZ-20 (brief Ready under Tickets), which still needs its
-board item from Andreas (or his word that the lead may create it); the
-lead dispatches it once the item exists. Note for every later push: a
-code push to `main` now starts a CI run; a docs-only push does not
+NZ-20 (refuse altered names, protect `_todos`). Dispatched 2026-10-08
+at 15:20 CEST by lead `4ffb11e2` on Andreas's "you may go ahead with
+NZ-20". `git status --short` before dispatch: clean. Base `e84e90d`
+(= `main` = `origin/main`; code at the NZ-19 merge `3941481`), branch
+`feat/NZ-20-refuse-altered-names`, worktree `.claude/worktrees/NZ-20`,
+model `opus` via `nz-worker`, one pass. RUNNING. Then one review, then
+(new under the standing branch-push permission) push the branch, wait
+for a green run, merge `--no-ff`, checks on `main`, push `main`, wait
+for the `main` run, board Done, delete the remote branch, cleanup.
+Board: In flight (item `PVTI_lAHOCU842c4BmE5Zzg_Yflc`).
+
+NZ-16 Done (merge `5298d54`) and NZ-19 Done (merge `3941481`) at about
+15:00 CEST; CI exists, first `main` run `37762203661` green. A code push
+to `main` starts a CI run; a docs-only push does not
 (`docs/agent-workflow.md`, safe-merge rule).
 
 NZ-16 and NZ-19 records, moved here for history.
@@ -2261,12 +2279,11 @@ the safe-merge check; the git identity step; no `pull_request_target`.
 
 #### NZ-20: refuse names sanitizing would alter; protect `_todos`
 
-Status: Ready, authorized to run after NZ-16 is on `main` (Andreas,
-lead session, 2026-10-08 13:55 CEST: "5. lets try refusing. 6. protect
-it"). Board item not yet created: creating items stays with the owner,
-so the lead asked Andreas to create "NZ-20: refuse names sanitizing
-would alter; protect _todos" or to allow the lead to create it. Touches
-`tui/tree.rs`, so it runs only when no other ticket holds that file.
+Status: In flight since 15:20 CEST on 2026-10-08. Authorized by Andreas
+in the lead session (13:55 CEST "5. lets try refusing. 6. protect it";
+15:15 CEST "you may go ahead with NZ-20"). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_Yflc`, created by the lead on that go-ahead.
+Touches `tui/tree.rs`; no other ticket holds that file.
 
 Problem (NZ-14 review and worker findings): typed names in the browser
 go through `sanitize::name` (trim, lowercase, whitespace to `-`, keep
