@@ -187,13 +187,28 @@ strikethrough, inline code, code blocks with their language tag, bullet,
 numbered and task lists, block quotes with a bar, horizontal rules, and links
 as their text with the url dimmed after it. Tables and raw HTML show as
 their source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
-width. `p` switches between rendered and raw; the footer hint names the view
+width; code block lines wrap by character and keep their indentation. `p`
+switches between rendered and raw; the footer hint names the view
 `p` switches to (`p raw` or `p rendered`) and shows only while a markdown
 note is selected. The choice holds for every note until the browser closes
-and is never saved. Other files always show raw. While a file is selected,
-the footer leads with its type: `markdown`, otherwise the lowercase
-extension (`toml`, `rs`, `txt`), or `file` when it has none; folder and
-section rows show none.
+and is never saved. Other files always show raw.
+
+**Syntax highlighting.** The preview highlights code with tree-sitter
+grammars built into the binary: Rust, Python, Kotlin, Java, C, TOML, JSON,
+Bash and Markdown. In a rendered note, a fenced code block is highlighted
+when its tag is one of `rust`/`rs`, `python`/`py`, `kotlin`/`kt`, `java`, `c`,
+`toml`, `json`, `bash`/`sh`/`shell` or `markdown`/`md` (any case; anything after
+a comma or space, as in `rust,ignore`, is ignored); other tags show plain. A
+raw note and any file with a matching extension (`.rs`, `.py`, `.kt`, `.kts`,
+`.java`, `.c`, `.h`, `.toml`, `.json`, `.sh`, `.bash`, `.md`) is highlighted
+whole. Files over 1 MB are shown plain to keep selection fast.
+
+While a file is selected, the footer leads with its type: the language name
+when the extension has a grammar (`rust`, `kotlin`, `markdown`), otherwise
+the lowercase extension (`txt`, `yaml`), or `file` when it has none; folder
+and section rows show none. A file over the limit reads `rust (not
+highlighted, large)`, and a grammar that failed to load reads `rust
+(highlighter unavailable)`.
 
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a

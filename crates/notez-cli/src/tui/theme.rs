@@ -101,6 +101,71 @@ pub fn rule() -> Style {
     Style::default().fg(SURFACE)
 }
 
+// Syntax highlighting, one style per capture in `tui/highlight.rs`. They
+// reuse the palette and stay clear of the scope badge colours in
+// [`scope_color`] (lavender, teal, flamingo, green), so a highlighted token
+// never reads as a scope.
+
+/// Keywords (`fn`, `def`, `if`, `return`).
+pub fn syntax_keyword() -> Style {
+    Style::default().fg(MAUVE)
+}
+
+/// Function and method names, macros.
+pub fn syntax_function() -> Style {
+    Style::default().fg(SAPPHIRE).add_modifier(Modifier::BOLD)
+}
+
+/// Type names, built-in types.
+pub fn syntax_type() -> Style {
+    Style::default().fg(YELLOW)
+}
+
+/// String literals, escapes, JSON keys.
+pub fn syntax_string() -> Style {
+    Style::default().fg(PEACH)
+}
+
+/// Numeric literals.
+pub fn syntax_number() -> Style {
+    Style::default().fg(RED)
+}
+
+/// Comments, including doc comments.
+pub fn syntax_comment() -> Style {
+    Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC)
+}
+
+/// Constants and built-in constants (`true`, `None`, `NULL`).
+pub fn syntax_constant() -> Style {
+    Style::default().fg(RED)
+}
+
+/// Variables and parameters.
+pub fn syntax_variable() -> Style {
+    Style::default().fg(TEXT)
+}
+
+/// Operators.
+pub fn syntax_operator() -> Style {
+    Style::default().fg(SUBTEXT)
+}
+
+/// Brackets, delimiters and other punctuation.
+pub fn syntax_punctuation() -> Style {
+    Style::default().fg(OVERLAY)
+}
+
+/// Attributes and annotations (`#[derive]`, `@Override`).
+pub fn syntax_attribute() -> Style {
+    Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)
+}
+
+/// Fields, properties and TOML keys.
+pub fn syntax_property() -> Style {
+    Style::default().fg(SAPPHIRE)
+}
+
 /// Per-tag colors used by the todoz tag system. Five entries: important,
 /// prio, longterm, idea, blocked.
 pub const FLAG_COLORS: [Color; 5] = [
@@ -174,5 +239,40 @@ mod tests {
             assert_ne!(Some(*a), selected().bg, "{a:?} is the selection background");
             assert_ne!(Some(*a), dimmed().fg, "{a:?} is the dimmed colour");
         }
+    }
+
+    #[test]
+    fn syntax_styles_avoid_scope_colours_and_keep_key_pairs_apart() {
+        let syntax = [
+            syntax_keyword(),
+            syntax_function(),
+            syntax_type(),
+            syntax_string(),
+            syntax_number(),
+            syntax_comment(),
+            syntax_constant(),
+            syntax_variable(),
+            syntax_operator(),
+            syntax_punctuation(),
+            syntax_attribute(),
+            syntax_property(),
+        ];
+        let scopes = [Scope::Personal, Scope::Public, Scope::Local, Scope::Global];
+        for style in syntax {
+            for scope in scopes {
+                assert_ne!(
+                    style.fg,
+                    Some(scope_color(scope)),
+                    "{style:?} uses a scope colour"
+                );
+            }
+        }
+        assert_ne!(syntax_string().fg, syntax_number().fg);
+        assert_ne!(syntax_keyword().fg, syntax_type().fg);
+        let comment = syntax_comment();
+        assert!(
+            comment.fg == dimmed().fg || comment.add_modifier.contains(Modifier::ITALIC),
+            "comments are dim or italic"
+        );
     }
 }
