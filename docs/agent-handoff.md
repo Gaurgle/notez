@@ -467,7 +467,14 @@ perf test has only 2x headroom; (6) control characters in a note reach
 the terminal through the preview, pre-existing. Lead ordered one
 pre-merge change at 20:18 CEST to avoid CI flakes: loosen the perf
 bound to 5 s and, if a one-liner, normalise lone `\r`; sent to the
-pass 1 worker, RUNNING; re-review on the new hash follows, then branch
+pass 1 worker, DONE at 20:25 CEST: perf test renamed
+`a_two_megabyte_document_renders_in_bounded_time`, bound 5.0 s with a
+comment; lone `\r` normalised with one new assertion in the CRLF test
+(red before the fix). Only `markdown.rs` changed. Worker checks: 375 +
+146 passed. New diff against `706e169`: 7 files, 1506 insertions, 82
+deletions, hashing to
+`476413e3f2b87610d5153dd6e10521a411c8cc332848fa7625d01de68a1bb89d`.
+RE-REVIEW sent to the same reviewer at 20:28 CEST, RUNNING; then branch
 push, CI, merge, `main` run, cleanup. The dependency
 change is approved for this ticket (Authorized by the owner, 17:20
 CEST), so the safe-merge rule's dependency condition is met. Board
