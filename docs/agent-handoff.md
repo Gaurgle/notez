@@ -346,13 +346,20 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-Nothing is in flight as of 13:20 CEST on 2026-10-08. NZ-15 is Done
-(merge `36699c1`, pushed, board Done, worktree and branch removed). No
-worker or reviewer is running. Next under the standing scope: NZ-16
-(multi-select), brief Ready under Tickets, board Ready; the lead
-dispatches it next unless Andreas redirects. NZ-19 (CI) waits for
+NZ-16 (multi-select). Dispatched 2026-10-08 at 13:25 CEST by lead
+`4ffb11e2` under the standing scope (confirmed by Andreas 2026-10-07).
+`git status --short` before dispatch: clean. Base `a0773b9` (= `main` =
+`origin/main`; code is at the NZ-15 merge `36699c1`), branch
+`feat/NZ-16-multi-select`, worktree `.claude/worktrees/NZ-16`, model
+`opus` via `nz-worker`. Pass 1 (marks with `Space`/`Esc`, drawing,
+footer count, action-set function, bulk delete) RUNNING; pass 2 (bulk
+`m` and `S`, README) follows on the same worktree, then one review.
+Board: In flight. No second worker slot is in use. NZ-19 (CI) waits for
 Andreas's four answers in the lead session (see Authorized by the
 owner, 2026-10-08 entry).
+
+NZ-15 is Done (merge `36699c1`, pushed, board Done, worktree and branch
+removed at 13:18 CEST).
 
 NZ-15 record, moved here for history. Dispatched 2026-10-08 at 11:58
 CEST by lead `4ffb11e2` under the standing scope, with the lead's recommended answers
