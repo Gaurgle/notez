@@ -361,15 +361,16 @@ this time (notez `target` 865 MB, the NZ-14 worktree `target` 619 MB,
 `~/.cargo/registry` 517 MB; nothing else under `~/Repos` or
 `~/RustroverProjects`); the big consumers are under `~/Library/Caches`
 (JetBrains 3.6 GB, ms-playwright 1.1 GB, browser caches, Homebrew 563
-MB). The lead deleted nothing and asked Andreas. Until space is freed
-the review is NOT dispatched (it must run `cargo test`), and the one
-pending fix is held too.
+MB). The lead deleted nothing and asked Andreas. RESOLVED at 11:05
+CEST: Andreas ran `cargo clean` in `~/Repos/notez` (and freed more
+himself); `df` shows 8.9 GB free. Work resumed.
 
-Pending before review, one small fix for the pass 2 worker: the folder
-delete prompt for an empty folder reads `delete empty/ and its no notes
-from personal? y/n`; change `delete_question` so an empty folder reads
-`delete empty/ (no notes) from personal? y/n`, `1 note` and `<n> notes`
-keep the "and its" form; one test line follows.
+Fix sent to the pass 2 worker at 11:06 CEST (same agent, same worktree),
+RUNNING: the folder delete prompt for an empty folder read `delete
+empty/ and its no notes from personal? y/n`; it is to read `delete
+empty/ (no notes) from personal? y/n`, with `and its 1 note` and `and
+its <n> notes` kept for non-empty folders; one test line follows. The
+review of the whole diff is dispatched after this report.
 
 Lead decisions on the pass 2 report:
 
