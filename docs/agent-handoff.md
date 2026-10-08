@@ -346,11 +346,38 @@ starting and that he can stop it. `git status --short` before dispatch:
 clean. Base `1074141` (= `main` = `origin/main`; code is at the NZ-14
 merge `ae3617e`), branch `feat/NZ-15-move`, worktree
 `.claude/worktrees/NZ-15`, model `opus` via `nz-worker`. Pass 1
-(`move_path` helper with injectable rename for the cross-device
-fallback, `m` for notes within and across scopes, the visibility
-confirm, tag carry) RUNNING; pass 2 (folders, `S`, README) follows on
-the same worktree, then one review. Board: In flight. No second worker
-slot is in use.
+(`move_path` helper with injectable rename and copy hooks for the
+cross-device fallback, `m` for notes within and across scopes, the
+visibility confirm, tag carry) REPORTED at 12:12 CEST: `tui/tree.rs`,
+`tui/footer.rs`, `tui/mod.rs` modified, new file `tui/move_path.rs`
+(untracked, registered with `git add -N` for hashing); diff against
+`1074141` 4 files, 1208 insertions, 4 deletions, hashing to
+`157e72d9312ede0b35ee2f4ae75219b3c77f781d6abe2ecca767d3444683e95e`;
+worker checks: build clean, notez-cli 274 passed, notez-core 146
+passed; about 184k agent tokens. Pass 2 (folders, `S`, README)
+DISPATCHED at 12:15 CEST on the same worktree, RUNNING. Then one
+review of the whole diff. Board: In flight. No second worker slot is in
+use.
+
+Lead decisions on the pass 1 report:
+
+- Accepted the `carried` list: in a one-scope view (`-p`, `-l`, `-g`)
+  `Tab` still offers other scopes, so a moved note may leave the view;
+  its flags are added to the exit write anyway and the footer says
+  `moved to <path>`.
+- A global row has no project, so `Tab` offers the scopes of the
+  project the browser was opened in; outside a project a global note
+  moves only within global (decision 7 as read by the worker, accepted).
+- `MoveError` is a typed enum (`Exists`, `IntoItself`, `NotPlain`, `Io`,
+  `Copy { error, dst }`, `RemoveSource { error, dst, src }`) rather than
+  anyhow, so tests match on variants; fine.
+- The repository named in the "into public" clause is the directory
+  name of `<repo>`; fine.
+- `RemoveSource` (failure while removing the source after a verified
+  copy) has no test, hard to inject on one volume; reviewer to inspect
+  the path by reading.
+- One existing test changed: `normal_and_focus_footers_hint_the_browse_keys`
+  expects `m` after `N` (every footer key at width 200), legitimate.
 
 NZ-14 is Done (merge `ae3617e`, pushed, board Done, worktree and branch
 removed at 11:48 CEST).
