@@ -502,7 +502,20 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-37 (Esc never quits). Dispatched 2026-10-08 at 22:21 CEST by lead
+NZ-34 (reload on demand and on change). Dispatched 2026-10-08 at 22:29
+CEST by lead `4ffb11e2` on Andreas's request of about 22:00 CEST. `git
+status --short` before dispatch: only this file modified. Base
+`5ff3745` (= `main` = `origin/main`, the NZ-37 merge), branch
+`feat/NZ-34-reload`, worktree `.claude/worktrees/NZ-34`, model `opus`
+via `nz-worker`, one pass. RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fMvo` In flight. Then review, branch push,
+CI, merge, `main` run, cleanup; then NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
+
+NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
+green; remote branch deleted; worktree and local branch removed; board
+Done).
+
+NZ-37 record, for history. Dispatched 2026-10-08 at 22:21 CEST by lead
 `4ffb11e2` on Andreas's request of 22:30 (estimated; real about 22:05)
 CEST. Base `38f91a5` (= `main`, the NZ-31 merge), branch
 `fix/NZ-37-esc-never-quits`, worktree `.claude/worktrees/NZ-37`, model
@@ -522,8 +535,14 @@ helper with the test `esc_clears_the_filter_and_otherwise_does_nothing`,
 README line rewrapped; checks 471 + 146 passed; new diff against
 `38f91a5` 3 files, 34 insertions, 30 deletions, hashing to
 `f7d6b55c536aee9e1f98300c08b2b6060389e3afd40877a00a2710574fe5f2a7`.
-RE-REVIEW sent at 22:35 CEST, RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_fY-g` In flight. Then branch push, CI, merge, cleanup; then NZ-34, NZ-3, NZ-5,
+RE-REVIEW sent at 22:35 CEST; ACCEPTED at 22:38 CEST on `f7d6b55c...`
+(about 35k tokens; follow-up: one README source line still 106
+columns, cosmetic). Lead checks: build clean, 471 + 146 passed.
+Committed as `5a9c1ff`, branch pushed at 22:40 CEST; integration chain
+running in the background (runs selected by SHA); this file is
+committed after it reports. Board item `PVTI_lAHOCU842c4BmE5Zzg_fY-g`
+In flight until then. NZ-34 is created from `main` after this merge
+(same file). Then branch push, CI, merge, cleanup; then NZ-34, NZ-3, NZ-5,
 NZ-32, NZ-28, NZ-30.
 
 NZ-36 (tables and footnotes) is DONE: accepted at 22:18 CEST (about 55k
@@ -3830,7 +3849,22 @@ ragged rows; wrapping inside a cell keeps inline styles.
 
 #### NZ-37: Esc never quits the browser
 
-Status: Ready, runs right after NZ-31 (same file, tiny). Requested by
+Status: Done. Merged into `main` as `5ff3745` at 22:27 CEST on
+2026-10-08 and pushed; branch run and `main` run green; board Done;
+remote branch deleted. Not yet installed by Andreas.
+Record: base `38f91a5`, branch `fix/NZ-37-esc-never-quits`, ticket
+commit `5a9c1ff` (`README.md`, `tui/todo.rs`, `tui/tree.rs`; 34
+insertions, 30 deletions), merge `5ff3745` with `git merge --no-ff`;
+undo with `git revert -m 1 5ff3745`. One `nz-small` (sonnet, about 55k
+tokens over two rounds), one `nz-reviewer` (opus, about 65k) with one
+fix cycle (missing todo-board test), accepted on
+`f7d6b55c536aee9e1f98300c08b2b6060389e3afd40877a00a2710574fe5f2a7`.
+Lead checks: build clean, notez-cli 471 passed, notez-core 146 passed.
+As built: `Esc` clears marks, then the filter, then nothing, in both
+views; `q` and `:q` quit without confirmation; help rows updated.
+Leftover: one README source line is 106 columns wide.
+
+Brief as run. Requested by
 Andreas on 2026-10-08 at 22:30 CEST ("must be able to use esc to close
 prompts like when renaming a doc. esc is quitting the app completely
 now? perhaps have a warning for quit as well. do we have :q for
@@ -4257,10 +4291,10 @@ Current lead):
    `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
    `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 DONE (merge
    `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 DONE (merge
-   `38f91a5`), NZ-35 DONE (merge `cafd169`, install.sh), NZ-36
-   (tables) in its merge chain, NZ-37 (Esc) IN FLIGHT, then NZ-34
-   (reload), NZ-3, NZ-5, NZ-32 (type filter), NZ-28 (linting), NZ-30
-   (symbol outline),
+   `38f91a5`), NZ-35 DONE (merge `cafd169`, install.sh), NZ-36 DONE
+   (merge `97455ab`, tables), NZ-37 DONE (merge `5ff3745`, Esc), NZ-34
+   (reload) IN FLIGHT, then NZ-3, NZ-5, NZ-32 (type filter), NZ-28
+   (linting), NZ-30 (symbol outline),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
