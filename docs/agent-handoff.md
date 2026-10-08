@@ -412,7 +412,14 @@ committed it as commit A `33a5793` on `feat/NZ-19-ci` (diff against
 `77c3758` hashes to
 `830d7b902c3e3695f5f240362c825e96a75c68897415d8c58c531746c21311dd`) and
 pushed the branch at 14:15 CEST; workflow `CI` registered (id
-378310189); run `37760007328` on `33a5793` in progress at 14:16 CEST.
+378310189). Runs: `37760007328` on A `33a5793` GREEN on both runners
+(lint success too) at 14:27 CEST; commit B `b528909` (throwaway
+`crates/notez-cli/tests/ci_red_check.rs` that panics) pushed at 14:29,
+run `37760332799` RED (check ubuntu and macos failure, lint success)
+at 14:38; commit C `836c255` (revert of B) pushed at 14:40, run
+`37760452070` in progress; `git diff 77c3758 836c255` hashes to the
+same `830d7b90...` as A. REVIEW dispatched at 14:42 CEST
+(`nz-reviewer`, opus) on tip `836c255` with the three run ids, RUNNING.
 Integration plan for this ticket, a deviation from the usual order
 because CI can only be seen on a pushed commit: worker reports; lead
 commits the diff as commit A on the branch and pushes (green run
