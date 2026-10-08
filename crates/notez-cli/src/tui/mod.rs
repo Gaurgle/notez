@@ -9,6 +9,7 @@
 
 pub mod footer;
 pub mod help;
+pub mod move_path;
 pub mod tags;
 pub mod text;
 pub mod theme;

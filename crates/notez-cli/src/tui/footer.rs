@@ -35,6 +35,12 @@ pub enum Mode {
     AddSubtask,
     EditText,
     ConfirmDelete,
+    /// Typing the destination folder of a move.
+    Move,
+    /// Choosing the scope a note or folder moves to, its folder kept.
+    SetScope,
+    /// Answering the visibility question of a move across scopes.
+    ConfirmMove,
 }
 
 /// An on/off state that a key's action reflects.
