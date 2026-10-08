@@ -181,6 +181,20 @@ keeps them. `n`, `N` and `r` ignore marks and act on the cursor row. Marks
 live only for the session and are never saved; a marked row that is renamed,
 moved or deleted loses its mark.
 
+**Preview.** The tree's preview pane shows a markdown note (`.md`, any
+case) rendered by default: headings styled by level, emphasis, strong and
+strikethrough, inline code, code blocks with their language tag, bullet,
+numbered and task lists, block quotes with a bar, horizontal rules, and links
+as their text with the url dimmed after it. Tables and raw HTML show as
+their source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
+width. `p` switches between rendered and raw; the footer hint names the view
+`p` switches to (`p raw` or `p rendered`) and shows only while a markdown
+note is selected. The choice holds for every note until the browser closes
+and is never saved. Other files always show raw. While a file is selected,
+the footer leads with its type: `markdown`, otherwise the lowercase
+extension (`toml`, `rs`, `txt`), or `file` when it has none; folder and
+section rows show none.
+
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a
 new note or a new todo, a delete confirmation, `:` command) and lights the ones whose mode is on, such as `f`

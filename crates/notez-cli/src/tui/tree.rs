@@ -29,6 +29,7 @@ use notez_core::util::sanitize;
 
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle};
 use super::help::{self, HelpState};
+use super::markdown;
 use super::move_path;
 use super::{VimCommandMode, VimKey, theme};
 use crate::commands::{add, mkdir, rename};
@@ -2859,6 +2860,196 @@ fn preview_page(height: u16) -> i32 {
     i32::from(height.saturating_sub(1).max(1))
 }
 
+// --- Preview rendering ---
+
+/// How the preview shows a markdown note. Session state of one browser run:
+/// remembered across selections, never saved. Other files ignore it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum PreviewMode {
+    #[default]
+    Rendered,
+    Raw,
+}
+
+impl PreviewMode {
+    /// The footer word of the toggle hint: the mode `p` switches to.
+    fn toggle_desc(self) -> &'static str {
+        match self {
+            PreviewMode::Rendered => "raw",
+            PreviewMode::Raw => "rendered",
+        }
+    }
+}
+
+/// Whether `path` is a markdown note: a `.md` extension, any case.
+fn is_markdown(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+}
+
+/// The file type the footer names for a row: `markdown` for a `.md` note,
+/// otherwise the lowercase extension, `file` when there is none. Folder and
+/// section rows have none.
+fn file_type(path: &Path, is_dir: bool) -> Option<String> {
+    if is_dir {
+        return None;
+    }
+    if is_markdown(path) {
+        return Some("markdown".to_string());
+    }
+    let ext = path.extension().map(|ext| ext.to_string_lossy().to_lowercase());
+    Some(ext.filter(|ext| !ext.is_empty()).unwrap_or_else(|| "file".to_string()))
+}
+
+/// What a cached file preview was built from. Any difference rebuilds it:
+/// another file, a resize (`width`), the toggle (`rendered`), or the file
+/// being written (`modified`, `len`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreviewKey {
+    path: PathBuf,
+    width: u16,
+    rendered: bool,
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+}
+
+impl PreviewKey {
+    /// The key of `path` as it is on disk now; `None` when it cannot be read.
+    fn of(path: &Path, width: u16, rendered: bool) -> Option<Self> {
+        let meta = std::fs::metadata(path).ok()?;
+        Some(PreviewKey {
+            path: path.to_path_buf(),
+            width,
+            rendered,
+            modified: meta.modified().ok(),
+            len: meta.len(),
+        })
+    }
+}
+
+/// The last file preview built, so a draw that changes none of its inputs
+/// neither reads nor renders the file again.
+#[derive(Default)]
+struct PreviewCache {
+    key: Option<PreviewKey>,
+    lines: Vec<Line<'static>>,
+}
+
+impl PreviewCache {
+    /// The lines for `key`, from `build` when `key` differs from the cached
+    /// one or is `None` (a file that cannot be read is never cached).
+    fn get(
+        &mut self,
+        key: Option<PreviewKey>,
+        build: impl FnOnce() -> Vec<Line<'static>>,
+    ) -> &[Line<'static>] {
+        if key.is_none() || self.key != key {
+            self.lines = build();
+            self.key = key;
+        }
+        &self.lines
+    }
+}
+
+/// The preview's rendering mode and its cached file lines.
+#[derive(Default)]
+struct Preview {
+    mode: PreviewMode,
+    cache: PreviewCache,
+}
+
+impl Preview {
+    /// `p`: switch between rendered and raw, only while a markdown note is
+    /// selected (`path`), since nothing else shows a difference.
+    fn toggle(&mut self, path: Option<&Path>) {
+        if path.is_some_and(is_markdown) {
+            self.mode = match self.mode {
+                PreviewMode::Rendered => PreviewMode::Raw,
+                PreviewMode::Raw => PreviewMode::Rendered,
+            };
+        }
+    }
+
+    /// The preview lines of the file at `path` for a pane `width` columns
+    /// wide inside its borders and padding: rendered markdown, already
+    /// wrapped to `width`, or the raw lines unwrapped.
+    fn file_lines(&mut self, path: &Path, width: u16) -> &[Line<'static>] {
+        let rendered = self.mode == PreviewMode::Rendered && is_markdown(path);
+        let key = PreviewKey::of(path, width, rendered);
+        self.cache.get(key, || file_preview_lines(path, rendered, width))
+    }
+}
+
+/// Reads `path` and builds its preview lines; see [`Preview::file_lines`].
+fn file_preview_lines(path: &Path, rendered: bool, width: u16) -> Vec<Line<'static>> {
+    match std::fs::read_to_string(path) {
+        Ok(content) if rendered => markdown::render_markdown(&content, width),
+        Ok(content) => content.lines().map(raw_preview_line).collect(),
+        Err(_) => vec![Line::from(Span::styled(
+            "  unable to read file",
+            Style::default().fg(theme::OVERLAY),
+        ))],
+    }
+}
+
+/// One line of the raw preview, coloured by its leading markdown syntax.
+fn raw_preview_line(line: &str) -> Line<'static> {
+    let owned = line.to_string();
+    if owned.starts_with('#') {
+        Line::from(Span::styled(
+            owned,
+            Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD),
+        ))
+    } else if owned.starts_with("- [") {
+        Line::from(Span::styled(owned, Style::default().fg(theme::SAPPHIRE)))
+    } else if owned.starts_with("- ") || owned.starts_with("* ") {
+        Line::from(Span::styled(owned, Style::default().fg(theme::TEXT)))
+    } else {
+        Line::from(Span::styled(owned, Style::default().fg(theme::SUBTEXT)))
+    }
+}
+
+/// The key of the preview toggle in `TREE_KEYS`.
+const PREVIEW_TOGGLE_KEY: &str = "p";
+
+/// `TREE_KEYS` with the preview toggle's footer hint filled in. `toggle` is
+/// the preview mode while a markdown note is selected: the hint then shows
+/// the mode `p` switches to and drops first when space runs out. Otherwise
+/// the toggle stays in the help overlay only. Same rows in the same order as
+/// `TREE_KEYS`, so the footer and the help overlay still agree.
+fn tree_keys(toggle: Option<PreviewMode>) -> Vec<KeyHint> {
+    TREE_KEYS
+        .iter()
+        .map(|hint| match toggle {
+            Some(mode) if hint.key == PREVIEW_TOGGLE_KEY => KeyHint {
+                desc: mode.toggle_desc(),
+                slot: Slot::Priority(12),
+                ..*hint
+            },
+            _ => *hint,
+        })
+        .collect()
+}
+
+/// The browsing footer: the selected file's type and the mark count, each
+/// when there is one, then the `table` hints for `mode` that fit after them.
+fn browse_footer(
+    table: &[KeyHint],
+    file_type: Option<&str>,
+    marks: usize,
+    mode: Mode,
+    on: &[Toggle],
+    width: usize,
+) -> Line<'static> {
+    let mut lead = Vec::new();
+    if let Some(file_type) = file_type {
+        lead.push(Span::styled(format!(" {file_type} "), Style::default().fg(theme::SAPPHIRE)));
+    }
+    if marks > 0 {
+        lead.extend(marked_lead(marks));
+    }
+    footer::status_line(table, lead, true, mode, on, Vec::new(), width)
+}
+
 // --- Keys: one table for the footer and the help overlay ---
 
 const BROWSE: &[Mode] = &[Mode::Normal, Mode::Focus];
@@ -2933,6 +3124,8 @@ const TREE_KEYS: &[KeyHint] = &[
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
+    // In the footer only while a markdown note is selected; see `tree_keys`.
+    key(PREVIEW_TOGGLE_KEY, "raw", "toggle rendered / raw preview", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -3042,6 +3235,7 @@ fn event_loop(
     let mut preview_max: u16 = 0;
     let mut preview_height: u16 = 0;
     let mut last_preview_idx: usize = usize::MAX;
+    let mut preview = Preview::default();
     let mut filter_strip_area: Rect = Rect::default();
     let mut list_inner_area: Rect = Rect::default();
     let mut visible_for_mouse: Vec<usize> = Vec::new();
@@ -3248,83 +3442,6 @@ fn event_loop(
                     last_preview_idx = real_idx;
                 }
 
-                // Preview pane: file content, or a directory listing.
-                let preview_lines: Vec<Line> = if real_idx < nodes.len()
-                    && !nodes[real_idx].is_dir
-                {
-                    match std::fs::read_to_string(&nodes[real_idx].path) {
-                        Ok(content) => content
-                            .lines()
-                            .map(|line| {
-                                let owned = line.to_string();
-                                if owned.starts_with('#') {
-                                    Line::from(Span::styled(
-                                        owned,
-                                        Style::default()
-                                            .fg(theme::MAUVE)
-                                            .add_modifier(Modifier::BOLD),
-                                    ))
-                                } else if owned.starts_with("- [") {
-                                    Line::from(Span::styled(
-                                        owned,
-                                        Style::default().fg(theme::SAPPHIRE),
-                                    ))
-                                } else if owned.starts_with("- ") || owned.starts_with("* ")
-                                {
-                                    Line::from(Span::styled(
-                                        owned,
-                                        Style::default().fg(theme::TEXT),
-                                    ))
-                                } else {
-                                    Line::from(Span::styled(
-                                        owned,
-                                        Style::default().fg(theme::SUBTEXT),
-                                    ))
-                                }
-                            })
-                            .collect(),
-                        Err(_) => vec![Line::from(Span::styled(
-                            "  unable to read file",
-                            Style::default().fg(theme::OVERLAY),
-                        ))],
-                    }
-                } else if real_idx < nodes.len() {
-                    match std::fs::read_dir(&nodes[real_idx].path) {
-                        Ok(entries) => {
-                            // Match the tree rows: infrastructure dotfiles
-                            // (.git, .tags, .notez-config.toml) are not notes.
-                            let mut names: Vec<String> = entries
-                                .flatten()
-                                .map(|e| e.file_name().to_string_lossy().to_string())
-                                .filter(|n| !n.starts_with('.'))
-                                .collect();
-                            names.sort();
-                            names
-                                .iter()
-                                .map(|n| {
-                                    let color = if n.ends_with(".md") {
-                                        theme::TEXT
-                                    } else {
-                                        theme::SAPPHIRE
-                                    };
-                                    Line::from(Span::styled(
-                                        format!("  {}", n),
-                                        Style::default().fg(color),
-                                    ))
-                                })
-                                .collect()
-                        }
-                        Err(_) => vec![],
-                    }
-                } else {
-                    vec![]
-                };
-
-                let total_lines = preview_lines.len() as u16;
-                preview_height = cols[1].height.saturating_sub(2);
-                preview_max = total_lines.saturating_sub(preview_height);
-                preview_scroll = scrolled(preview_scroll, 0, preview_max);
-
                 let mut preview_title_spans = flags_slots(if real_idx < nodes.len() {
                     nodes[real_idx].flags
                 } else {
@@ -3356,10 +3473,62 @@ fn event_loop(
                     .border_style(theme::border())
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .padding(Padding::new(1, 1, 0, 0));
+                let preview_width = preview_block.inner(cols[1]).width;
+
+                // Preview pane: file content (cached), or a directory listing.
+                let dir_lines: Vec<Line>;
+                let preview_lines: &[Line] = if real_idx < nodes.len()
+                    && !nodes[real_idx].is_dir
+                {
+                    preview.file_lines(&nodes[real_idx].path, preview_width)
+                } else {
+                    dir_lines = if real_idx < nodes.len() {
+                        match std::fs::read_dir(&nodes[real_idx].path) {
+                            Ok(entries) => {
+                                // Match the tree rows: infrastructure dotfiles
+                                // (.git, .tags, .notez-config.toml) are not notes.
+                                let mut names: Vec<String> = entries
+                                    .flatten()
+                                    .map(|e| e.file_name().to_string_lossy().to_string())
+                                    .filter(|n| !n.starts_with('.'))
+                                    .collect();
+                                names.sort();
+                                names
+                                    .iter()
+                                    .map(|n| {
+                                        let color = if n.ends_with(".md") {
+                                            theme::TEXT
+                                        } else {
+                                            theme::SAPPHIRE
+                                        };
+                                        Line::from(Span::styled(
+                                            format!("  {}", n),
+                                            Style::default().fg(color),
+                                        ))
+                                    })
+                                    .collect()
+                            }
+                            Err(_) => vec![],
+                        }
+                    } else {
+                        vec![]
+                    };
+                    &dir_lines
+                };
+
+                // Past u16::MAX lines the scroll offset cannot reach anyway.
+                let total_lines = u16::try_from(preview_lines.len()).unwrap_or(u16::MAX);
+                preview_height = cols[1].height.saturating_sub(2);
+                preview_max = total_lines.saturating_sub(preview_height);
+                preview_scroll = scrolled(preview_scroll, 0, preview_max);
+
+                // Only the visible lines are handed over, so a long cached
+                // preview is not copied whole on every frame. Same picture
+                // as scrolling the whole text: nothing wraps here.
+                let first = usize::from(preview_scroll).min(preview_lines.len());
+                let last = (first + usize::from(preview_height)).min(preview_lines.len());
                 frame.render_widget(
-                    Paragraph::new(preview_lines)
-                        .block(preview_block)
-                        .scroll((preview_scroll, 0)),
+                    Paragraph::new(preview_lines[first..last].to_vec()).block(preview_block),
                     cols[1],
                 );
 
@@ -3379,6 +3548,12 @@ fn event_loop(
                     view_all_lit(nodes),
                     help.open,
                 );
+                // The selected file's type and, for a markdown note, the
+                // preview toggle lead and join the browsing hints.
+                let selected_file =
+                    nodes.get(real_idx).filter(|n| !n.is_dir).map(|n| n.path.as_path());
+                let row_type = selected_file.and_then(|path| file_type(path, false));
+                let keys = tree_keys(selected_file.filter(|p| is_markdown(p)).map(|_| preview.mode));
                 let status = match slot {
                     _ if confirm_delete.is_some() => {
                         let prompt = confirm_delete.as_ref().expect("checked by the guard");
@@ -3448,7 +3623,7 @@ fn event_loop(
                             flag_mode,
                             focus_active,
                         );
-                        lead_with_hints(marked_lead(marks.len()), mode, &toggles, width)
+                        browse_footer(&keys, row_type.as_deref(), marks.len(), mode, &toggles, width)
                     }
                     StatusSlot::Warning(warning) => {
                         let (text, padding) = warning_layout(warning, area.width as usize);
@@ -3474,7 +3649,7 @@ fn event_loop(
                             flag_mode,
                             focus_active,
                         );
-                        footer::line(TREE_KEYS, mode, &toggles, width)
+                        browse_footer(&keys, row_type.as_deref(), 0, mode, &toggles, width)
                     }
                 };
                 frame.render_widget(Paragraph::new(status), rows[1]);
@@ -4106,6 +4281,10 @@ fn event_loop(
             KeyCode::Char('K') => {
                 preview_scroll = scrolled(preview_scroll, -1, preview_max);
             }
+            KeyCode::Char('p') => {
+                let path = nodes.get(real_idx).filter(|n| !n.is_dir).map(|n| n.path.as_path());
+                preview.toggle(path);
+            }
             KeyCode::Char('?') => {
                 help.open();
             }
@@ -4401,6 +4580,188 @@ mod tests {
         let first_width = |key: &str| (0..300).find(|&w| shown_keys(Mode::Normal, &[], w).contains(&key)).unwrap();
         assert!(first_width("J/K") > first_width("space"), "J/K drops before space");
         assert!(first_width("J/K") > first_width("S"), "J/K drops first");
+    }
+
+    // --- Preview rendering (NZ-25) ---
+
+    fn plain(lines: &[Line]) -> Vec<String> {
+        lines.iter().map(text_of).collect()
+    }
+
+    #[test]
+    fn preview_mode_defaults_to_rendered_and_p_toggles_it_on_a_markdown_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("a.md");
+        let mut preview = Preview::default();
+        assert_eq!(preview.mode, PreviewMode::Rendered);
+        preview.toggle(Some(&note));
+        assert_eq!(preview.mode, PreviewMode::Raw);
+        preview.toggle(Some(&note));
+        assert_eq!(preview.mode, PreviewMode::Rendered);
+    }
+
+    #[test]
+    fn p_does_nothing_on_a_non_markdown_file_a_folder_or_no_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preview = Preview::default();
+        preview.toggle(Some(&dir.path().join("Cargo.toml")));
+        preview.toggle(None);
+        assert_eq!(preview.mode, PreviewMode::Rendered);
+        preview.toggle(Some(&dir.path().join("notes.MD")));
+        assert_eq!(preview.mode, PreviewMode::Raw, ".MD is markdown too");
+    }
+
+    #[test]
+    fn the_preview_mode_persists_across_selection_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.md");
+        let b = dir.path().join("b.md");
+        std::fs::write(&a, "# A\n").unwrap();
+        std::fs::write(&b, "# B\n\n**bold**\n").unwrap();
+        let mut preview = Preview::default();
+        assert_eq!(plain(preview.file_lines(&a, 40)), vec!["A"]);
+        preview.toggle(Some(&a));
+        assert_eq!(plain(preview.file_lines(&b, 40)), vec!["# B", "", "**bold**"], "raw on the next note");
+        assert_eq!(plain(preview.file_lines(&a, 40)), vec!["# A"], "and back on the first");
+        preview.toggle(Some(&b));
+        assert_eq!(plain(preview.file_lines(&b, 40)), vec!["B", "", "bold"]);
+    }
+
+    #[test]
+    fn a_non_markdown_file_shows_raw_whatever_the_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = dir.path().join("c.toml");
+        std::fs::write(&toml, "# comment\n[a]\n").unwrap();
+        let mut preview = Preview::default();
+        assert_eq!(plain(preview.file_lines(&toml, 40)), vec!["# comment", "[a]"]);
+        preview.mode = PreviewMode::Raw;
+        assert_eq!(plain(preview.file_lines(&toml, 40)), vec!["# comment", "[a]"]);
+    }
+
+    #[test]
+    fn rendered_lines_wrap_to_the_given_width_so_their_count_is_the_scroll_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("w.md");
+        std::fs::write(&note, "one two three four five six\n").unwrap();
+        let mut preview = Preview::default();
+        let lines = plain(preview.file_lines(&note, 10));
+        assert!(lines.len() > 1, "{lines:?}");
+        assert!(lines.iter().all(|l| l.chars().count() <= 10), "{lines:?}");
+        preview.mode = PreviewMode::Raw;
+        assert_eq!(preview.file_lines(&note, 10).len(), 1, "raw is never wrapped");
+    }
+
+    #[test]
+    fn an_unreadable_file_shows_the_unreadable_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preview = Preview::default();
+        assert_eq!(plain(preview.file_lines(&dir.path().join("gone.md"), 40)), vec!["  unable to read file"]);
+    }
+
+    #[test]
+    fn the_cache_reuses_lines_for_the_same_key_and_rebuilds_on_any_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("a.md");
+        std::fs::write(&note, "# A\n").unwrap();
+        let key = |width: u16, rendered: bool| PreviewKey::of(&note, width, rendered);
+        assert!(key(40, true).is_some());
+        assert_eq!(key(40, true), key(40, true));
+        assert_ne!(key(40, true), key(41, true), "width");
+        assert_ne!(key(40, true), key(40, false), "mode");
+        assert_eq!(PreviewKey::of(&dir.path().join("gone.md"), 40, true), None);
+
+        let mut cache = PreviewCache::default();
+        let mut builds = 0;
+        let mut get = |cache: &mut PreviewCache, key: Option<PreviewKey>| {
+            cache.get(key, || {
+                builds += 1;
+                vec![Line::from("x")]
+            })
+            .len()
+        };
+        get(&mut cache, key(40, true));
+        get(&mut cache, key(40, true));
+        get(&mut cache, key(40, true));
+        get(&mut cache, key(30, true));
+        get(&mut cache, key(30, false));
+        get(&mut cache, key(30, true));
+        get(&mut cache, None);
+        get(&mut cache, None);
+        assert_eq!(builds, 6, "three draws of one key build once; each change and each unkeyed draw builds");
+    }
+
+    #[test]
+    fn the_cache_rebuilds_when_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("a.md");
+        std::fs::write(&note, "# A\n").unwrap();
+        let mut preview = Preview::default();
+        assert_eq!(plain(preview.file_lines(&note, 40)), vec!["A"]);
+        std::fs::write(&note, "# Longer title\n").unwrap();
+        assert_eq!(plain(preview.file_lines(&note, 40)), vec!["Longer title"]);
+    }
+
+    #[test]
+    fn file_type_names_markdown_the_lowercase_extension_or_file() {
+        assert_eq!(file_type(Path::new("/n/a.md"), false).as_deref(), Some("markdown"));
+        assert_eq!(file_type(Path::new("/n/A.MD"), false).as_deref(), Some("markdown"));
+        assert_eq!(file_type(Path::new("/n/Cargo.toml"), false).as_deref(), Some("toml"));
+        assert_eq!(file_type(Path::new("/n/main.RS"), false).as_deref(), Some("rs"));
+        assert_eq!(file_type(Path::new("/n/notes.txt"), false).as_deref(), Some("txt"));
+        assert_eq!(file_type(Path::new("/n/Makefile"), false).as_deref(), Some("file"));
+        assert_eq!(file_type(Path::new("/n/.gitignore"), false).as_deref(), Some("file"));
+        assert_eq!(file_type(Path::new("/n/trailing."), false).as_deref(), Some("file"));
+        assert_eq!(file_type(Path::new("/n/ideas.md"), true), None, "a folder");
+        assert_eq!(file_type(Path::new("/n/ideas"), true), None, "a folder or section row");
+    }
+
+    #[test]
+    fn the_toggle_key_is_a_free_browse_key_listed_once_in_the_view_group() {
+        let rows: Vec<&KeyHint> = TREE_KEYS.iter().filter(|k| k.key == "p").collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].help, "toggle rendered / raw preview");
+        assert_eq!(rows[0].group, Group::View);
+        assert_eq!(rows[0].modes, BROWSE);
+        for mode in [Mode::Tag, Mode::Filter, Mode::Rename, Mode::NewItem, Mode::ConfirmDelete, Mode::VimCommand, Mode::Move, Mode::SetScope, Mode::ConfirmMove] {
+            assert!(!TREE_KEYS.iter().any(|k| k.key == "p" && k.modes.contains(&mode)), "{mode:?}");
+        }
+    }
+
+    fn shown_with(table: &[KeyHint], width: usize) -> Vec<&'static str> {
+        footer::select(table, Mode::Normal, &[], width).left.iter().map(|&(i, _)| table[i].key).collect()
+    }
+
+    #[test]
+    fn the_toggle_hint_names_the_action_shows_only_for_markdown_and_drops_first() {
+        assert!(!shown_with(&tree_keys(None), 300).contains(&"p"), "hidden when the row is not markdown");
+        let rendered = tree_keys(Some(PreviewMode::Rendered));
+        let raw = tree_keys(Some(PreviewMode::Raw));
+        assert_eq!(rendered.len(), TREE_KEYS.len(), "same rows, so help and footer indices agree");
+        let line = |table: &[KeyHint]| text_of(&footer::line(table, Mode::Normal, &[], 300));
+        assert!(line(&rendered).contains("  p raw  "), "{}", line(&rendered));
+        assert!(line(&raw).contains("  p rendered  "), "{}", line(&raw));
+        let first_width = |key: &str| (0..300).find(|&w| shown_with(&rendered, w).contains(&key)).unwrap();
+        assert!(first_width("p") > first_width("J/K"), "p drops before J/K");
+        for mode in [Mode::Filter, Mode::Tag, Mode::Rename, Mode::NewItem] {
+            let sel = footer::select(&rendered, mode, &[], 300);
+            assert!(!sel.left.iter().any(|&(i, _)| rendered[i].key == "p"), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_browse_footer_leads_with_the_file_type_then_the_mark_count() {
+        let keys = tree_keys(Some(PreviewMode::Rendered));
+        let both = text_of(&browse_footer(&keys, Some("markdown"), 3, Mode::Normal, &[], 200));
+        assert!(both.starts_with(" markdown  3 marked  open  tags"), "{both}");
+        let type_only = text_of(&browse_footer(&keys, Some("toml"), 0, Mode::Normal, &[], 200));
+        assert!(type_only.starts_with(" toml  open  tags"), "{type_only}");
+        let marks_only = text_of(&browse_footer(&keys, None, 2, Mode::Normal, &[], 200));
+        assert!(marks_only.starts_with(" 2 marked  open  tags"), "{marks_only}");
+        let neither = browse_footer(&TREE_KEYS.to_vec(), None, 0, Mode::Normal, &[], 120);
+        assert_eq!(text_of(&neither), text_of(&footer::line(TREE_KEYS, Mode::Normal, &[], 120)));
+        for width in 0..30 {
+            let _ = browse_footer(&keys, Some("markdown"), 12, Mode::Normal, &[], width);
+        }
     }
 
     fn dir_node(depth: usize) -> TreeNode {
