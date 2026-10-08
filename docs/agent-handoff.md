@@ -522,9 +522,20 @@ not a change, gated off during input modes, help and drags, baseline
 on first run, message not overwriting an existing one; todo board
 unchanged (unsaved edits in memory; README says so). Lead decisions
 (accepted): all of the above deviations from the brief. REVIEW
-dispatched at 22:46 CEST (`nz-reviewer`, opus) on that hash, RUNNING.
-Then branch push, CI, merge, `main` run, cleanup; then NZ-3, NZ-5,
-NZ-32, NZ-28, NZ-30.
+dispatched at 22:46 CEST (`nz-reviewer`, opus) on that hash; ACCEPTED
+at 22:52 CEST (about 57k tokens; follow-ups F1 the browser's own
+rebuilds did not refresh the probe so a redundant `reloaded (files
+changed)` followed the user's own action, F2 no direct `reload_view`
+test, F3 content-only edits are not probed, only directory mtimes, F4
+a failed automatic reload overwrites a showing message, F5 1 s mtime
+filesystems). Lead ordered F1 and F2 fixed before merge: DONE at 22:57
+CEST (`refresh_probe` helper called from `R` and after every
+disk-changing action; two new tests; checks 498 + 146 passed); new diff
+against `5ff3745` 2 files, 404 insertions, 1 deletion, hashing to
+`7708731c5b3074c2eb2a40a7ba81adff412c89cf7a108ccc52e2ea15667b5d1c`.
+RE-REVIEW sent at 22:58 CEST, RUNNING. Then branch push, CI, merge,
+`main` run, cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32, NZ-28,
+NZ-30.
 
 NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
