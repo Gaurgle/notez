@@ -515,8 +515,15 @@ breaks; the todo board quit on `Esc` with an empty filter too (todo.rs
 about line 1456) and no longer does; help rows `esc` and `q` updated
 in both views; one test renamed and updated; checks 470 + 146 passed;
 about 26k agent tokens. REVIEW dispatched at 22:26 CEST
-(`nz-reviewer`), RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_fY-g` In
-flight. Then branch push, CI, merge, cleanup; then NZ-34, NZ-3, NZ-5,
+(`nz-reviewer`); CHANGES REQUESTED at 22:30 CEST (about 30k tokens):
+behaviour correct, but the todo board's `Esc` rule had no test. Fix
+cycle 1 DONE at 22:33 CEST: todo.rs `browse_escape(search_buffer)`
+helper with the test `esc_clears_the_filter_and_otherwise_does_nothing`,
+README line rewrapped; checks 471 + 146 passed; new diff against
+`38f91a5` 3 files, 34 insertions, 30 deletions, hashing to
+`f7d6b55c536aee9e1f98300c08b2b6060389e3afd40877a00a2710574fe5f2a7`.
+RE-REVIEW sent at 22:35 CEST, RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fY-g` In flight. Then branch push, CI, merge, cleanup; then NZ-34, NZ-3, NZ-5,
 NZ-32, NZ-28, NZ-30.
 
 NZ-36 (tables and footnotes) is DONE: accepted at 22:18 CEST (about 55k
