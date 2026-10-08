@@ -365,12 +365,19 @@ MB). The lead deleted nothing and asked Andreas. RESOLVED at 11:05
 CEST: Andreas ran `cargo clean` in `~/Repos/notez` (and freed more
 himself); `df` shows 8.9 GB free. Work resumed.
 
-Fix sent to the pass 2 worker at 11:06 CEST (same agent, same worktree),
-RUNNING: the folder delete prompt for an empty folder read `delete
-empty/ and its no notes from personal? y/n`; it is to read `delete
-empty/ (no notes) from personal? y/n`, with `and its 1 note` and `and
-its <n> notes` kept for non-empty folders; one test line follows. The
-review of the whole diff is dispatched after this report.
+Fix by the pass 2 worker (same agent, same worktree) DONE at 11:12
+CEST: the empty-folder delete prompt now reads `delete empty/ (no
+notes) from personal? y/n` (`and its 1 note`, `and its <n> notes` for
+non-empty folders; two test lines and one README example changed, only
+`tui/tree.rs` and `README.md` touched). Worker checks after the fix:
+build clean, notez-cli 253 passed, notez-core 146 passed. Final
+uncommitted diff against `4a239e3`: 4 files, 1415 insertions, 66
+deletions, hashing to
+`250880a5174b139f54079c3e3ef5300098f5f3902a5ef7a5f1b878130bf157b0`.
+Worker stopped. REVIEW dispatched at 11:15 CEST (`nz-reviewer`, opus)
+on that hash, RUNNING. Next: on acceptance, lead checks, commit exactly
+the reviewed diff on `feat/NZ-14-folders`, merge `--no-ff` into `main`,
+checks on `main`, push, board Done, cleanup.
 
 Lead decisions on the pass 2 report:
 
