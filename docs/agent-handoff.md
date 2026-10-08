@@ -420,8 +420,22 @@ NZ-24 (todo icon). Dispatched 2026-10-08 at 18:40 CEST by lead
 --short` before dispatch: only this file modified. Base `5442854`
 (= `main` = `origin/main`), branch `feat/NZ-24-todo-icon`, worktree
 `.claude/worktrees/NZ-24`, model `opus` via `nz-worker`, one pass.
-RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` In flight. Then
-review, branch push, CI, merge, `main` run, cleanup; then NZ-25.
+Worker REPORTED at 18:50 CEST: `README.md`, `tui/theme.rs`,
+`tui/tree.rs`, 109 insertions, 7 deletions, uncommitted diff against
+`5442854` hashing to
+`ad4548197873e5032527f9028e7bb758e3b354fe9d4e22ae5086ef46dcc108a3`;
+worker checks: build clean, notez-cli 331 passed, notez-core 146
+passed; about 53k agent tokens. As built: `ICON_TODO = "\u{f0ae}"`
+(nf-fa-tasks, width 1) in `theme.rs`; drawn plus a space in the
+section colour on the `_todos` store row, every row under it and any
+file named exactly `TODO.md`; headers unchanged; `is_todo_row` now
+calls a new `in_section_todo_store(node, spec)`; help has no legend so
+untouched; README one sentence; no existing test changed. Cost noted:
+`row_badge` calls `in_todo_store` per nested global row per draw (two
+metadata lookups for non-store paths); reviewer asked to judge. REVIEW
+dispatched at 18:53 CEST (`nz-reviewer`, opus) on that hash, RUNNING.
+Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` In flight. Then branch push,
+CI, merge, `main` run, cleanup; then NZ-25.
 
 NZ-26 is Done (merge `5442854` at 18:35 CEST; branch run and `main` run
 `37777856510` green; remote branch deleted; worktree and local branch
