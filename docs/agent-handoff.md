@@ -342,6 +342,25 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   (second worker now, or after NZ-15); permission to push the ticket
   branch to `origin` so the workflow runs before the merge; permission
   to delete that remote branch afterwards.
+- 2026-10-08 13:55 CEST, Andreas, in the lead session (`4ffb11e2`),
+  answering the six questions: "1, yes 2. ru it now 3. yes 4. yes 5.
+  lets try refusing. 6. protect it". The lead's reading:
+  - NZ-19 (CI) is AUTHORIZED: run it now in the second worker slot
+    beside NZ-16 (disjoint files). The lead may push `feat/NZ-19-ci` to
+    `origin` so the workflow runs there, including one throwaway
+    failing commit and its revert to show a red run (no force-push: the
+    revert stays in history), and may delete that remote branch after
+    the merge. The integration delegation ("merge as you go along")
+    applies; the CI change itself is approved by this entry (CLAUDE.md
+    requires owner approval for CI). Pushing `main` afterwards triggers
+    the new workflow; that effect is approved by the same answer.
+  - A new ticket (NZ-20) is wanted and AUTHORIZED to run after NZ-16
+    (same file `tui/tree.rs`): the browser's typed names (`n`, `N`, `r`,
+    `m`) are refused when `sanitize::name` would alter them, `r` on a
+    note with an unchanged name is a no-op, and `_todos` is protected
+    like a docs folder from `d`, `r`, `m` and `S`. Board item still to
+    be created (the lead asked Andreas, since creating items stays with
+    the owner).
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -359,8 +378,26 @@ uncommitted diff against `a0773b9` hashing to
 worker checks: build clean, notez-cli 299 passed, notez-core 146
 passed; about 168k agent tokens. Pass 2 (bulk `m` and `S`, README, two
 amendments below) DISPATCHED at 13:45 CEST on the same worktree,
-RUNNING. Then one review of the whole diff. Board: In flight. No second
-worker slot is in use.
+RUNNING. Then one review of the whole diff. Board: In flight.
+
+NZ-19 (CI) in the SECOND worker slot. Dispatched 2026-10-08 at 14:05
+CEST by lead `4ffb11e2` on Andreas's authorization of 13:55 CEST
+(Authorized by the owner). `git status --short` before dispatch: only
+this file modified. Base `77c3758` (= `main` = `origin/main`), branch
+`feat/NZ-19-ci`, worktree `.claude/worktrees/NZ-19`, model `opus` via
+`nz-worker`, one pass. Files disjoint from NZ-16 (`.github/`,
+`CLAUDE.md`, `docs/agent-workflow.md`, `README.md` at most). RUNNING.
+Integration plan for this ticket, a deviation from the usual order
+because CI can only be seen on a pushed commit: worker reports; lead
+commits the diff as commit A on the branch and pushes (green run
+expected on both runners); lead adds a throwaway failing-test commit B,
+pushes (red run expected), then a revert commit C, pushes (green run);
+reviewer reviews the committed tree at C against the base (diff
+base..C must equal diff base..A) and the run ids; merge `--no-ff`,
+push `main` (first `main` run), board Done, delete the remote branch
+(approved), cleanup. Board: In flight (the lead briefly set NZ-17's
+item to In flight by mistake at 14:02 CEST and set it back to Draft at
+14:03 CEST).
 
 Lead decisions on the pass 1 report: marks live in `event_loop` as a
 `HashSet<PathBuf>`, pruned each loop pass (a renamed or moved marked
@@ -2027,8 +2064,11 @@ forward.
 
 #### NZ-19: add CI (GitHub Actions) for build and tests
 
-Status: brief Ready; EXECUTION NOT YET AUTHORIZED in the lead session.
-Relayed on 2026-10-08 at about 12:30 CEST by the advisor session
+Status: In flight since 14:05 CEST on 2026-10-08, second worker slot.
+AUTHORIZED by Andreas in the lead session at 13:55 CEST ("1, yes 2. ru
+it now 3. yes 4. yes": run, now, branch push allowed, remote branch
+deletion after merge allowed). Earlier history of this brief:
+relayed on 2026-10-08 at about 12:30 CEST by the advisor session
 (`repos-f9`) with Andreas's words "yes, ok from me. lets set this up",
 given there in answer to adding CI to notez, and the advisor's own
 recommendation (not countered by Andreas) that this lead runs it rather
@@ -2106,6 +2146,80 @@ reports and the lead pushes. Reviewer probes: SHA pins resolve to the
 claimed versions; `paths-ignore` does not skip a push that mixes docs
 and code; the concurrency group does not cancel `main` runs needed for
 the safe-merge check; the git identity step; no `pull_request_target`.
+
+#### NZ-20: refuse names sanitizing would alter; protect `_todos`
+
+Status: Ready, authorized to run after NZ-16 is on `main` (Andreas,
+lead session, 2026-10-08 13:55 CEST: "5. lets try refusing. 6. protect
+it"). Board item not yet created: creating items stays with the owner,
+so the lead asked Andreas to create "NZ-20: refuse names sanitizing
+would alter; protect _todos" or to allow the lead to create it. Touches
+`tui/tree.rs`, so it runs only when no other ticket holds that file.
+
+Problem (NZ-14 review and worker findings): typed names in the browser
+go through `sanitize::name` (trim, lowercase, whitespace to `-`, keep
+only alphanumerics and `-`), so `00_quick` becomes `00quick` and
+`My_Note` becomes `mynote` without the user being told. `r` on a NOTE
+then Enter on the unchanged shown title renames the file whenever the
+title is not already in sanitized form (`2026-10-06-My_Note.md` to
+`2026-10-06-mynote.md`, heading rewritten; `x.MD` to `xmd.md`); folders
+got the no-op fix in NZ-14. `d`, `r`, `m` and `S` act on `_todos` in
+the global section, the todo board's store (`notez_root/_todos`, read by
+`notez-core/src/todo/mod.rs`), guarded only by the confirm.
+
+Outcome and decisions:
+
+1. In the browser prompts `n`, `N`, `r` (note and folder) and `m`
+   (typed destination folder is matched exactly already since NZ-15, so
+   only the name side matters), a typed name whose `sanitize::name`
+   result differs from the trimmed input is REFUSED with a footer
+   message that shows what it would have become: `name would become
+   <cleaned>; use letters, digits and -` (empty result: the existing
+   empty-name message). Nothing is created, renamed or moved. The CLI
+   commands (`notez add`, `notez mkdir`, `notez rename` if any) keep
+   sanitizing as today; only the interactive prompts refuse.
+2. `r` on a note: Enter with the trimmed input equal to the shown title
+   is a no-op (prompt closes, nothing on disk, no heading rewrite, no
+   message), mirroring NZ-14's folder fix. `editable_title` is not
+   changed; the no-op check compares against what the prompt showed.
+3. `_todos` protection: the row for `notez_root/_todos` and every row
+   under it is treated like a docs row for `d`, `r`, `m` and `S`
+   (refused with `<verb>: the todo board's store is managed by the todo
+   view`), and it is never a destination for `m`/`S` (`move: no folder
+   ...` is fine). `n` and `N` under `_todos` are left as they are. Marks
+   (NZ-16) on those rows are allowed but the bulk actions refuse the
+   whole set as they do for docs rows.
+4. Not in this ticket: changing `sanitize::name`, changing the CLI, a
+   trash or undo, renaming `_todos`.
+
+Acceptance criteria:
+
+1. Each prompt (`n`, `N`, `r` note, `r` folder, `m` on the name side if
+   applicable) refuses `00_quick`, `My Note`, `Ideas` (case), `a.b` with
+   the message naming the cleaned result, and still accepts `00-quick`,
+   `my-note`, `ideas`; nothing changes on disk; tests on the pure check
+   and on each prompt's Enter path.
+2. `r` on `2026-10-06-My_Note.md` with the shown title unchanged
+   changes nothing (file, heading, tags); the existing rename tests
+   pass unchanged.
+3. `d`, `r`, `m`, `S` on `_todos` and on a note inside it change
+   nothing and show the message; a bulk action whose set includes such
+   a row is refused as a whole; `_todos` is not reachable as a move
+   destination.
+4. All existing tests pass unchanged except mechanical literal
+   additions and tests that pinned the old sanitizing behaviour in the
+   prompts (list each, with the contract change named).
+5. README: one sentence per change (names, no-op rename, `_todos`).
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/footer.rs`, `crates/notez-cli/src/tui/help.rs`,
+`README.md`. No `notez-core` change, no `commands/` change, no new
+dependency.
+
+Method: bounded ticket, one worker pass, one review. Reviewer probes:
+Unicode input (`Ä`, decomposed forms) against the exact-equality check;
+`_todos` spelled in another case on APFS; a `.MD` note's rename no-op;
+the message when the cleaned name is empty.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
