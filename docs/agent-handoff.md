@@ -502,7 +502,29 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-31 (tree margin and branch lines). Dispatched 2026-10-08 at 22:02
+NZ-37 (Esc never quits). Dispatched 2026-10-08 at 22:21 CEST by lead
+`4ffb11e2` on Andreas's request of 22:30 (estimated; real about 22:05)
+CEST. Base `38f91a5` (= `main`, the NZ-31 merge), branch
+`fix/NZ-37-esc-never-quits`, worktree `.claude/worktrees/NZ-37`, model
+`sonnet` via `nz-small`. RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fY-g` In flight. Then review, branch push, CI,
+merge (after NZ-36's chain), cleanup; then NZ-34, NZ-3, NZ-5, NZ-32,
+NZ-28, NZ-30.
+
+NZ-36 (tables and footnotes): ACCEPTED at 22:18 CEST (about 55k
+reviewer tokens, no blockers; follow-ups: footnote markers overflow at
+pane widths under 4 like other container prefixes; footnote label keys
+use `to_lowercase` while pulldown case-folds). Committed as `60c3b76`
+(hash `5b9227b9...`), branch pushed at 22:19 CEST, merges cleanly onto
+`38f91a5` (checked with a dry-run merge); integration chain running in
+the background since 22:20 CEST; this file is committed after it
+reports.
+
+NZ-31 is Done (merge `38f91a5` at 22:18 CEST; branch run and `main` run
+green; remote branch deleted; worktree and local branch removed; board
+Done).
+
+NZ-31 record, for history. Dispatched 2026-10-08 at 22:02
 CEST by lead `4ffb11e2` on Andreas's requests of 21:50 and 21:55 CEST.
 `git status --short` before dispatch: only this file modified. Base
 `554fd0c` (= `main` = `origin/main`, the NZ-4 merge), branch
@@ -523,8 +545,18 @@ column with the mark glyph; `theme::TREE_GLYPHS` with `├─`/`└─`,
 filter; `list_text_width` is pane minus 4; many render and click tests
 updated to the new layout (listed in the worker report, each a layout
 contract change). REVIEW dispatched at 22:15 CEST (`nz-reviewer`,
-opus) on that hash, RUNNING. Then branch push, CI, merge, `main` run,
-cleanup; then NZ-37, NZ-34, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
+opus) on that hash; ACCEPTED at 22:22 CEST first time (about 65k
+tokens; no assertion dropped without a replacement; follow-ups:
+`text::mouse_x_to_filter_dot` was already dead code with a stale
+comment, remove in a later cleanup with the owner's approval; a click
+can now only remove a set tag since unset slots are not drawn, tags
+are added from tag mode or the keyboard; the filter strip's dots no
+longer line up over the row dots, a look question for Andreas). Lead
+checks: build clean, 470 + 146 passed. Committed as `5f3bcaa` (hash
+`95d4e3dc...`), branch pushed at 22:25 CEST; integration chain running
+in the background (runs selected by SHA); this file is committed after
+it reports. Then NZ-37, NZ-34, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30; NZ-36
+merges after this chain.
 
 NZ-36 (markdown tables and footnotes) also running, dispatched 22:08
 CEST on `75bb3dc`, worktree `.claude/worktrees/NZ-36`, `tui/markdown.rs`
@@ -3550,9 +3582,31 @@ pass, one review.
 
 #### NZ-31: tighten the tree's left margin
 
-Status: Ready, runs right after NZ-4 (small, and it changes the row
-prefix that NZ-21's alignment math and the mouse hit tests depend on).
-Requested by Andreas on 2026-10-08 at 21:50 CEST: "we are wasting a lot
+Status: Done. Merged into `main` as `38f91a5` at 22:18 CEST on
+2026-10-08 and pushed; branch run and `main` run green; board Done;
+remote branch deleted. Andreas to install and judge: column 1 start,
+the tree glyphs, the compact dots, the bold cursor row, the filter
+strip's dots no longer above the row dots.
+
+Record: base `554fd0c`, branch `fix/NZ-31-tree-margin`, ticket commit
+`5f3bcaa` (`README.md`, `tui/theme.rs`, `tui/tree.rs`; 524 insertions,
+148 deletions), merge `38f91a5` with `git merge --no-ff`; undo with
+`git revert -m 1 38f91a5`. One `nz-worker` (opus, about 132k tokens
+over three rounds with the mid-task additions), one `nz-reviewer`
+(opus, about 65k), accepted first time; committed diff hashes to the
+accepted `95d4e3dc4012d68603a98500e7553fef7c56b1fd13eb35dad1f0cf1b16208f40`.
+Lead checks: build clean, notez-cli 470 passed, notez-core 146 passed.
+As built: no highlight symbol, `theme::selected_row()` (SURFACE0 plus
+bold); tag field sized by the most-tagged visible row, zero when none,
+no placeholder glyphs; one gutter column (mark glyph); `TREE_GLYPHS`
+with `├─`/`└─`, `│ `, `▾ `/`▸ `, two spaces for files so names align;
+`later_siblings` respects the filter; section rows without the trailing
+scope word; `list_text_width` is pane minus 4. Leftovers:
+`text::mouse_x_to_filter_dot` is dead code with a stale comment (remove
+with owner approval); a mouse click can only remove a tag now, adding
+goes through tag mode or the filter strip.
+
+Brief as run. Requested by Andreas on 2026-10-08 at 21:50 CEST: "we are wasting a lot
 of space on the TUI, the left side is almost all padding? except for
 the small right pointing arrow. this could be tightened up alot? dont
 waste any space there." Board item `PVTI_lAHOCU842c4BmE5Zzg_fBhY`.
@@ -4172,9 +4226,11 @@ Current lead):
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
    `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
    `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 DONE (merge
-   `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 IN FLIGHT, then
-   NZ-34 (reload), NZ-3, NZ-5, NZ-32 (type filter), NZ-28 (linting),
-   NZ-30 (symbol outline),
+   `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 DONE (merge
+   `38f91a5`), NZ-35 DONE (merge `cafd169`, install.sh), NZ-36
+   (tables) in its merge chain, NZ-37 (Esc) IN FLIGHT, then NZ-34
+   (reload), NZ-3, NZ-5, NZ-32 (type filter), NZ-28 (linting), NZ-30
+   (symbol outline),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
