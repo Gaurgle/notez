@@ -26,7 +26,61 @@ standing scope and integration delegation (recorded 2026-10-07 16:25
 under Authorized by the owner), next ticket NZ-14; stated back to
 Andreas at takeover so he can correct it.
 
-RESUMED at 21:35 CEST on 2026-10-08 by the same session (`4ffb11e2`)
+STOPPED FOR THE DAY at about 23:30 CEST on 2026-10-08 on Andreas's
+instruction ("we need to start wrapping up this session, context and
+token usage is high. stop when you can, update handover and ship
+it"). BATON RELEASED. No lead is active. No worker or reviewer is
+running: the last agents (the NZ-38 worker and reviewer) reported and
+NZ-38 was merged (see In flight for the final state). Nothing was
+dispatched after the instruction. A new lead may take over from this
+file once Andreas says to continue; nothing here authorizes starting
+on its own.
+
+State at the stop, in short:
+
+- Done and merged on 2026-10-08, in order: NZ-14, NZ-15, NZ-16, NZ-19
+  (CI), NZ-20, NZ-21, NZ-22, NZ-26, NZ-24, NZ-25, NZ-27, NZ-4, NZ-31,
+  NZ-35, NZ-36, NZ-37, NZ-34, NZ-38. NZ-23 resolved without code. 19
+  tickets in one day; merge SHAs on each ticket's record.
+- No ticket worktree or branch exists after the NZ-38 chain; no remote
+  ticket branches remain. `main` = `origin/main`; CI on `main` green.
+- Andreas's installed binary is from about 21:36 CEST (through NZ-27
+  and NZ-4). `main` has since gained NZ-31 (margin, tree lines), NZ-35
+  (installer progress), NZ-36 (tables, footnotes), NZ-37 (Esc never
+  quits), NZ-34 (reload), NZ-38 (fixed tag field). `./install.sh`, his
+  to run. Look items for him: the tree glyphs, the bold cursor row, the
+  two-tags-per-cell field and its red-on-peach pair, the `▎` mark
+  glyph, the filter strip's dots above a 3-column field, the dimmed
+  `#`/`-`/`>` markers in the raw markdown view.
+- Next, all authorized and briefed under Tickets, one at a time on
+  `tui/tree.rs`: NZ-39 (bold coloured suffix indicator on the preview
+  pane's bottom border, relative path at its right, root in the pane
+  title, `p` toggles highlighter too), NZ-3 (header status), NZ-5
+  (fuzzy search, `0`, `s`), NZ-32 (`@type` filter), NZ-28 (linting, two
+  passes per its design note), NZ-30 (symbol outline). NZ-11 and NZ-6
+  in the second slot when their files are free. NZ-18 (Pinz) waits for
+  a brainstorming session with Andreas. NZ-29 stays a Draft record
+  (LSP, not now).
+- Standing permissions in force and paused with the baton: the
+  integration delegation ("merge as you go along"), branch pushes with
+  remote deletion after the merge, board item creation for tickets
+  Andreas requests in a lead session, the dependency approval for the
+  tree-sitter and pulldown-cmark family, and the working rule (the lead
+  decides open design points and reports; asks only for the owner-only
+  matters listed under Authorized by the owner, 20:50 CEST).
+- Candidate tickets mentioned by Andreas but not opened: a footer line
+  when `notez -p` outside a project falls back to the full view; the
+  install-via-`cargo install` idea (NZ-33, not opened); the leftovers on
+  each Done ticket.
+- Process notes for the next lead: the integration chain runs as one
+  background command selecting CI runs by commit SHA; do not commit the
+  handoff onto `main` while a chain is between its merge and its push;
+  one chain at a time on `main`; two workers at most, on disjoint files;
+  the second review look on NZ-34 showed that a probe refresh must only
+  follow a successful relist, a pattern to keep in mind for any future
+  cache or snapshot.
+
+Earlier the same evening: RESUMED at 21:35 CEST on 2026-10-08 by the same session (`4ffb11e2`)
 on Andreas's "can you do nz-3 and 5, and perhaps 28 & 29?" and "and do
 nz 4". Reconciled: `main` = `origin/main` = `1edfbce`, clean, no
 worktrees, no agents running, board as left. Queue in this order, all
@@ -502,7 +556,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-38 (fixed tag field, two tags per cell). Dispatched 2026-10-08 at
+Nothing is in flight. STOPPED FOR THE DAY at about 23:30 CEST on
+2026-10-08 (see Current lead). No worker or reviewer is running. NZ-38
+is Done: merged into `main` as `facaf7a` at 23:04 CEST after a green
+branch run `37844119478`; the integration chain then ran the checks on
+`main` (502 + 146 passed), pushed (`main` = `origin/main` = `facaf7a`
+before this stop commit), watched the `main` run `37844310035` and
+removed the worktree, the local branch and the remote branch (the chain's final lines are in the
+NZ-38 record; if a new lead finds the worktree `.claude/worktrees/NZ-38`
+or the branch `fix/NZ-38-fixed-tag-field` still present, the chain was
+interrupted after the merge: check `gh run list --branch main --limit
+1` for `facaf7a`'s run and finish the cleanup by hand).
+
+NZ-38 record, for history. Dispatched 2026-10-08 at
 22:52 CEST by lead `4ffb11e2` on Andreas's request of 22:37 CEST. `git
 status --short` before dispatch: only this file modified. Base
 `12521d3` (= `main` = `origin/main`, the NZ-34 merge), branch
@@ -4005,7 +4071,29 @@ unchanged; help and footer tests pass; README. Allowed files:
 
 #### NZ-38: fixed-width tag field with two tags per cell
 
-Status: Ready, runs right after NZ-34 (same file). Requested by Andreas
+Status: Done. Merged into `main` as `facaf7a` at 23:04 CEST on
+2026-10-08; branch run `37844119478` green; the `main` run and the
+cleanup were handled by the integration chain at the stop (see In
+flight). Board Done. Not yet installed by Andreas; the look (half-block
+pairs, red on peach, the `▎` mark) is his to judge.
+Record: base `12521d3`, branch `fix/NZ-38-fixed-tag-field`, ticket
+commit `faa9157` (`tui/tree.rs`, `README.md`; 247 insertions, 140
+deletions), merge `facaf7a` with `git merge --no-ff`; undo with `git
+revert -m 1 facaf7a`. One `nz-worker` (opus, about 99k tokens over two
+rounds), one `nz-reviewer` (opus, about 63k) with one fix cycle (help
+row text, input gating of the field click, comments, mark glyph `▎`),
+accepted on
+`49024e5964047e89f707248d1f85b580d9d69190347bb554d78ee3ec1a8f52c4`.
+Lead checks: build clean, notez-cli 502 passed, notez-core 146 passed.
+As built: `TAG_FIELD_WIDTH = 3`, fixed half-cell per tag, `▌`/`▐` with
+fg and bg tag colours, selection style under the spans via
+`list_items`, field click opens tag mode on a note row when no input
+is open, mark glyph `▎`. Leftovers: red (tag 1) on peach (tag 2) is a
+low-contrast pair when both are set (a colour change is Andreas's
+call); a missing space after a comma in the `click tags` help row
+source; half-block glyphs need font coverage.
+
+Brief as run. Requested by Andreas
 on 2026-10-08 at 22:37 CEST: "the importance tags should never adjust
 the width of the margin. the margin must stay put. but the tags
 themselves could perhaps overlap each other slightly, to tighten this
@@ -4526,9 +4614,10 @@ Current lead):
    `299770e`), NZ-4 DONE (merge `554fd0c`), NZ-31 DONE (merge
    `38f91a5`), NZ-35 DONE (merge `cafd169`, install.sh), NZ-36 DONE
    (merge `97455ab`, tables), NZ-37 DONE (merge `5ff3745`, Esc), NZ-34
-   DONE (merge `12521d3`, reload), NZ-38 (fixed tag field) IN FLIGHT,
-   then NZ-39 (suffix indicator and `p`), NZ-3, NZ-5, NZ-32 (type
-   filter), NZ-28 (linting), NZ-30 (symbol outline),
+   DONE (merge `12521d3`, reload), NZ-38 DONE (merge `facaf7a`, fixed
+   tag field). STOPPED here on 2026-10-08. NEXT when Andreas says
+   continue: NZ-39 (suffix indicator and `p`), then NZ-3, NZ-5, NZ-32
+   (type filter), NZ-28 (linting), NZ-30 (symbol outline),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
