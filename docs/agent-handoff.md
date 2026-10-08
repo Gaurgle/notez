@@ -379,7 +379,21 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-20 (refuse altered names, protect `_todos`). Dispatched 2026-10-08
+NZ-21 (tree rows: badge indented, count aligned). Dispatched 2026-10-08
+at 16:10 CEST by lead `4ffb11e2` on Andreas's direct request ("two
+things directly", 15:55 CEST). `git status --short` before dispatch:
+only this file modified. Base `483cb1c` (= `main` = `origin/main`),
+branch `fix/NZ-21-tree-row-alignment`, worktree `.claude/worktrees/
+NZ-21`, model `opus` via `nz-worker`, one pass. RUNNING. Board item
+not yet created (asked Andreas for leave or for standing permission to
+create items for tickets he requests in the lead session). Then review,
+branch push, CI, merge, `main` run, cleanup; then NZ-22.
+
+NZ-20 is Done (merge `483cb1c` at 16:00 CEST; branch run `37771278846`
+and the `main` run both green; remote branch deleted; worktree and
+local branch removed; board Done).
+
+NZ-20 record, for history. Dispatched 2026-10-08
 at 15:20 CEST by lead `4ffb11e2` on Andreas's "you may go ahead with
 NZ-20". `git status --short` before dispatch: clean. Base `e84e90d`
 (= `main` = `origin/main`; code at the NZ-19 merge `3941481`), branch
@@ -396,7 +410,21 @@ is refused with `new note: the name is empty` (before it created
 `<date>-.md`); `_todos` matched by exact component or same directory
 entry (dev and inode) under the global root only; a dedicated message
 for `_todos` as a move destination. REVIEW dispatched at 15:33 CEST
-(`nz-reviewer`, opus) on that hash, RUNNING. Then
+(`nz-reviewer`, opus) on that hash; ACCEPTED at 15:45 CEST first time,
+about 76k agent tokens, no blockers; follow-ups F1 (rename Enter acts
+on the row under the cursor at Enter time, a click can move it,
+pre-existing), F2 (decomposed Unicode gets a confusing message; NFC
+needs a dependency or core change), F3 (no test for `S` refusing a
+`_todos` destination, none for Message over Rename in `status_slot`),
+F4 (README misses the `new note: the name is empty` refusal; reflow).
+Reviewer's product note for Andreas: `n` now refuses capitals and
+spaces too, so a heading like "Meeting with Bob" cannot come from `n`
+any more (type `meeting-with-bob`); the lead put a softer rule to
+Andreas (refuse only names where sanitizing DROPS characters, keep
+case-folding and space-to-hyphen silent) as a follow-up decision.
+Lead checks: build clean, 312 + 146 passed. Committed as `f9bd0b9`
+(diff against `e84e90d` hashes to the accepted `ade3c2bb...`), branch
+pushed at 15:50 CEST, CI run `37771278846` in progress. Then
 (new under the standing branch-push permission) push the branch, wait
 for a green run, merge `--no-ff`, checks on `main`, push `main`, wait
 for the `main` run, board Done, delete the remote branch, cleanup.
@@ -2291,11 +2319,27 @@ the safe-merge check; the git identity step; no `pull_request_target`.
 
 #### NZ-20: refuse names sanitizing would alter; protect `_todos`
 
-Status: In flight since 15:20 CEST on 2026-10-08. Authorized by Andreas
-in the lead session (13:55 CEST "5. lets try refusing. 6. protect it";
-15:15 CEST "you may go ahead with NZ-20"). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_Yflc`, created by the lead on that go-ahead.
-Touches `tui/tree.rs`; no other ticket holds that file.
+Status: Done. Merged into `main` as `483cb1c` at 16:00 CEST on
+2026-10-08 and pushed; branch run `37771278846` green, `main` run green;
+board Done; remote branch deleted. Not yet installed by Andreas.
+
+Record: base `e84e90d`, branch `feat/NZ-20-refuse-altered-names`,
+ticket commit `f9bd0b9` (2 files, 429 insertions, 31 deletions), merge
+`483cb1c` with `git merge --no-ff`; undo with `git revert -m 1 483cb1c`.
+One `nz-worker` (opus, about 132k tokens), one `nz-reviewer` (opus,
+about 76k), accepted first time; committed diff hashes to the accepted
+`ade3c2bb3012a12bbca986cdd9d1bcdfea7ceeda2b37d2a36f53822136facb26`.
+Lead checks in the worktree and on `main`: build clean, notez-cli 312
+passed, notez-core 146 passed. Open product question put to Andreas:
+`n` now refuses capitals and spaces in a title (a heading like "Meeting
+with Bob" needs `meeting-with-bob`); softer rule proposed: refuse only
+when sanitizing drops characters. Leftovers: reviewer F1 to F4 in the
+In flight record.
+
+Authorized by Andreas in the lead session (13:55 CEST "5. lets try
+refusing. 6. protect it"; 15:15 CEST "you may go ahead with NZ-20").
+Board item `PVTI_lAHOCU842c4BmE5Zzg_Yflc`, created by the lead on that
+go-ahead.
 
 Problem (NZ-14 review and worker findings): typed names in the browser
 go through `sanitize::name` (trim, lowercase, whitespace to `-`, keep
@@ -2361,6 +2405,158 @@ Method: bounded ticket, one worker pass, one review. Reviewer probes:
 Unicode input (`Ä`, decomposed forms) against the exact-equality check;
 `_todos` spelled in another case on APFS; a `.MD` note's rename no-op;
 the message when the cleaned name is empty.
+
+#### NZ-21: tree rows: badge indented with the row, count column aligned
+
+Status: Ready. Requested by Andreas in the lead session on 2026-10-08
+at about 15:55 CEST with two screenshots ("the expanding of tree
+structure is a bit weird, visibly, the icons for the expanded branch
+are visibly to the left ... indent correctly. Same for number of
+documents in view, gets skewed, everything in an extended branch is
+skewed to the left"), named as one of "two things directly". Runs
+first after NZ-20. Board item still to be created (asked). Touches
+`tui/tree.rs` only.
+
+Problem (verified by the lead in `row_line`, `tui/tree.rs` about line
+625, at `483cb1c`): (1) `row_badge` (NZ-13's per-note scope badge for
+rows with `depth > 0`) is pushed BEFORE the indent, so it sits in a
+fixed gutter column at the far left while the row's own content is
+indented; in the screenshots the docs icon of every nested row lines up
+under the section's expand triangle instead of next to the row. (2) The
+dotted leader to the file count computes `prefix_len` with
+`icon.len()`, which is BYTES; the branch glyphs `├─▼ `, `├─▶ ` and
+`│   ` are 4 columns but 10 or 6 bytes, so nested directory rows get a
+leader 2 to 6 columns too short and their count ends left of the
+section counts (screenshot: `1` under `superpowers`/`plans` ends about
+4 columns before `159`/`2`). `indent` is ASCII so it is fine.
+
+Outcome and decisions:
+
+1. For rows with `depth > 0` the scope badge is drawn directly before
+   the name, after the indent and branch glyph, in the scope colour as
+   today; the gutter keeps a one-column placeholder so the tag dots and
+   the section rows do not move. Section rows (depth 0) are unchanged.
+2. The leader width uses display widths (`chars().count()`, or the
+   crate's existing width helper if one exists, see `tui/text.rs`), so
+   every directory row's count ends in the same screen column as the
+   section rows' counts, at every depth.
+3. No behaviour change beyond drawing; no key, state or `.tags` change.
+
+Acceptance criteria:
+
+1. A test renders a section row, a nested folder row at depth 1 and 2
+   and a nested file row through `row_line` at a fixed `inner_width`
+   and asserts: the badge span immediately precedes the name span for
+   nested rows; the total display width of each directory row equals
+   `inner_width` (counts right-aligned) at every depth; the file row's
+   name starts at the same column as its sibling folder's badge plus
+   one.
+2. A regression test with a name containing wide or multi-byte
+   characters still aligns the count.
+3. Existing render tests pass unchanged except where they pinned the
+   old gutter badge position (list each).
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`. Method: bounded,
+one `nz-worker` pass, one review. Look and feel is Andreas's to
+accept; under the delegation it merges and he tries it installed.
+
+#### NZ-22: scroll the preview pane with Shift+Up/Down
+
+Status: Ready. Requested by Andreas in the lead session on 2026-10-08
+("i want shift + j/k & up/down to scroll document in the right pane"),
+the second of "two things directly". Runs after NZ-21 (same file).
+Board item to be created (asked).
+
+Facts (verified at `483cb1c`): `J` and `K` (that is Shift+j/k) already
+scroll the preview one line (`preview_scroll`, `tui/tree.rs` about
+lines 3884 to 3887) and are listed in `TREE_KEYS` as `Slot::HelpOnly`
+("scroll preview down / up"); the mouse wheel scrolls by 3; Shift+Up
+and Shift+Down are not bound.
+
+Outcome: Shift+Down and Shift+Up scroll the preview like `J` and `K`;
+PageDown/PageUp (or Shift+PageDown/Up if plain PageUp/Down are taken)
+scroll by a page minus one line; the `J/K` help row mentions the arrow
+aliases; the preview scroll hint becomes visible in the footer at low
+priority (not HelpOnly) so the feature is discoverable. Terminal note:
+many terminals report Shift+arrow only with the kitty keyboard protocol
+or specific escape sequences; the worker checks what crossterm delivers
+under macOS Terminal and iTerm2 modifiers and records it; if Shift+arrow
+cannot be distinguished, the ticket still ships `J`/`K` discoverability
+and PageUp/PageDown and says so in the README.
+
+Acceptance: key table and help tests; a unit test on the scroll
+arithmetic (clamp at the end, page step); README key list updated.
+Allowed files: `crates/notez-cli/src/tui/tree.rs`, `tui/footer.rs`,
+`tui/help.rs`, `README.md`. One worker pass, one review.
+
+#### NZ-23: the bonsai docs are not listed (project not attached)
+
+Status: Investigated by the lead, waiting for Andreas's answer; no code
+change identified yet. Andreas on 2026-10-08: "i added a document in
+bonsai two days ago. i can see the directory for it, but not that
+note, i think it was about 2.5kb".
+
+Findings (read-only, 2026-10-08 16:00 CEST): the live registry
+`~/.config/notez/registry.toml` has no `bonsai` or `bonsai-education`
+project (it lists airwavez, app2, auraz, career, file-gatherer,
+imrsv-website, j24-examen, noiz, notez, repoz, rustfinity, tranzlate,
+and a few more). `~/.config/notez/projects` is the LEGACY notez-cli
+registry (read only by `migrate.rs`) and does contain
+`bonsai=/Users/at-a/Repos/bonsai`; `~/Repos/bonsai` is an umbrella
+directory, not a git repository (the repository is
+`~/Repos/bonsai/bonsai-education`). Five markdown files of 1.5 to 2.9
+KB were written on 2026-10-06 into `~/Repos/bonsai/docs/` (00-overview
+to 04-open-questions); they match "about 2.5kb" and "two days ago".
+The tree shows `bonsai-education (personal)` with 1 note only because
+`~/notez/personal/bonsai-education/` exists (a 30-byte untitled note
+from 2026-10-06); that section comes from the unregistered-personal
+path, not from a registration. So the docs are invisible because no
+registered project covers `~/Repos/bonsai`, and `notez attach` works
+from inside a git repository, which the umbrella directory is not.
+
+Options put to Andreas: (a) move the five docs into
+`~/Repos/bonsai/bonsai-education/docs/` and `notez attach` there (then
+they list as `bonsai-education (docs)`); (b) a ticket to let `attach`
+register a plain directory as a project (docs and notes stores only, no
+sync), which is a scope-model change (DESIGN.md) and a `notez-core`
+change needing his approval; (c) a ticket to migrate or warn about
+legacy `projects` entries that the new registry does not have. The
+lead recommends (a) now and (c) as a small ticket.
+
+#### NZ-24: an icon for the todo store and TODO.md rows
+
+Status: Draft, requested by Andreas on 2026-10-08 ("todo's should have
+it's own icon and perhaps color? if not colors are reserved for
+visibility"). Design note: NZ-13 reserves colour for scope, so the lead
+recommends an icon only: the `_todos` folder row, its notes and any
+`TODO.md` row get a check-box glyph in place of the scope badge (the
+scope colour stays), and the help legend lists it. Depends on NZ-20's
+`in_todo_store`. Touches `tui/tree.rs` (and `tui/theme.rs` if a glyph
+constant belongs there). Needs Andreas's word on the glyph (proposal:
+`☑` or `✓`) and on whether `TODO.md` files in project stores count as
+todo rows too (the todo board reads project `TODO.md` files, so the
+lead says yes). Board item to be created (asked).
+
+#### NZ-25: markdown rendering in the preview pane, toggleable
+
+Status: Draft, requested by Andreas on 2026-10-08 ("can we add a
+markdown reader (togglable) in the inspector? and in time, expand to
+toggleable readers for multiple languages, such as python, kotlin,
+java, c, etc? linter (?) and lsp, and syntax highlighting. the
+inspector pane could also show in the footer what language it is").
+
+Lead's reading, to confirm with Andreas: phase 1 is NZ-25 proper, a
+rendered markdown view in the preview (headings, emphasis, lists,
+code blocks, links shown as text) with a toggle key between raw and
+rendered, and the footer naming the file type; phase 2 (later ticket)
+is syntax highlighting for fenced code blocks and for non-markdown
+files the tree can open; linting and LSP are out of scope for a notes
+browser until a concrete need is named. Dependencies: rendering
+markdown in ratatui needs a parser (`pulldown-cmark`) and highlighting
+needs `syntect` or `tree-sitter`; adding either is a dependency
+decision Andreas must approve (standing scope forbids new
+dependencies). The lead will propose exact crates and versions in the
+brief once he confirms the phases. Board item to be created (asked).
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
@@ -2659,17 +2855,17 @@ Current lead):
 3. NZ-15 (move, set scope): DONE 2026-10-08, merge `36699c1`.
 4. NZ-16 (multi-select): DONE 2026-10-08, merge `5298d54`. NZ-19 (CI):
    DONE 2026-10-08, merge `3941481`; CI is live on `main`.
-5. NZ-20 (refuse names sanitizing would alter; protect `_todos`): brief
-   Ready, authorized; needs its board item from Andreas first. Create
-   `feat/NZ-20-refuse-altered-names` and `.claude/worktrees/NZ-20` from
-   `main`, one pass, one review, checks, commit, merge (CI green on the
-   branch is now a real condition: push the branch? NOT authorized in
-   general, only NZ-19's branch was; so a lead reads the branch
-   condition as met by the lead's local checks plus the `main` run, or
-   asks Andreas for standing branch-push permission), push, board,
-   cleanup. Then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and NZ-6 in the
-   second slot when their files are free. NZ-18 (Pinz, design) waits
-   for Andreas's word.
+5. NZ-20: DONE 2026-10-08, merge `483cb1c`. Branch pushes are now a
+   standing permission (Authorized by the owner, 15:15 CEST): every
+   accepted ticket branch is pushed, waits for a green run, merges, and
+   its remote branch is deleted after the `main` run.
+6. NZ-21 (tree row alignment) then NZ-22 (preview scroll keys), both
+   requested directly by Andreas on 2026-10-08; briefs Ready under
+   Tickets; board items pending his leave. Then the UI tickets NZ-4,
+   NZ-5, NZ-3. NZ-11 and NZ-6 in the second slot when their files are
+   free. NZ-23 (bonsai docs) waits for his answer; NZ-24 (todo icon) and
+   NZ-25 (markdown preview) are drafts needing his decisions; NZ-18
+   (Pinz, design) waits for his word.
 4. NZ-17 (versioning) and the workflow-doc board wiring wait for
    Andreas's word; tagging is off until a first version exists.
 
