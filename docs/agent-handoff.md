@@ -533,9 +533,11 @@ under bash 3.2 confirmed the empty unquoted flag adds no argument and
 `set -e` still aborts; follow-ups: the TTY test looks at stdout while
 cargo draws on stderr, fine by decision; `copied to` and `installed`
 lines near-duplicate). Committed as `c582600` (hash `fece6a9e...`),
-branch pushed at 22:20 CEST; integration chain running in the
-background (runs selected by SHA); this file is committed after it
-reports.
+branch pushed at 22:20 CEST; merged into `main` as `cafd169`, branch
+run `37836972761` and `main` run `37837145181` green, remote branch
+deleted, worktree and local branch removed at 22:25 CEST; board Done.
+NZ-35 is DONE. Andreas sees the progress bar on his next
+`./install.sh`.
 Decisions: drop `--quiet` on a TTY so cargo's own progress bar shows,
 keep `--quiet` when piped; `SECONDS` timing per build and total; one
 `ok` line per step. Board item `PVTI_lAHOCU842c4BmE5Zzg_fT_A` In
