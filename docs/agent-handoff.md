@@ -382,6 +382,35 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   handoff). Not for tickets the lead invents, not for relayed ones
   until he confirms them here, and never deleting items or changing the
   board's visibility. Applied at once to NZ-21 to NZ-25.
+- 2026-10-08 17:20 CEST, Andreas, in the lead session (`4ffb11e2`),
+  answering the five option lists: "1. go with a. you may do that. it
+  must be a private notez note tho! 2. go with b 3. go with b 4. go with
+  c, but break it up into multiple tasks/tickets. add linting and LSP
+  and syntax highlighting too. approved to add dependencies, tree-sitter
+  ive used before, with no objections against it. I'll install and run
+  newest version now". The lead's reading:
+  - NZ-23: the lead moves the material itself, as PRIVATE notes: the
+    five docs from `~/Repos/bonsai/docs/` and the global
+    `~/notez/2026-10-06-bonsai.md` go into
+    `~/notez/personal/bonsai-education/` (docs in a `docs/` subfolder).
+    No `notez attach` (not needed for private notes; it would change
+    his registry). Done at 17:25 CEST, details on the ticket. One-off
+    permission to move his files, used once.
+  - NZ-26 (soft name rule) is wanted and AUTHORIZED: runs after NZ-22
+    (same file).
+  - NZ-24 (todo icon) decided: option b, a `✓` or Nerd Font check-list
+    glyph in the section icons' style, no colour; project `TODO.md`
+    rows count. AUTHORIZED to run after NZ-26.
+  - NZ-25 family: everything (rendered markdown, syntax highlighting,
+    linting, LSP) is wanted, split into tickets NZ-25, NZ-27, NZ-28,
+    NZ-29. DEPENDENCIES APPROVED for this family: `pulldown-cmark` and
+    `tree-sitter` with grammar crates; the lead names exact pinned
+    versions in each brief and lists them in the ticket record. Linting
+    and LSP start as design tickets (what runs, which languages, what
+    the pane shows) and need his approval of the design before code.
+    NZ-25 is AUTHORIZED to run after NZ-24; NZ-27 after NZ-25 once its
+    brief names the grammars; NZ-28 and NZ-29 after their designs.
+  - He installs the current `main` now.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -392,9 +421,25 @@ up/down to scroll document in the right pane", 15:55 CEST). `git
 status --short` before dispatch: only this file modified. Base
 `d667999` (= `main` = `origin/main`), branch
 `feat/NZ-22-preview-scroll-keys`, worktree `.claude/worktrees/NZ-22`,
-model `opus` via `nz-worker`, one pass. RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_Y3NA` In flight. Then review, branch push,
-CI, merge, `main` run, cleanup.
+model `opus` via `nz-worker`, one pass. Worker REPORTED at 17:30 CEST,
+one lead adjustment (the `J/K` row moved late in `TREE_KEYS` so the hint
+renders at the footer's right end) DONE at 17:38 CEST: `tui/tree.rs`
+and `README.md`, 123 insertions, 13 deletions, uncommitted diff against
+`d667999` hashing to
+`05b21b4beac5bd0bbbf3545caa15bc495882d43eb947860b564648c4f88ec0e8`;
+worker checks: build clean, notez-cli 324 passed, notez-core 146
+passed; about 147k agent tokens over both rounds. As built: Shift+Down/
+Up scroll one line like `J`/`K`; PgDn/PgUp scroll a page (`preview_
+height - 1`); every scroll path goes through a pure `scrolled(current,
+delta, max)`; `J/K` is a visible footer hint at `Slot::Priority(11)`
+(first dropped), `PgDn/PgUp` help only; README has the keys and the
+Terminal.app caveat (no default Shift+Up/Down mapping there; Ghostty
+and iTerm2 send `ESC[1;2A/B`; the worker verified crossterm's parser
+and probed through tmux, not the terminals themselves). One pre-existing
+test changed (`normal_and_focus_footers_hint_the_browse_keys` gains
+`J/K` before `q`). REVIEW dispatched at 17:40 CEST (`nz-reviewer`,
+opus) on that hash, RUNNING. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`
+In flight. Then branch push, CI, merge, `main` run, cleanup.
 
 NZ-21 is Done (merge `d667999` at 17:00 CEST; branch run and `main` run
 `37774540545` green; remote branch deleted; worktree and local branch
@@ -2554,8 +2599,20 @@ Allowed files: `crates/notez-cli/src/tui/tree.rs`, `tui/footer.rs`,
 
 #### NZ-23: the bonsai docs are not listed (project not attached)
 
-Status: Investigated by the lead, waiting for Andreas's answer; no code
-change identified yet. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3Pg` (Draft). Andreas on 2026-10-08: "i added a document in
+Status: Done without code, 17:25 CEST on 2026-10-08, board Done. On
+Andreas's "1. go with a. you may do that. it must be a private notez
+note tho!" the lead moved, with plain `mv` in the vault (uncommitted
+there; the next notez session's exit sync commits it): the five docs
+`00-overview.md` to `04-open-questions.md` from `~/Repos/bonsai/docs/`
+to `~/notez/personal/bonsai-education/docs/`, and the global note
+`~/notez/2026-10-06-bonsai.md` to `~/notez/personal/bonsai-education/`.
+The now empty `~/Repos/bonsai/docs/` was removed. Nothing was attached
+(private notes need no registration). Both show under
+`bonsai-education (personal)` after the move. To undo: move them back
+with `mv`. Follow-up ideas kept as candidates, not tickets: a footer
+line when a new note falls back to global because the directory is not
+a project; a one-time warning about legacy `projects` entries.
+Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3Pg`. Andreas on 2026-10-08: "i added a document in
 bonsai two days ago. i can see the directory for it, but not that
 note, i think it was about 2.5kb".
 
@@ -2600,38 +2657,169 @@ lead recommends (a) now and (c) as a small ticket.
 
 #### NZ-24: an icon for the todo store and TODO.md rows
 
-Status: Draft, requested by Andreas on 2026-10-08 ("todo's should have
-it's own icon and perhaps color? if not colors are reserved for
-visibility"). Design note: NZ-13 reserves colour for scope, so the lead
-recommends an icon only: the `_todos` folder row, its notes and any
-`TODO.md` row get a check-box glyph in place of the scope badge (the
-scope colour stays), and the help legend lists it. Depends on NZ-20's
-`in_todo_store`. Touches `tui/tree.rs` (and `tui/theme.rs` if a glyph
-constant belongs there). Needs Andreas's word on the glyph (proposal:
-`☑` or `✓`) and on whether `TODO.md` files in project stores count as
-todo rows too (the todo board reads project `TODO.md` files, so the
-lead says yes). Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` (Draft).
+Status: Ready, authorized to run after NZ-26 (Andreas, 2026-10-08
+17:20 CEST: "3. go with b"). Requested by Andreas on 2026-10-08
+("todo's should have it's own icon and perhaps color? if not colors
+are reserved for visibility"). Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ`.
+
+Decisions: icon only, colour stays scope (NZ-13). The glyph is `✓` or
+a Nerd Font check-list icon in the style of the existing section icons
+(`Scope::icon()` values in `notez-core`, look at how they are chosen;
+the worker picks the one that renders in the same width as the others
+and says which). It replaces the scope badge on: the `_todos` folder
+row, every row under it, and every `TODO.md` row in any section
+(project stores included, since the todo board reads them). Section
+header icons unchanged. The help overlay legend (if one lists icons)
+gets the glyph with the word "todo". Uses NZ-20's `in_todo_store` for
+the store and a file-name check for `TODO.md`.
+
+Acceptance: render tests for a `_todos` row, a note under it, a
+project `TODO.md`, and an ordinary note next to it (unchanged); the
+glyph has display width 1 or the same as the other icons; README one
+sentence. Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`tui/theme.rs` (glyph constant), `tui/help.rs` (legend), `README.md`.
+One `nz-worker` pass, one review.
 
 #### NZ-25: markdown rendering in the preview pane, toggleable
 
-Status: Draft, requested by Andreas on 2026-10-08 ("can we add a
-markdown reader (togglable) in the inspector? and in time, expand to
-toggleable readers for multiple languages, such as python, kotlin,
-java, c, etc? linter (?) and lsp, and syntax highlighting. the
-inspector pane could also show in the footer what language it is").
+Status: Ready, authorized to run after NZ-24 (Andreas, 2026-10-08
+17:20 CEST: "4. go with c, but break it up into multiple
+tasks/tickets. add linting and LSP and syntax highlighting too.
+approved to add dependencies, tree-sitter ive used before"). Requested
+on 2026-10-08 ("can we add a markdown reader (togglable) in the
+inspector? ... the inspector pane could also show in the footer what
+language it is"). Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8`. The family:
+NZ-25 rendered markdown (this ticket), NZ-27 syntax highlighting, NZ-28
+linting (design first), NZ-29 LSP (design first).
 
-Lead's reading, to confirm with Andreas: phase 1 is NZ-25 proper, a
-rendered markdown view in the preview (headings, emphasis, lists,
-code blocks, links shown as text) with a toggle key between raw and
-rendered, and the footer naming the file type; phase 2 (later ticket)
-is syntax highlighting for fenced code blocks and for non-markdown
-files the tree can open; linting and LSP are out of scope for a notes
-browser until a concrete need is named. Dependencies: rendering
-markdown in ratatui needs a parser (`pulldown-cmark`) and highlighting
-needs `syntect` or `tree-sitter`; adding either is a dependency
-decision Andreas must approve (standing scope forbids new
-dependencies). The lead will propose exact crates and versions in the
-brief once he confirms the phases. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` (Draft).
+Code facts (at `d667999`): the preview is a `Paragraph` built from
+`preview_lines: Vec<Line>` (about line 3207) with `.scroll((preview_
+scroll, 0))`; the file is read on selection; NZ-22 adds `scrolled`,
+`preview_max` and `preview_height`. `notez-cli` depends on ratatui
+0.29, crossterm 0.28, anyhow, chrono, clap; no markdown parser yet.
+
+Outcome and decisions:
+
+1. A rendered view of the selected markdown note in the preview pane:
+   headings styled by level (bold, scope-neutral colours from
+   `tui/theme.rs`), emphasis and strong, inline code, fenced code
+   blocks drawn in a block style with the language tag kept as a line,
+   bullet and numbered lists with indentation, block quotes with a
+   bar, horizontal rules, links shown as `text (url)` or `text` with
+   the url dimmed, tables passed through as text for now. Wrapping to
+   the pane width (ratatui `Wrap { trim: false }`); scrolling as today
+   (line based on the rendered lines).
+2. A toggle key switches the preview between rendered and raw; the
+   worker proposes the key from the free ones (candidates `p` or `R`;
+   not `v`, `f`, `t`, `s`, `S`, `m`, `n`, `N`, `r`, `d`, `o`, `J`, `K`,
+   `Space`, `x`, `y`, `q`, `?`, `/`, `:`, digits) and the lead confirms
+   with Andreas at review. The mode is session state, default
+   rendered, remembered across selections, never persisted. The footer
+   hint shows the key with "raw" or "rendered" as the state.
+3. The footer (status line) shows the selected file's type while the
+   preview is visible: `markdown` for `.md`, otherwise the extension
+   (`toml`, `rs`, `txt`); shown in the Hints slot's leading position
+   like NZ-16's mark count, or in the preview block title if that
+   reads better (worker's call, say which).
+4. Parser: `pulldown-cmark` (latest 0.13.x at the time of the brief;
+   the worker records the exact version and the `Cargo.lock` change),
+   default options plus tables and strikethrough; no HTML rendering
+   (raw HTML blocks shown as text). It is the ONLY new dependency in
+   this ticket.
+5. Non-markdown files keep the raw view regardless of the toggle; the
+   toggle hint hides for them.
+6. Not in this ticket: syntax highlighting of code blocks (NZ-27),
+   images, following links, editing.
+
+Acceptance: a pure `render_markdown(text, width) -> Vec<Line>` with
+tests for each construct in decision 1 (headings, emphasis, inline
+code, fenced block with and without a language, nested lists, quote,
+rule, link, table pass-through, raw HTML pass-through); the toggle
+state machine tested; the footer file type tested for `.md`, `.toml`
+and no extension; scrolling clamps on the rendered line count;
+existing preview tests pass unchanged; README documents the toggle and
+the footer type. Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/markdown.rs` (new), `tui/mod.rs` (module
+line), `tui/footer.rs`, `tui/help.rs`, `tui/theme.rs`,
+`crates/notez-cli/Cargo.toml`, `Cargo.lock`, `README.md`. Two worker
+passes (renderer with tests; integration, toggle, footer, README), one
+review. Reviewer probes: performance on a 2 MB note (render on
+selection, not on every key); a note with CRLF; unmatched fences;
+width 1 and width 0 panes.
+
+#### NZ-26: soft name rule in the browser prompts
+
+Status: Ready, authorized to run after NZ-22 (Andreas, 2026-10-08
+17:20 CEST: "2. go with b"). Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIFY`.
+Touches `tui/tree.rs`. Changes NZ-20's contract.
+
+Problem: NZ-20 refuses any typed name that `sanitize::name` would
+change, so `n` cannot take a title like `My Note` (it must be typed
+`my-note`); the reviewer flagged that a heading like "Meeting with Bob"
+can no longer come from `n`.
+
+Outcome and decisions:
+
+1. New rule for `n`, `N` and `r` (note and folder): a name is refused
+   only when sanitizing would DROP characters, that is when
+   `sanitize::name(input)` differs from a soft form of the input
+   (trim, lowercase, whitespace runs to `-`). Lowercasing and
+   space-to-hyphen stay silent as before NZ-20. `00_quick` (drops `_`),
+   `a.b` (drops `.`) and `!!!` are still refused with the NZ-20 message;
+   `My Note` is accepted (file `my-note.md`, heading `# My Note` as
+   before NZ-20); `Ideas` as a folder name is accepted and becomes
+   `ideas` (the typed case is not kept for file names; the heading of
+   a note keeps the typed text).
+2. The no-op rule (NZ-14, NZ-20) is unchanged: Enter on the unchanged
+   shown name does nothing.
+3. The refusal message is unchanged; README's sentence on names is
+   updated to the soft rule.
+
+Acceptance: pure-check tests for the soft form and each example above;
+each prompt's Enter path tested for `My Note` accepted and `00_quick`
+refused; NZ-20 tests updated only where they pinned `My Note` or
+`Ideas` as refused (list each, contract change named); README. Allowed
+files: `crates/notez-cli/src/tui/tree.rs`, `README.md`. One worker
+pass, one review.
+
+#### NZ-27: syntax highlighting in the preview (tree-sitter)
+
+Status: Draft, authorized in principle after NZ-25 (Andreas 17:20 CEST:
+"add linting and LSP and syntax highlighting too. approved to add
+dependencies, tree-sitter ive used before"). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIHA`. Brief to finalize once NZ-25 is on
+`main`: highlight fenced code blocks inside rendered markdown and whole
+non-markdown files the tree can open, with `tree-sitter` plus grammar
+crates for an initial language set (proposal: rust, python, kotlin,
+java, c, toml, json, bash, markdown inline), a theme mapping capture
+names to `tui/theme.rs` colours, and the footer language name from the
+grammar that matched. Open: the grammar crates' versions must be
+compatible with one `tree-sitter` version (the lead checks before the
+brief); build time and binary size; `tree-sitter-highlight` versus a
+small own walker.
+
+#### NZ-28: linting in the preview (design)
+
+Status: Draft, design first (Andreas 17:20 CEST). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Questions for the design note: which
+linters (markdownlint-style rules in-process, or shelling out to tools
+on the machine such as `ruff`, `ktlint`, `clippy`), when they run (on
+selection, on demand with a key), what the pane shows (gutter marks and
+a footer count, or a list), and how a missing tool degrades. The lead
+recommends starting with in-process markdown checks and an on-demand
+key, no external processes. Needs Andreas's approval of the design
+before code.
+
+#### NZ-29: LSP in the preview (design)
+
+Status: Draft, design first (Andreas 17:20 CEST). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Questions for the design note: what a
+read-only preview gains from a language server (hover, diagnostics,
+symbols), which servers and how they are found, process lifetime
+inside a TUI, and whether this belongs in the notes browser at all
+versus opening the file in the editor. The lead recommends deciding
+this after NZ-27 and NZ-28 have been used. Needs Andreas's approval of
+the design before code.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
@@ -2934,13 +3122,16 @@ Current lead):
    standing permission (Authorized by the owner, 15:15 CEST): every
    accepted ticket branch is pushed, waits for a green run, merges, and
    its remote branch is deleted after the `main` run.
-6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-22 (preview scroll
-   keys) in flight, requested directly by Andreas on 2026-10-08; board
-   items exist for NZ-21 to NZ-25. Then the UI tickets NZ-4,
-   NZ-5, NZ-3. NZ-11 and NZ-6 in the second slot when their files are
-   free. NZ-23 (bonsai docs) waits for his answer; NZ-24 (todo icon) and
-   NZ-25 (markdown preview) are drafts needing his decisions; NZ-18
-   (Pinz, design) waits for his word.
+6. NZ-21: DONE 2026-10-08, merge `d667999`. NZ-23: DONE without code
+   (files moved). NZ-22 (preview scroll keys) in review.
+7. Queue after NZ-22, all authorized on 2026-10-08 17:20 CEST, one at
+   a time on `tui/tree.rs`: NZ-26 (soft name rule), NZ-24 (todo icon),
+   NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
+   brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
+   NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
+   are design tickets (design note under `docs/`, Andreas approves,
+   then code). NZ-18 (Pinz, design) waits for his word. Andreas can
+   reorder; the lead proposed this order to him at 17:45 CEST.
 4. NZ-17 (versioning) and the workflow-doc board wiring wait for
    Andreas's word; tagging is off until a first version exists.
 
