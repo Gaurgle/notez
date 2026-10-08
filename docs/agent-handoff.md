@@ -517,7 +517,12 @@ Dispatched 2026-10-08 at 22:10 CEST by lead `4ffb11e2` on Andreas's
 request ("can we add to it a little loading animation or bar that
 shows how fast its going"); only `install.sh`, disjoint from NZ-31.
 Base `727dae9`, branch `chore/NZ-35-install-progress`, worktree
-`.claude/worktrees/NZ-35`, model `sonnet` via `nz-small`. RUNNING.
+`.claude/worktrees/NZ-35`, model `sonnet` via `nz-small`. REPORTED at
+22:13 CEST: `install.sh` only, 15 insertions, 1 deletion, uncommitted
+diff against `727dae9` hashing to
+`fece6a9ef9cbd93484d210791793b601364d389eec0ddcbf378c0b6b6460912c`;
+`bash -n` parses; about 18k agent tokens. REVIEW dispatched at 22:15
+CEST (`nz-reviewer`), RUNNING.
 Decisions: drop `--quiet` on a TTY so cargo's own progress bar shows,
 keep `--quiet` when piped; `SECONDS` timing per build and total; one
 `ok` line per step. Board item `PVTI_lAHOCU842c4BmE5Zzg_fT_A` In
