@@ -68,6 +68,39 @@ pub fn command_line() -> Style {
     Style::default().fg(MAUVE)
 }
 
+/// A rendered markdown heading. Levels 1 and 2 get their own colour,
+/// deeper levels are bold only. The colours stay clear of the scope badge
+/// colours in [`scope_color`].
+pub fn heading(level: u8) -> Style {
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    match level {
+        1 => bold.fg(MAUVE),
+        2 => bold.fg(SAPPHIRE),
+        _ => bold,
+    }
+}
+
+/// Inline code and fenced or indented code blocks in rendered markdown.
+pub fn code() -> Style {
+    Style::default().fg(PEACH)
+}
+
+/// Block quote text and its `▎` bar in rendered markdown.
+pub fn quote() -> Style {
+    Style::default().fg(SUBTEXT).add_modifier(Modifier::ITALIC)
+}
+
+/// The `(url)` after a link's text, and image placeholders, in rendered
+/// markdown.
+pub fn link_url() -> Style {
+    Style::default().fg(OVERLAY)
+}
+
+/// A horizontal rule in rendered markdown.
+pub fn rule() -> Style {
+    Style::default().fg(SURFACE)
+}
+
 /// Per-tag colors used by the todoz tag system. Five entries: important,
 /// prio, longterm, idea, blocked.
 pub const FLAG_COLORS: [Color; 5] = [
