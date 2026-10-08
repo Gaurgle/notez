@@ -90,6 +90,12 @@ pub fn scope_color(scope: Scope) -> Color {
     }
 }
 
+/// The badge on the todo board's rows in the tree browser (the `_todos`
+/// store and every row under it, and every `TODO.md`), in place of the
+/// scope icon: Nerd Font `nf-fa-tasks` (Font Awesome list-check), U+F0AE,
+/// one column wide like the scope icons in `Scope::icon`.
+pub const ICON_TODO: &str = "\u{f0ae}";
+
 /// Dim a color by dividing each channel by 3, used for inactive tag dots.
 /// Terminal DIM modifier is too inconsistent across emulators to rely on.
 pub fn dim_color(c: Color) -> Color {

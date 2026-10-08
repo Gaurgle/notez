@@ -609,12 +609,17 @@ fn section_color(spec: &SectionSpec) -> Color {
 /// indentation and branch glyph: the section's icon in its colour and a
 /// space, like a section header's `icon label`, on every file and folder
 /// row; blanks on a section header (which shows the icon next to its
-/// label). Render only: the filter, preview, mouse hit testing and tag keys
-/// never see it, and the tag dots keep their columns.
+/// label). A todo row (the board's store, a row under it, or a file named
+/// exactly `TODO.md`) shows [`theme::ICON_TODO`] instead, in the same
+/// colour and width. Render only: the filter, preview, mouse hit testing
+/// and tag keys never see it, and the tag dots keep their columns.
 fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
     match spec {
         Some(spec) if node.depth > 0 && !spec.icon.is_empty() => {
-            Span::styled(format!("{} ", spec.icon), Style::default().fg(section_color(spec)))
+            let is_todo_file = !node.is_dir && node.path.file_name().is_some_and(|name| name == "TODO.md");
+            let icon =
+                if is_todo_file || in_section_todo_store(node, spec) { theme::ICON_TODO } else { spec.icon };
+            Span::styled(format!("{icon} "), Style::default().fg(section_color(spec)))
         }
         _ => Span::raw("  "),
     }
@@ -1139,9 +1144,13 @@ fn in_todo_store(path: &Path, notez_root: &Path) -> bool {
 /// global section `notez_root` itself), so a `_todos` folder in a project's
 /// store is an ordinary folder.
 fn is_todo_row(node: &TreeNode, sections: &[SectionSpec]) -> bool {
-    sections.get(node.section).is_some_and(|spec| {
-        spec.scope == Scope::Global && spec.project.is_none() && !spec.is_doc && in_todo_store(&node.path, &spec.root)
-    })
+    sections.get(node.section).is_some_and(|spec| in_section_todo_store(node, spec))
+}
+
+/// Whether `node`, a row of `spec`, is the todo board's store or a row
+/// under it; see [`is_todo_row`].
+fn in_section_todo_store(node: &TreeNode, spec: &SectionSpec) -> bool {
+    spec.scope == Scope::Global && spec.project.is_none() && !spec.is_doc && in_todo_store(&node.path, &spec.root)
 }
 
 // --- Delete ---
@@ -5265,6 +5274,91 @@ mod tests {
         let lit = cells.iter().position(|c| c.0 == "●").expect("a lit dot");
         assert_eq!(mouse_x_to_dot(lit as u16, 0), Some(prio as u8));
         assert_eq!(mouse_x_to_dot(BADGE_COL as u16, 0), None, "the badge is no dot");
+    }
+
+    // --- Todo icon (NZ-24) ---
+
+    /// A personal section with a project `TODO.md`, a lowercase `todo.md`
+    /// and an ordinary note, and the global store with the todo board's
+    /// `_todos` (a note and a category folder) beside an ordinary note;
+    /// icons as the real listing gives them, every row expanded.
+    fn todo_icon_forest() -> (Vec<SectionSpec>, Vec<TreeNode>) {
+        let mut personal =
+            scoped("/n/personal/proj", Scope::Personal, false, &["TODO.md", "todo.md", "a.md"]);
+        personal.icon = Scope::Personal.icon();
+        let mut global = scoped("/n", Scope::Global, false, &["_todos/t.md", "_todos/work/w.md", "e.md"]);
+        global.icon = Scope::Global.icon();
+        let sections = vec![personal, global];
+        let (mut nodes, _) = build_forest(&sections);
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        (sections, nodes)
+    }
+
+    /// The badge `path`'s row draws right before its name: text and colour.
+    fn badge_of(sections: &[SectionSpec], nodes: &[TreeNode], path: &str) -> (String, Option<Color>) {
+        let node = &nodes[row(nodes, path)];
+        let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        let badge = &line.spans[name_index(&line, node) - 1];
+        (badge.content.to_string(), badge.style.fg)
+    }
+
+    #[test]
+    fn the_todo_store_and_every_row_under_it_wear_the_todo_icon_in_the_scope_colour() {
+        let (sections, nodes) = todo_icon_forest();
+        let todo = (format!("{} ", theme::ICON_TODO), Some(theme::scope_color(Scope::Global)));
+        for path in ["/n/_todos", "/n/_todos/t.md", "/n/_todos/work", "/n/_todos/work/w.md"] {
+            assert_eq!(badge_of(&sections, &nodes, path), todo, "{path}");
+        }
+        let node = &nodes[row(&nodes, "/n/_todos/t.md")];
+        let cells = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
+        let badge = BADGE_COL + 1 + 2 * node.depth + 4;
+        assert_eq!(cells[badge].0, theme::ICON_TODO);
+        assert_eq!(cells[badge].1, Some(theme::scope_color(Scope::Global)));
+        let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(rest.trim_end(), format!("    │   {} t.md", theme::ICON_TODO));
+    }
+
+    #[test]
+    fn a_project_todo_md_wears_the_todo_icon_and_a_lowercase_todo_md_does_not() {
+        let (sections, nodes) = todo_icon_forest();
+        let personal = Some(theme::scope_color(Scope::Personal));
+        let todo = format!("{} ", theme::ICON_TODO);
+        let scope_badge = format!("{} ", Scope::Personal.icon());
+        assert_eq!(badge_of(&sections, &nodes, "/n/personal/proj/TODO.md"), (todo, personal));
+        assert_eq!(badge_of(&sections, &nodes, "/n/personal/proj/todo.md"), (scope_badge.clone(), personal));
+        assert_eq!(badge_of(&sections, &nodes, "/n/personal/proj/a.md"), (scope_badge, personal));
+        let global = (format!("{} ", Scope::Global.icon()), Some(theme::scope_color(Scope::Global)));
+        assert_eq!(badge_of(&sections, &nodes, "/n/e.md"), global);
+    }
+
+    #[test]
+    fn section_headers_keep_their_scope_icon_next_to_the_todo_rows() {
+        let (sections, nodes) = todo_icon_forest();
+        for node in nodes.iter().filter(|n| n.depth == 0) {
+            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            let texts = span_texts(&line);
+            let icon = sections[node.section].icon;
+            assert!(texts.contains(&format!("{icon} ")), "{texts:?}");
+            assert!(texts.iter().all(|t| !t.contains(theme::ICON_TODO)), "{texts:?}");
+        }
+    }
+
+    #[test]
+    fn the_todo_icon_is_as_wide_as_the_scope_icons_and_todo_counts_still_align() {
+        let width = Span::raw(theme::ICON_TODO).width();
+        assert_eq!(width, 1);
+        for scope in [Scope::Local, Scope::Personal, Scope::Public, Scope::Global] {
+            assert_eq!(Span::raw(scope.icon()).width(), width, "{scope:?}");
+        }
+        let (sections, nodes) = todo_icon_forest();
+        for path in ["/n/_todos", "/n/_todos/work"] {
+            let node = &nodes[row(&nodes, path)];
+            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
+            assert_eq!(line.spans.last().unwrap().content, node.child_count.to_string(), "{path}");
+        }
     }
 
     // --- Row alignment ---
