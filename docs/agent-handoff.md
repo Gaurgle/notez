@@ -341,8 +341,45 @@ via `nz-worker`. Pass 1 (directory listing, `mkdir::create_in_dir`, the
 `17a84c7a831cba5dcf2ad7723bcea46c6c955095371758c2a2dc58d908f2bf8e`;
 worker checks: build clean, notez-cli 237 passed, notez-core 146
 passed; about 168k agent tokens. Pass 2 (folder rename and delete)
-DISPATCHED at 10:08 CEST on the same worktree, RUNNING. Then one review
-of the whole diff. Board: In flight. No second worker slot is in use.
+REPORTED at 10:40 CEST: touched `tui/tree.rs` and `README.md` only;
+whole worktree diff now 4 files, 1415 insertions, 66 deletions,
+uncommitted diff against `4a239e3` hashing to
+`8118d5906ed724452815bfd5cfe627704d9ca5321c80e282f4048b2e12f6865c`;
+worker checks: build clean, notez-cli 253 passed, notez-core 146
+passed; about 158k agent tokens. No worker is running.
+
+STOPPED at 10:45 CEST on the disk stop condition: the worker hit
+`ENOSPC` once during pass 2 and `df` shows 590 MB free on
+`/System/Volumes/Data` (228 GB, 100% used). Rust build output is small
+this time (notez `target` 865 MB, the NZ-14 worktree `target` 619 MB,
+`~/.cargo/registry` 517 MB; nothing else under `~/Repos` or
+`~/RustroverProjects`); the big consumers are under `~/Library/Caches`
+(JetBrains 3.6 GB, ms-playwright 1.1 GB, browser caches, Homebrew 563
+MB). The lead deleted nothing and asked Andreas. Until space is freed
+the review is NOT dispatched (it must run `cargo test`), and the one
+pending fix is held too.
+
+Pending before review, one small fix for the pass 2 worker: the folder
+delete prompt for an empty folder reads `delete empty/ and its no notes
+from personal? y/n`; change `delete_question` so an empty folder reads
+`delete empty/ (no notes) from personal? y/n`, `1 note` and `<n> notes`
+keep the "and its" form; one test line follows.
+
+Lead decisions on the pass 2 report:
+
+- `N` on a section row creates the folder at the section root (pass 1,
+  mirrors `n`). The brief's criterion 5 contradicted its own decision
+  2 on this point; decision 2 is the intent. `r` and `d` on a section
+  row change nothing, as pass 2 has it.
+- The renamed existing test (`d_on_a_folder_or_an_empty_tree_...` to
+  `d_on_a_section_a_docs_folder_or_an_empty_tree_changes_nothing`) is
+  the authorized behaviour change from NZ-12's "folder delete not
+  available", not a weakening.
+- Noted, no action: a renamed folder keeps its old sort position until
+  the next rebuild (note rename does the same); non-unix refuses every
+  rename onto an existing target including case-only.
+
+Board: In flight. No second worker slot is in use.
 
 Lead decisions on the pass 1 report (recorded for the reviewer and the
 ticket record):
