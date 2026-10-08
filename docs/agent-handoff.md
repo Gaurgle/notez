@@ -522,7 +522,15 @@ expand; NZ-31 tests updated to the new contract (listed in the report);
 new test const `TREE_COL`. Lead decisions (accepted): fixed slot per
 tag rather than packed set tags (a tag always sits in the same place);
 folder-row field click keeps toggling expand. REVIEW dispatched at
-23:00 CEST (`nz-reviewer`, opus) on that hash, RUNNING. Board item
+23:00 CEST (`nz-reviewer`, opus) on that hash; CHANGES REQUESTED at
+23:06 CEST (about 54k tokens): the `click dot` help row still
+described the old per-dot toggle (B1); follow-ups F1 a field click
+could open tag mode on top of an open filter or prompt, F2 stale "tag
+dots" comments, F3 red on peach is a low-contrast pair (colour change
+is Andreas's call), F4 the `▌` mark glyph next to a `▌` tag half-block
+reads alike. FIX CYCLE 1 sent at 23:08 CEST: B1, F1 (gate on
+`!input_open`), F2, and F4 by changing the mark glyph to `▎` (lead
+decision), RUNNING. Then re-review. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_fr30` In flight. Then branch push, CI, merge,
 `main` run, cleanup; then NZ-39, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
 
