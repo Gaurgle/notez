@@ -706,10 +706,12 @@ fn status_slot<'a>(
     flag_mode: bool,
     warning: Option<&'a str>,
 ) -> StatusSlot<'a> {
-    if let Some(buffer) = rename {
-        StatusSlot::Rename(buffer)
-    } else if let Some(message) = message {
+    // A message outranks the rename prompt: a refused name keeps the prompt
+    // open, and its message shows until the next key brings the prompt back.
+    if let Some(message) = message {
         StatusSlot::Message(message)
+    } else if let Some(buffer) = rename {
+        StatusSlot::Rename(buffer)
     } else if vim_active {
         StatusSlot::VimCommand
     } else if flag_mode {
@@ -947,6 +949,42 @@ fn new_note_target(
     Some(NewNoteTarget { dir, scope: spec.scope, label })
 }
 
+// --- Typed names ---
+//
+// The prompts `n`, `N` and `r` take a typed name only as it is: a name that
+// `sanitize::name` would alter (capitals, `_`, `.`, inner blanks) is refused
+// with what it would have become, instead of being changed without a word.
+// The CLI commands keep sanitizing.
+
+/// What `sanitize::name` makes of `input` when that differs from `input`
+/// trimmed; `None` when the name is taken as typed. A name that sanitizes
+/// to nothing is `None` too: the prompts' empty-name paths answer it.
+fn name_would_change(input: &str) -> Option<String> {
+    let cleaned = sanitize::name(input);
+    (!cleaned.is_empty() && cleaned != input.trim()).then_some(cleaned)
+}
+
+/// The footer message for a typed name [`name_would_change`] refuses.
+fn altered_name_message(cleaned: &str) -> String {
+    format!("name would become {cleaned}; use letters, digits and -")
+}
+
+/// The footer message for a new-note title that sanitizes to nothing. An
+/// empty title still makes an `untitled` note.
+const NOTE_NAME_EMPTY: &str = "new note: the name is empty";
+
+/// Why `Enter` in the `n` or `N` prompt creates nothing and leaves the
+/// prompt open with the typed name: an altered name (see
+/// [`name_would_change`]), or a note title that is not empty but sanitizes
+/// to nothing. `None` goes on to create.
+fn new_item_refusal(prompt: &NewNotePrompt) -> Option<String> {
+    let buffer = prompt.buffer.as_str();
+    if !prompt.is_folder && !buffer.trim().is_empty() && sanitize::name(buffer).is_empty() {
+        return Some(NOTE_NAME_EMPTY.to_string());
+    }
+    name_would_change(buffer).map(|cleaned| altered_name_message(&cleaned))
+}
+
 /// The new-note prompt that leads the footer while a title is typed.
 fn new_note_lead(label: &str, buffer: &str) -> Vec<Span<'static>> {
     vec![
@@ -1038,6 +1076,58 @@ fn create_folder(
         Some(row) => FolderOutcome { row: Some(row), message: None },
         None => refuse(format!("created {}", path.display())),
     }
+}
+
+// --- The todo board's store ---
+//
+// `<notez root>/_todos` holds the todo board's lists (`notez_core::todo`
+// reads it). The browser lists it in the global section but leaves it to
+// the todo view: `d`, `r`, `m` and `S` refuse it and every row under it,
+// and it is never a move destination. `n` and `N` there work as anywhere.
+
+/// The store's folder name under the notez root.
+const TODO_STORE: &str = "_todos";
+
+/// What the refusals below say after their verb.
+const TODO_STORE_MANAGED: &str = "the todo board's store is managed by the todo view";
+
+/// The footer message for `d` on the store or a row under it.
+const TODOS_DELETE: &str = "delete: the todo board's store is managed by the todo view";
+
+/// The footer message for `r` on the store or a row under it.
+const TODOS_RENAME: &str = "rename: the todo board's store is managed by the todo view";
+
+/// The footer message for `m` on the store or a row under it.
+const TODOS_MOVE: &str = "move: the todo board's store is managed by the todo view";
+
+/// The footer message for `S` on the store or a row under it.
+const TODOS_SET_SCOPE: &str = "set scope: the todo board's store is managed by the todo view";
+
+/// Whether `path` is `<notez_root>/_todos` or lies under it. The first step
+/// below the root counts as the store when it is spelled `_todos` or is the
+/// same directory entry the board reads as `_todos` (another spelling on a
+/// case-insensitive file system). A sibling such as `_todos-archive` is not
+/// the store.
+fn in_todo_store(path: &Path, notez_root: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(notez_root) else {
+        return false;
+    };
+    let Some(first) = rel.components().next() else {
+        return false;
+    };
+    let top = notez_root.join(first);
+    let store = notez_root.join(TODO_STORE);
+    top == store || is_same_entry(&top, &store)
+}
+
+/// Whether `node` is the todo board's store or a row under it. Only the
+/// global section's root is the notez root (`commands::tree` gives the
+/// global section `notez_root` itself), so a `_todos` folder in a project's
+/// store is an ordinary folder.
+fn is_todo_row(node: &TreeNode, sections: &[SectionSpec]) -> bool {
+    sections.get(node.section).is_some_and(|spec| {
+        spec.scope == Scope::Global && spec.project.is_none() && !spec.is_doc && in_todo_store(&node.path, &spec.root)
+    })
 }
 
 // --- Delete ---
@@ -1143,8 +1233,9 @@ fn remove_folder(path: &Path, section_root: &Path, section_roots: &[PathBuf]) ->
 }
 
 /// What `d` does with the cursor on `row`: `Ok(Some)` opens the prompt on a
-/// note or a folder, `Err` is the footer message for a section row, a docs
-/// folder, or a folder holding another section, and `Ok(None)` (no row
+/// note or a folder, `Err` is the footer message for a section row, a row
+/// in the todo board's store ([`is_todo_row`]), a docs folder, or a folder
+/// holding another section, and `Ok(None)` (no row
 /// under the cursor) does nothing. A folder's contents are counted from
 /// the disk when the prompt opens.
 fn delete_request(
@@ -1162,6 +1253,9 @@ fn delete_request(
     let Some(spec) = sections.get(node.section) else {
         return Ok(None);
     };
+    if is_todo_row(node, sections) {
+        return Err(TODOS_DELETE);
+    }
     let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
     let folder = if node.is_dir {
         if spec.is_doc {
@@ -1668,7 +1762,8 @@ const FOLDER_RENAME_EMPTY: &str = "rename: the name is empty";
 
 /// What `r` does with the cursor on `row`: `Ok(Some)` opens the rename
 /// prompt with that text (a note's editable title, a folder's name), `Err`
-/// is the footer message for a section row, and `Ok(None)` does nothing:
+/// is the footer message for a section row or a row in the todo board's
+/// store ([`is_todo_row`]), and `Ok(None)` does nothing:
 /// no row under the cursor, or a folder in a docs section.
 fn rename_request(
     nodes: &[TreeNode],
@@ -1680,6 +1775,9 @@ fn rename_request(
     };
     if node.depth == 0 {
         return Err(SECTION_RENAME);
+    }
+    if is_todo_row(node, sections) {
+        return Err(TODOS_RENAME);
     }
     if !node.is_dir {
         return Ok(Some(rename::editable_title(&node.name)));
@@ -1750,6 +1848,52 @@ fn rename_folder(
         }
     }
     Ok(())
+}
+
+/// What `Enter` in the rename prompt did.
+#[derive(Debug, PartialEq, Eq)]
+enum RenameEnter {
+    /// The typed name is refused: the prompt stays open with it and the
+    /// footer shows the message.
+    Keep(String),
+    /// The prompt closes, with the footer message if there is one.
+    Done(Option<String>),
+}
+
+/// `Enter` in the rename prompt opened on the row at `idx` showing `shown`
+/// (the text the prompt was prefilled with), with `typed` in the buffer.
+/// `typed` trimmed equal to `shown` changes nothing: no file, heading or
+/// `.tags` key moves, even for a name sanitizing would alter (`My_Note`,
+/// `x.MD`). Otherwise a name [`name_would_change`] alters is refused before
+/// any disk work, and the rest renames the folder ([`rename_folder`]) or
+/// the note (`notez rename`'s [`rename::rename_note`]).
+fn enter_rename(
+    nodes: &mut [TreeNode],
+    sections: &mut [SectionSpec],
+    idx: usize,
+    shown: &str,
+    typed: &str,
+) -> RenameEnter {
+    if typed.trim() == shown {
+        return RenameEnter::Done(None);
+    }
+    if let Some(cleaned) = name_would_change(typed) {
+        return RenameEnter::Keep(altered_name_message(&cleaned));
+    }
+    let Some(node) = nodes.get(idx) else {
+        return RenameEnter::Done(None);
+    };
+    if node.is_dir {
+        return RenameEnter::Done(rename_folder(nodes, sections, idx, typed).err());
+    }
+    match rename::rename_note(&node.path, typed) {
+        Ok(new_path) => {
+            nodes[idx].name = file_name_of(&new_path);
+            nodes[idx].path = new_path;
+            RenameEnter::Done(None)
+        }
+        Err(e) => RenameEnter::Done(Some(format!("rename failed: {e}"))),
+    }
 }
 
 /// `path` with its `old` prefix replaced by `new`, if it lies under `old`.
@@ -1837,7 +1981,8 @@ impl MovePrompt {
 
 /// What `m` does with the cursor on `row`: `Ok` opens the move prompt on a
 /// note or a folder, `Err` is the footer message for a section row, a row
-/// in a docs section, a folder holding another section, or no row at all.
+/// in a docs section or in the todo board's store ([`is_todo_row`]), a
+/// folder holding another section, or no row at all.
 /// The scopes `Tab` offers are the row's project's plus global; for a
 /// global row, the project the browser was opened in, if any.
 fn move_request(
@@ -1882,6 +2027,9 @@ fn open_move(
     };
     if spec.is_doc {
         return Err(pick(DOCS_MOVE, DOCS_SET_SCOPE));
+    }
+    if is_todo_row(node, sections) {
+        return Err(pick(TODOS_MOVE, TODOS_SET_SCOPE));
     }
     let notes = if node.is_dir {
         let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
@@ -1997,7 +2145,8 @@ fn repo_name(store_root: &Path) -> String {
 /// the chosen scope's root. Nothing on disk is touched. `Err` is the footer
 /// message: a folder that does not exist (or is hidden, a symlink, or
 /// steps out with `..`), a global destination inside `personal/` (those
-/// are the projects' stores), the row's own folder, a destination inside
+/// are the projects' stores) or inside the todo board's store, the row's
+/// own folder, a destination inside
 /// the folder being moved, or a destination name that is taken (never
 /// overwritten). The messages start with the prompt's verb (`move:` or
 /// `set scope:`).
@@ -2032,7 +2181,8 @@ fn resolve_move(prompt: &MovePrompt, roots: &NewNoteRoots) -> std::result::Resul
 /// destination as the prompt shows it (`personal/plans`). `Err` is the
 /// footer message, starting with `verb`: a folder that does not exist
 /// under exactly that spelling, is hidden, a symlink, or steps out with
-/// `..`, or a global destination inside `personal/`.
+/// `..`, or a global destination inside `personal/` or inside the todo
+/// board's store (see [`in_todo_store`]).
 fn resolve_folder(
     verb: &str,
     target: &NewNoteTarget,
@@ -2074,6 +2224,9 @@ fn resolve_folder(
     }
     if target.scope == Scope::Global && dir.starts_with(roots.global.join("personal")) {
         return Err(format!("{verb}: {display} holds the projects' personal notes, not global ones"));
+    }
+    if target.scope == Scope::Global && in_todo_store(&dir, &roots.global) {
+        return Err(format!("{verb}: {TODO_STORE_MANAGED}"));
     }
     Ok((dir, display))
 }
@@ -2834,6 +2987,9 @@ fn event_loop(
     let mut help = HelpState::default();
     let mut flag_mode = false;
     let mut rename_buffer: Option<String> = None;
+    // The text the open rename prompt was prefilled with: Enter on it
+    // unchanged renames nothing.
+    let mut rename_shown = String::new();
     let mut status_message: Option<String> = None;
     let mut preview_scroll: u16 = 0;
     let mut last_preview_idx: usize = usize::MAX;
@@ -3204,7 +3360,8 @@ fn event_loop(
                             lead_with_hints(move_lead(prompt), Mode::Move, &toggles, width)
                         }
                     }
-                    _ if new_note.is_some() => {
+                    // A refused name's message shows in place of the prompt.
+                    _ if new_note.is_some() && status_message.is_none() => {
                         let prompt = new_note.as_ref().expect("checked by the guard");
                         let lead = if prompt.is_folder {
                             new_folder_lead(&prompt.target.label, &prompt.buffer)
@@ -3502,6 +3659,9 @@ fn event_loop(
                         ctx.current_project.as_deref(),
                     );
                 }
+                KeyCode::Enter if new_item_refusal(prompt).is_some() => {
+                    status_message = new_item_refusal(prompt);
+                }
                 KeyCode::Enter if prompt.is_folder => {
                     let NewNotePrompt { target, buffer, .. } =
                         new_note.take().expect("the prompt is open");
@@ -3582,27 +3742,23 @@ fn event_loop(
             match key.code {
                 KeyCode::Esc => rename_buffer = None,
                 KeyCode::Enter => {
-                    let title = std::mem::take(buffer);
-                    rename_buffer = None;
                     let visible = compute_visible(nodes, &search_buffer);
                     let vs = state.selected().unwrap_or(0);
-                    if let Some(&ri) = visible.get(vs).filter(|&&ri| nodes[ri].is_dir) {
-                        match rename_folder(nodes, &mut forest.sections, ri, &title) {
-                            Ok(()) => {
+                    let Some(&ri) = visible.get(vs) else {
+                        rename_buffer = None;
+                        continue;
+                    };
+                    match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
+                        RenameEnter::Keep(message) => status_message = Some(message),
+                        RenameEnter::Done(message) => {
+                            rename_buffer = None;
+                            if message.is_none() && nodes[ri].is_dir {
                                 let visible = compute_visible(nodes, &search_buffer);
                                 if let Some(pos) = visible.iter().position(|&i| i == ri) {
                                     state.select(Some(pos));
                                 }
                             }
-                            Err(message) => status_message = Some(message),
-                        }
-                    } else if let Some(&ri) = visible.get(vs) {
-                        match rename::rename_note(&nodes[ri].path, &title) {
-                            Ok(new_path) => {
-                                nodes[ri].name = file_name_of(&new_path);
-                                nodes[ri].path = new_path;
-                            }
-                            Err(e) => status_message = Some(format!("rename failed: {e}")),
+                            status_message = message;
                         }
                     }
                 }
@@ -3813,7 +3969,10 @@ fn event_loop(
             }
             KeyCode::Char('r') => {
                 match rename_request(nodes, &forest.sections, visible.get(selected).copied()) {
-                    Ok(text) => rename_buffer = text,
+                    Ok(text) => {
+                        rename_shown = text.clone().unwrap_or_default();
+                        rename_buffer = text;
+                    }
                     Err(message) => status_message = Some(message.to_string()),
                 }
             }
@@ -7678,5 +7837,233 @@ mod tests {
         expected.get_mut(&local).unwrap().insert("ideas/s.md".to_string(), 7);
         expected.get_mut(&local).unwrap().insert("plans/p.md".to_string(), 3);
         assert_eq!(final_maps(&forest, &retired, &carried, &roots), expected);
+    }
+
+    // --- Refused names (NZ-20) ---
+
+    /// Typed names `sanitize::name` would alter, each with what it becomes.
+    const ALTERED: [(&str, &str); 4] =
+        [("00_quick", "00quick"), ("My Note", "my-note"), ("Ideas", "ideas"), ("a.b", "ab")];
+
+    /// Typed names the prompts take as they are.
+    const ACCEPTED: [&str; 3] = ["00-quick", "my-note", "ideas"];
+
+    #[test]
+    fn name_would_change_names_what_sanitizing_makes_of_an_altered_name() {
+        for (typed, cleaned) in ALTERED {
+            assert_eq!(name_would_change(typed).as_deref(), Some(cleaned), "{typed}");
+        }
+        assert_eq!(name_would_change("\u{c4}").as_deref(), Some("\u{e4}"), "capital A umlaut");
+        for typed in ACCEPTED {
+            assert_eq!(name_would_change(typed), None, "{typed}");
+        }
+        assert_eq!(name_would_change("  ideas  "), None, "surrounding blanks are trimmed");
+        assert_eq!(name_would_change("\u{e5}\u{e4}\u{f6}"), None, "lowercase letters beyond ASCII");
+        assert_eq!(name_would_change(""), None, "an empty name is the empty-name path's");
+        assert_eq!(name_would_change("!!!"), None, "so is one that sanitizes to nothing");
+        assert_eq!(
+            altered_name_message("00quick"),
+            "name would become 00quick; use letters, digits and -"
+        );
+    }
+
+    #[test]
+    fn new_note_and_new_folder_enter_refuses_altered_names_and_keeps_the_rest() {
+        let (_dir, notez, root) = vault();
+        let target = NewNoteTarget { dir: root.clone(), scope: Scope::Personal, label: "personal".to_string() };
+        for is_folder in [false, true] {
+            let mut prompt = NewNotePrompt::open(target.clone(), Some("proj".to_string()));
+            prompt.is_folder = is_folder;
+            for (typed, cleaned) in ALTERED {
+                prompt.buffer = typed.to_string();
+                assert_eq!(new_item_refusal(&prompt), Some(altered_name_message(cleaned)), "{typed}");
+            }
+            for typed in ACCEPTED.into_iter().chain(["", "  ideas  "]) {
+                prompt.buffer = typed.to_string();
+                assert_eq!(new_item_refusal(&prompt), None, "{typed}, folder {is_folder}");
+            }
+        }
+        let mut note = NewNotePrompt::open(target.clone(), None);
+        note.buffer = "!!!".to_string();
+        assert_eq!(new_item_refusal(&note).as_deref(), Some(NOTE_NAME_EMPTY));
+        let mut folder = NewNotePrompt::open(target.clone(), None);
+        folder.is_folder = true;
+        folder.buffer = "!!!".to_string();
+        assert_eq!(new_item_refusal(&folder), None, "create_folder answers FOLDER_NAME_EMPTY");
+
+        // An accepted folder name is created under exactly that name.
+        let mut forest = forest_of(vault_sections(&notez));
+        let rebuild = || Ok(vault_sections(&notez));
+        let plans = NewNoteTarget { dir: root.join("plans"), ..target };
+        for name in ACCEPTED {
+            let outcome = create_folder(&mut forest, &plans, name, &rebuild);
+            assert_eq!(outcome.message, None, "{name}");
+            assert!(has_entry_named(&plans.dir, name), "{name}");
+        }
+    }
+
+    /// `r` with the cursor on `path`, the buffer set to `typed`, then
+    /// `Enter`, as the event loop runs it.
+    fn rename_enter_at(forest: &mut Forest, path: &Path, typed: &str) -> RenameEnter {
+        let i = row(&forest.nodes, path_str(path));
+        let shown = rename_request(&forest.nodes, &forest.sections, Some(i))
+            .expect("the row opens the prompt")
+            .expect("a row under the cursor");
+        enter_rename(&mut forest.nodes, &mut forest.sections, i, &shown, typed)
+    }
+
+    #[test]
+    fn rename_enter_refuses_altered_names_for_notes_and_folders_and_keeps_the_prompt() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        for path in [root.join("ideas"), root.join("top.md")] {
+            for (typed, cleaned) in ALTERED {
+                assert_eq!(
+                    rename_enter_at(&mut forest, &path, typed),
+                    RenameEnter::Keep(altered_name_message(cleaned)),
+                    "{typed} on {}",
+                    path.display()
+                );
+            }
+        }
+        assert_eq!(disk_entries(&notez), before, "nothing renamed");
+
+        assert_eq!(rename_enter_at(&mut forest, &root.join("ideas"), "my-ideas"), RenameEnter::Done(None));
+        assert!(root.join("my-ideas/a.md").is_file());
+        assert_eq!(rename_enter_at(&mut forest, &root.join("top.md"), "00-quick"), RenameEnter::Done(None));
+        assert!(root.join("00-quick.md").is_file() && !root.join("top.md").exists());
+        let renamed = row(&forest.nodes, path_str(&root.join("00-quick.md")));
+        assert_eq!(forest.nodes[renamed].name, "00-quick.md");
+    }
+
+    #[test]
+    fn note_rename_with_the_shown_title_unchanged_changes_nothing() {
+        let (_dir, notez, root) = vault();
+        let content = "# My_Note\n\nbody\n";
+        for name in ["2026-10-06-My_Note.md", "x.MD"] {
+            std::fs::write(root.join(name), content).unwrap();
+        }
+        std::fs::write(notez.join(".tags"), "personal/proj/2026-10-06-My_Note.md:3\npersonal/proj/x.MD:1\n").unwrap();
+        let mut sections = vault_sections(&notez);
+        sections[0].files.extend([root.join("2026-10-06-My_Note.md"), root.join("x.MD")]);
+        let mut forest = forest_of(sections);
+        let before = disk_entries(&notez);
+        let tags = std::fs::read_to_string(notez.join(".tags")).unwrap();
+
+        for (name, shown) in [("2026-10-06-My_Note.md", "My_Note"), ("x.MD", "x.MD")] {
+            let path = root.join(name);
+            for typed in [shown.to_string(), format!("  {shown} ")] {
+                assert_eq!(rename_enter_at(&mut forest, &path, &typed), RenameEnter::Done(None), "{name}");
+            }
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), content, "{name}: the heading stays");
+            assert_eq!(forest.nodes[row(&forest.nodes, path_str(&path))].name, name);
+        }
+        assert_eq!(disk_entries(&notez), before);
+        assert!(changed_tag_maps(&forest.nodes, &forest.tag_roots, &forest.initial).is_empty());
+        assert_eq!(std::fs::read_to_string(notez.join(".tags")).unwrap(), tags);
+    }
+
+    // --- The todo board's store (NZ-20) ---
+
+    /// [`move_fixture`] plus the todo board's store `_todos/` (with a note
+    /// and a category folder), a sibling `_todos-archive/` and a personal
+    /// `_todos/` folder, neither of which is the store.
+    fn todo_fixture() -> (tempfile::TempDir, PathBuf, Vec<(Scope, PathBuf)>) {
+        let (dir, notez, roots) = move_fixture();
+        let personal = store_of(&roots, Scope::Personal);
+        for sub in ["_todos/work", "_todos-archive"] {
+            std::fs::create_dir_all(notez.join(sub)).unwrap();
+        }
+        std::fs::create_dir_all(personal.join("_todos")).unwrap();
+        for file in [notez.join("_todos/t.md"), notez.join("_todos/work/w.md"), notez.join("_todos-archive/a.md"), personal.join("_todos/p.md")] {
+            std::fs::write(file, "# todo\n").unwrap();
+        }
+        (dir, notez, roots)
+    }
+
+    #[test]
+    fn delete_rename_move_and_set_scope_refuse_the_todo_store_and_what_is_in_it() {
+        let (dir, notez, roots) = todo_fixture();
+        let ctx = move_ctx(&roots);
+        let forest = forest_of(move_sections(&roots));
+        let before = disk_entries(dir.path());
+        let (nodes, sections) = (&forest.nodes, &forest.sections);
+
+        for sub in ["_todos", "_todos/t.md", "_todos/work", "_todos/work/w.md"] {
+            let at = Some(row(nodes, path_str(&notez.join(sub))));
+            assert_eq!(delete_request(nodes, sections, at, Some("proj")).err(), Some(TODOS_DELETE), "{sub}");
+            assert_eq!(rename_request(nodes, sections, at).err(), Some(TODOS_RENAME), "{sub}");
+            assert_eq!(move_request(nodes, sections, at, &ctx).err(), Some(TODOS_MOVE), "{sub}");
+            assert_eq!(set_scope_request(nodes, sections, at, &ctx).err(), Some(TODOS_SET_SCOPE), "{sub}");
+        }
+        assert_eq!(TODOS_DELETE, "delete: the todo board's store is managed by the todo view");
+
+        let personal = store_of(&roots, Scope::Personal);
+        for path in [notez.join("_todos-archive"), notez.join("_todos-archive/a.md"), personal.join("_todos/p.md")] {
+            let at = Some(row(nodes, path_str(&path)));
+            assert!(matches!(delete_request(nodes, sections, at, Some("proj")), Ok(Some(_))), "{}", path.display());
+            assert!(matches!(rename_request(nodes, sections, at), Ok(Some(_))), "{}", path.display());
+            assert!(move_request(nodes, sections, at, &ctx).is_ok(), "{}", path.display());
+            assert!(set_scope_request(nodes, sections, at, &ctx).is_ok(), "{}", path.display());
+        }
+        assert_eq!(disk_entries(dir.path()), before);
+    }
+
+    #[test]
+    fn a_bulk_action_with_a_todo_store_row_is_refused_whole() {
+        let (dir, notez, roots) = todo_fixture();
+        let ctx = move_ctx(&roots);
+        let forest = forest_of(move_sections(&roots));
+        let before = disk_entries(dir.path());
+        let set = [notez.join("c.md"), notez.join("_todos/work/w.md")];
+        let marks: HashSet<PathBuf> = set.iter().cloned().collect();
+
+        let refused = bulk_delete_request(&forest.nodes, &forest.sections, &marks, Some("proj")).err();
+        assert_eq!(refused, Some(format!("_todos/work/w.md: {TODOS_DELETE}")));
+        assert_eq!(bulk_move_at(&forest, &ctx, &set, false).err(), Some(format!("_todos/work/w.md: {TODOS_MOVE}")));
+        assert_eq!(bulk_move_at(&forest, &ctx, &set, true).err(), Some(format!("_todos/work/w.md: {TODOS_SET_SCOPE}")));
+        let folder: HashSet<PathBuf> = [notez.join("_todos")].into_iter().collect();
+        let refused = bulk_delete_request(&forest.nodes, &forest.sections, &folder, Some("proj")).err();
+        assert_eq!(refused, Some(format!("_todos/: {TODOS_DELETE}")));
+        assert_eq!(disk_entries(dir.path()), before);
+    }
+
+    #[test]
+    fn the_todo_store_is_never_a_move_destination() {
+        let (dir, notez, roots) = todo_fixture();
+        let ctx = move_ctx(&roots);
+        let forest = forest_of(move_sections(&roots));
+        let before = disk_entries(dir.path());
+        let personal = store_of(&roots, Scope::Personal);
+        let refusal = format!("move: {}", TODO_STORE_MANAGED);
+
+        assert_eq!(move_plan(&forest, &ctx, &notez.join("c.md"), Scope::Global, "_todos"), Err(refusal.clone()));
+        assert_eq!(move_plan(&forest, &ctx, &personal.join("c.md"), Scope::Global, "_todos/work"), Err(refusal.clone()));
+        let set = [personal.join("c.md"), personal.join("ideas/a.md")];
+        assert_eq!(bulk_move_plan(&forest, &ctx, &set, Scope::Global, "_todos").err(), Some(refusal));
+        assert_eq!(disk_entries(dir.path()), before);
+
+        let plan = move_plan(&forest, &ctx, &personal.join("c.md"), Scope::Global, "_todos-archive").expect("not the store");
+        assert_eq!(plan.dst, notez.join("_todos-archive/c.md"));
+        let plan = move_plan(&forest, &ctx, &notez.join("c.md"), Scope::Personal, "_todos").expect("a personal folder");
+        assert_eq!(plan.dst, personal.join("_todos/c.md"));
+    }
+
+    #[test]
+    fn the_todo_store_is_matched_as_the_file_system_resolves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let notez = dir.path().join("n");
+        std::fs::create_dir_all(notez.join("_TODOS")).unwrap();
+        std::fs::create_dir_all(notez.join("_todos-archive")).unwrap();
+        // The board reads `<notez root>/_todos`; on a case-insensitive file
+        // system that is `_TODOS`, on a case-sensitive one it is not.
+        let is_store = notez.join("_todos").exists();
+        assert_eq!(in_todo_store(&notez.join("_TODOS/x.md"), &notez), is_store);
+        assert!(in_todo_store(&notez.join("_todos"), &notez));
+        assert!(in_todo_store(&notez.join("_todos/a/b.md"), &notez));
+        assert!(!in_todo_store(&notez.join("_todos-archive/a.md"), &notez));
+        assert!(!in_todo_store(&notez, &notez));
+        assert!(!in_todo_store(&notez.join("personal/proj/_todos"), &notez));
     }
 }
