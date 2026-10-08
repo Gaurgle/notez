@@ -1651,33 +1651,116 @@ open.
 
 #### NZ-16: multi-select with `Space`
 
-Status: Draft, relayed on 2026-10-07 at 16:04 CEST, not confirmed in the
-lead session. Mark key changed from `x` to `Space` on a third relay the
-same day: Andreas decided `x` stays "check" in the todo board. Depends on
-NZ-12, NZ-14 and NZ-15 for the actions; briefed and built after them, last
-in the proposed order.
+Status: Ready once NZ-15 is on `main`; board Draft until then. Confirmed
+in scope by Andreas on 2026-10-07 in the lead session ("NZ-16:
+multi-select with Space"); the mark key is `Space` by his decision the
+same day (`x` stays "check" in the todo board). Depends on NZ-12 (`d`,
+confirm mode, retired keys), NZ-14 (folder rows, folder delete) and
+NZ-15 (`m`, `S`, `apply_move`, the move confirm). Brief finalized by the
+lead at 12:20 CEST on 2026-10-08 against NZ-15 pass 1; the worker
+verifies the NZ-15 names below against the merged code.
 
-Outcome: `Space` toggles a mark on the row under the cursor (notes and
-folders). Marked rows are visibly marked and the footer shows the count,
-for example `3 marked`. `Esc` clears all marks. With marks present, `d`
-(delete), `m` (move) and `S` (set scope) apply to every marked row; the
-confirmation names the count and the scopes involved, and for delete says
-"not recoverable" if any marked note is local. Without marks they act on
-the cursor row as before. Marks survive navigation and filtering and are
-dropped after the action. Marking a folder and one of its own notes must
-not act twice on the note. A partial failure (collision, read error)
-reports which items failed and leaves those in place; nothing is
-overwritten. `Space` is taken as mark in the key map; `x` is not used in
-the tree browser and is not used for cut.
+Code facts: rows are `TreeNode`s in a flat `Vec` with `parent_idx` and
+`depth` (section rows at depth 0); `Forest::rebuild` and `carry_state`
+match rows by `path`. NZ-12 has `delete_request`/`answer_delete` and a
+retired `(tag root, key)` list; NZ-14 has `remove_folder` behind
+`folder_change_allowed`; NZ-15 has `MovePrompt`, `resolve_move`,
+`apply_move` (per row: retire old key, repoint `path`/`origin`/
+`tag_root`/`section`, keep `flags`, `carried` when out of view), the
+move question builder, `Mode::Move` and `Mode::ConfirmMove`. In the tree
+browser `Space` is unbound today; in the todo board `Space` means check,
+a different view, no clash.
 
-Lead's notes for the brief: the mark key question is settled (`Space` in
-the tree, `x` stays check in the todo board). In the tree browser `Space`
-is free today; in the todo board `Space` also means check, which is a
-different view and does not clash. Marks are session state only, never
-persisted. The "folder plus
-its own note" rule means the action set is the marked rows with
-descendants of marked folders removed. A bulk delete across scopes needs
-one confirmation listing counts per scope.
+Outcome and decisions:
+
+1. `Space` toggles a mark on the row under the cursor (note or folder
+   row; a section row cannot be marked, footer message) and moves the
+   cursor down one row like a file manager. Marks are a `HashSet<PathBuf>`
+   of row paths in session state, never persisted. A marked row is
+   drawn with a mark glyph in the gutter and the selection style
+   variant the theme already has for emphasis (no new colours); the
+   footer shows `<n> marked` while any mark exists, before the key
+   hints. `Esc` in browse mode with marks present clears all marks (and
+   does nothing else); without marks `Esc` behaves as today.
+2. The action set is the marked rows minus every row whose ancestor
+   folder is also marked (so a folder plus one of its own notes acts
+   once, on the folder). Compute it in one pure function with tests.
+3. With marks present, `d` opens one confirm for the whole set:
+   `delete <k> notes and <f> folders (<n> notes inside) from <scopes>?
+   y/n`, scopes listed as the distinct section labels involved, with
+   `(not recoverable)` when any item is in a local section; omit the
+   folder clause when no folder is marked and the note clause when no
+   note is. `y` deletes in order (notes with NZ-12's path, folders with
+   NZ-14's path, retiring keys exactly as they do), stops on nothing:
+   a failure on one item is recorded and the rest continue; after the
+   set, one rebuild, cursor on the row that followed the last deleted
+   row by NZ-12's rule, and a footer line `deleted <ok>, failed <bad>:
+   <first failing name> (<error>)` when anything failed. Marks are
+   cleared after the action whatever the outcome.
+4. With marks present, `m` opens the NZ-15 prompt once for the set: lead
+   `move <n> items to <scope>/<folder>: _`, same `Tab` cycling and
+   destination rules; each item lands at `<destination>/<its own
+   name>`; the whole set is refused before anything moves when two
+   items share a name or when any destination already exists (message
+   names the first collision); the scope confirm appears when any item
+   changes scope, with the clauses for every transition in the set
+   (public first, each clause once). `S` likewise sets the scope of the
+   whole set, each item keeping its own relative folder (refused as a
+   whole when a destination folder is missing or a name exists). Moves
+   run through `apply_move` per item; a failure on one item leaves it
+   in place and the rest continue; one rebuild; footer `moved <ok>,
+   failed <bad>: ...` on partial failure; cursor on the first moved
+   item when it is listed, else where it was.
+5. Marks survive navigation, expanding and collapsing, filtering and a
+   rebuild (matched by path, so a rename or move of a marked row drops
+   its mark, by design). Without marks every key behaves exactly as
+   before NZ-16: no change to single-row behaviour or messages.
+6. Keys in `TREE_KEYS`: `Space` with help "mark", `Esc` help gains
+   "clear marks" in browse mode; footer priority for `Space` just above
+   `m`. `n`, `N` and `r` ignore marks and act on the cursor row.
+7. Not in this ticket: marking in the todo board, select-all, inverting
+   marks, persistence, undo, cut or paste.
+
+Acceptance criteria:
+
+1. `Space` marks and unmarks notes and folders, moves the cursor down,
+   refuses a section row; the footer shows `<n> marked`; `Esc` clears
+   marks and only then behaves as before; marks survive filter on and
+   off, collapse and expand, and a rebuild; tests on the pure helpers
+   and on the event loop state.
+2. The action set rule: tests with a folder plus its own note, nested
+   marked folders, and disjoint marks.
+3. Bulk delete across two scopes including a folder with notes: exactly
+   the set is removed, the confirm text matches decision 3 (test the
+   builder for notes only, folders only, mixed, local present), `.tags`
+   loses exactly the retired keys on exit, cursor rule holds, a failing
+   item (read-only folder, unix) is reported and the rest are deleted.
+4. Bulk move and bulk set scope across scopes: files land under their
+   own names, tags follow per item, a name collision inside the set and
+   an existing destination refuse the whole set before any move, the
+   confirm lists each transition clause once, a failing item is
+   reported and the rest move.
+5. Without marks, every NZ-8, NZ-12, NZ-14 and NZ-15 test passes
+   unchanged except mechanical literal additions (list each).
+6. `Space` and the `Esc` help in the key table, help and footer tests
+   pass, README updated (marking, bulk `d`/`m`/`S`, what clears marks).
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/footer.rs`, `crates/notez-cli/src/tui/help.rs`,
+`crates/notez-cli/src/tui/theme.rs` (only if a mark style needs a named
+entry), `README.md`. No new dependency, no `notez-core` change, no
+`commands/` change, no file format change.
+
+Method: bounded ticket, two worker passes on one worktree: pass 1 marks
+(`Space`, `Esc`, drawing, footer count, survival across rebuild, the
+action-set function) and bulk delete; pass 2 bulk `m` and `S`, README.
+One review of the whole diff. Reviewer probes: a mark on a row that a
+rebuild no longer lists; `Space` inside every prompt and the confirm
+(must not mark); `Esc` precedence between marks and an open filter; the
+action set when a marked folder is collapsed; bulk delete where one
+folder is a section root ancestor of another marked row (guard must
+hold per item); the retired list after a partial bulk failure; the move
+confirm clause set for a mixed personal/public/local set.
 
 #### NZ-17: versioning, first version 0.1.0
 
