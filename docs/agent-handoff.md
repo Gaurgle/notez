@@ -3133,7 +3133,11 @@ tolerant, confirm no panic); the cache key including the language.
 #### NZ-28: linting in the preview (design)
 
 Status: Draft, design first (Andreas 17:20 CEST). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Questions for the design note: which
+`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Design note written by the lead at
+21:15 CEST on 2026-10-08: `docs/design-nz28-linting.md` (tree-sitter
+syntax diagnostics plus in-process markdown checks, gutter marks,
+footer count, an `!` issue overlay; no external tools). Waiting for
+Andreas's approval or changes. Original questions: which
 linters (markdownlint-style rules in-process, or shelling out to tools
 on the machine such as `ruff`, `ktlint`, `clippy`), when they run (on
 selection, on demand with a key), what the pane shows (gutter marks and
@@ -3145,7 +3149,11 @@ before code.
 #### NZ-29: LSP in the preview (design)
 
 Status: Draft, design first (Andreas 17:20 CEST). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Questions for the design note: what a
+`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Design note written by the lead at
+21:20 CEST on 2026-10-08: `docs/design-nz29-lsp.md`, recommending NOT
+to embed LSP in a read-only preview and to open NZ-29a (symbol outline
+from tree-sitter) instead; three options for Andreas. Waiting for his
+answer. Original questions: what a
 read-only preview gains from a language server (hover, diagnostics,
 symbols), which servers and how they are found, process lifetime
 inside a TUI, and whether this belongs in the notes browser at all
