@@ -603,25 +603,35 @@ fn section_color(spec: &SectionSpec) -> Color {
     theme::scope_color(if spec.is_doc { Scope::Public } else { spec.scope })
 }
 
-/// The one-column badge after a row's tag dots: the section's icon in its
-/// colour on every file and folder row, a blank on a section header (which
-/// shows the icon next to its label). Render only: the filter, preview,
-/// mouse hit testing and tag keys never see it, and the tag dots before it
-/// keep their columns.
+/// The two-column badge directly before a nested row's name, after its
+/// indentation and branch glyph: the section's icon in its colour and a
+/// space, like a section header's `icon label`, on every file and folder
+/// row; blanks on a section header (which shows the icon next to its
+/// label). Render only: the filter, preview, mouse hit testing and tag keys
+/// never see it, and the tag dots keep their columns.
 fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
     match spec {
         Some(spec) if node.depth > 0 && !spec.icon.is_empty() => {
-            Span::styled(spec.icon, Style::default().fg(section_color(spec)))
+            Span::styled(format!("{} ", spec.icon), Style::default().fg(section_color(spec)))
         }
-        _ => Span::raw(" "),
+        _ => Span::raw("  "),
     }
 }
 
-/// One list row: the tag dots, the scope badge, the tree indentation and
-/// branch glyph, the name, and on a directory row a dotted leader to its
-/// file count. A section header also shows its scope icon before the label
-/// and the scope word after it, both in the scope colour. `spec` is the
-/// row's section and `inner_width` the list pane's text width.
+/// The columns a list row may fill in a list pane `pane_width` wide: the
+/// pane less its two borders, its one-column padding on each side and the
+/// four-column highlight symbol.
+fn list_text_width(pane_width: u16) -> usize {
+    pane_width.saturating_sub(8) as usize
+}
+
+/// One list row: the tag dots, a one-column gutter, the tree indentation
+/// and branch glyph, the scope badge on a nested row, the name, and on a
+/// directory row a dotted leader to its file count, which ends at
+/// `inner_width` in display columns. A section header also shows its scope
+/// icon before the label and the scope word after it, both in the scope
+/// colour. `spec` is the row's section and `inner_width` the list pane's
+/// text width.
 fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> Line<'static> {
     let indent = "  ".repeat(node.depth);
     let icon = if node.depth == 0 {
@@ -638,11 +648,14 @@ fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> 
 
     let header_color = spec.map_or(theme::OVERLAY, section_color);
     let mut spans = flags_slots(node.flags);
-    spans.push(row_badge(node, spec));
+    spans.push(Span::raw(" "));
     spans.push(Span::styled(
         format!("{}{}", indent, icon),
         Style::default().fg(theme::SURFACE),
     ));
+    if node.depth > 0 {
+        spans.push(row_badge(node, spec));
+    }
     if !node.scope_icon.is_empty() {
         spans.push(Span::styled(
             format!("{} ", node.scope_icon),
@@ -658,16 +671,7 @@ fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> 
         }
         if node.child_count > 0 {
             let count_str = format!("{}", node.child_count);
-            let scope_len = if node.scope_icon.is_empty() { 0 } else { 2 };
-            let word_len = scope_word.map_or(0, |w| w.chars().count() + 1);
-            let badge_len = 1;
-            let prefix_len = 7
-                + badge_len
-                + indent.len()
-                + icon.len()
-                + node.name.chars().count()
-                + scope_len
-                + word_len;
+            let prefix_len: usize = spans.iter().map(Span::width).sum();
             let avail = inner_width.saturating_sub(prefix_len + count_str.len() + 2);
             if avail > 3 {
                 spans.push(Span::styled(
@@ -3038,7 +3042,7 @@ fn event_loop(
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                     .split(rows[0]);
-                let inner_width = cols[0].width.saturating_sub(6) as usize;
+                let inner_width = list_text_width(cols[0].width);
 
                 let items: Vec<ListItem> = visible
                     .iter()
@@ -5039,8 +5043,8 @@ mod tests {
 
     // --- Scope badges ---
 
-    /// Width of the list pane's text in an 80-column list, the way the
-    /// event loop derives it from the pane width.
+    /// A fixed list text width for row tests. It fits the 80-column
+    /// [`render_row`] list; the event loop uses [`list_text_width`].
     const LIST_TEXT_WIDTH: usize = 80 - 6;
 
     /// [`project_sections`] with the icons the real listing gives them, and
@@ -5091,10 +5095,12 @@ mod tests {
         for (path, icon, colour_scope, depth) in cases {
             let node = &nodes[row(&nodes, path)];
             let cells = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
-            assert_eq!(cells[BADGE_COL].0, icon, "{path}");
-            assert_eq!(cells[BADGE_COL].1, Some(theme::scope_color(colour_scope)), "{path}");
+            assert_eq!(cells[BADGE_COL].0, " ", "{path}: the gutter keeps a blank");
+            let badge = BADGE_COL + 1 + 2 * depth + 4;
+            assert_eq!(cells[badge].0, icon, "{path}");
+            assert_eq!(cells[badge].1, Some(theme::scope_color(colour_scope)), "{path}");
             let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-            let expected = format!("{}│   {}", "  ".repeat(depth), node.name);
+            let expected = format!("{}│   {icon} {}", "  ".repeat(depth), node.name);
             assert_eq!(rest.trim_end(), expected, "{path}");
         }
     }
@@ -5105,10 +5111,13 @@ mod tests {
         let node = &nodes[row(&nodes, "/n/personal/proj/ideas")];
         let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
         let cells = render_row(line);
-        assert_eq!(cells[BADGE_COL].0, Scope::Personal.icon());
-        assert_eq!(cells[BADGE_COL].1, Some(theme::scope_color(Scope::Personal)));
+        assert_eq!(cells[BADGE_COL].0, " ", "the gutter keeps a blank");
+        let badge = BADGE_COL + 1 + 2 + 4;
+        assert_eq!(cells[badge].0, Scope::Personal.icon());
+        assert_eq!(cells[badge].1, Some(theme::scope_color(Scope::Personal)));
         let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-        assert!(rest.starts_with("  ├─▼ ideas "), "{rest:?}");
+        let expected = format!("  ├─▼ {} ideas ", Scope::Personal.icon());
+        assert!(rest.starts_with(&expected), "{rest:?}");
         assert!(rest.trim_end().ends_with('1'), "{rest:?}");
     }
 
@@ -5145,6 +5154,139 @@ mod tests {
         let lit = cells.iter().position(|c| c.0 == "●").expect("a lit dot");
         assert_eq!(mouse_x_to_dot(lit as u16, 0), Some(prio as u8));
         assert_eq!(mouse_x_to_dot(BADGE_COL as u16, 0), None, "the badge is no dot");
+    }
+
+    // --- Row alignment ---
+
+    /// One personal section with folders at depth 1 and 2, a file beside
+    /// the depth 2 folder, and folder names with multi-byte and wide
+    /// characters; badges as the real listing gives them, every row expanded.
+    fn aligned_forest() -> (Vec<SectionSpec>, Vec<TreeNode>) {
+        let mut spec = scoped(
+            "/n/personal/proj",
+            Scope::Personal,
+            false,
+            &["ideas/deep/x.md", "ideas/a.md", "åäö/b.md", "日本語/c.md"],
+        );
+        spec.icon = Scope::Personal.icon();
+        let sections = vec![spec];
+        let (mut nodes, _) = build_forest(&sections);
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        (sections, nodes)
+    }
+
+    fn span_texts(line: &Line<'static>) -> Vec<String> {
+        line.spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
+    /// The screen column where `line`'s span `index` starts.
+    fn column_of(line: &Line<'static>, index: usize) -> usize {
+        line.spans[..index].iter().map(Span::width).sum()
+    }
+
+    fn name_index(line: &Line<'static>, node: &TreeNode) -> usize {
+        line.spans.iter().position(|s| s.content == node.name).expect("name span")
+    }
+
+    #[test]
+    fn a_nested_row_draws_its_badge_right_before_the_name_and_keeps_the_gutter() {
+        let (sections, nodes) = aligned_forest();
+        let colour = Some(theme::scope_color(Scope::Personal));
+        for node in nodes.iter().filter(|n| n.depth > 0) {
+            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            let name = name_index(&line, node);
+            let path = node.path.display();
+            let badge = format!("{} ", Scope::Personal.icon());
+            assert_eq!(line.spans[name - 1].content, badge, "{path}");
+            assert_eq!(line.spans[name - 1].style.fg, colour, "{path}");
+            let glyph = if node.is_dir { "├─▼ " } else { "│   " };
+            let expected = format!("{}{glyph}", "  ".repeat(node.depth));
+            assert_eq!(line.spans[name - 2].content, expected, "{path}");
+            assert_eq!(line.spans[7].content, " ", "{path}: the gutter keeps a blank");
+            assert_eq!(column_of(&line, 7), 7, "{path}: the gutter does not move");
+        }
+    }
+
+    #[test]
+    fn every_directory_count_ends_at_the_text_width_at_every_depth() {
+        let (sections, nodes) = aligned_forest();
+        let dirs: Vec<&TreeNode> = nodes.iter().filter(|n| n.is_dir).collect();
+        assert_eq!(dirs.iter().map(|n| n.depth).max(), Some(2));
+        for node in dirs {
+            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            let path = node.path.display();
+            assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
+            let count = node.child_count.to_string();
+            assert_eq!(line.spans.last().unwrap().content, count, "{path}");
+            let cells = render_row(line);
+            let last = 4 + LIST_TEXT_WIDTH - 1;
+            assert_eq!(cells[last].0, count, "{path}");
+            assert!(cells[last + 1..].iter().all(|c| c.0 == " "), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_folder_name_with_multi_byte_or_wide_characters_still_aligns_its_count() {
+        let (sections, nodes) = aligned_forest();
+        for path in ["/n/personal/proj/åäö", "/n/personal/proj/日本語"] {
+            let node = &nodes[row(&nodes, path)];
+            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
+        }
+    }
+
+    #[test]
+    fn a_file_name_starts_two_columns_after_its_sibling_folders_badge() {
+        let (sections, nodes) = aligned_forest();
+        let spec = sections.first();
+        let folder = &nodes[row(&nodes, "/n/personal/proj/ideas/deep")];
+        let file = &nodes[row(&nodes, "/n/personal/proj/ideas/a.md")];
+        let folder_line = row_line(folder, spec, LIST_TEXT_WIDTH);
+        let file_line = row_line(file, spec, LIST_TEXT_WIDTH);
+        let folder_badge = column_of(&folder_line, name_index(&folder_line, folder) - 1);
+        let file_name = column_of(&file_line, name_index(&file_line, file));
+        assert_eq!(file_name, folder_badge + 2);
+    }
+
+    /// The section row's spans as they were before nested rows were
+    /// aligned. Only the leader differs: it was computed from the bytes of
+    /// `"▼ "` (4) instead of its columns (2), so it ended two columns short
+    /// of `inner_width`, which the event loop passed two columns too wide.
+    #[test]
+    fn a_section_row_keeps_its_spans() {
+        let (sections, nodes) = aligned_forest();
+        let line = row_line(&nodes[0], sections.first(), LIST_TEXT_WIDTH);
+        let dots = |n: usize| format!(" {} ", "·".repeat(n));
+        let base = [
+            " ", "·", "·", "·", "·", "·", " ", " ", "▼ ", "\u{f007} ", "/n/personal/proj", " ",
+            "personal",
+        ];
+        let mut expected: Vec<String> = base.iter().map(|s| s.to_string()).collect();
+        expected.push(dots(32 + 2));
+        expected.push("4".to_string());
+        assert_eq!(span_texts(&line), expected);
+    }
+
+    #[test]
+    fn a_section_count_ends_at_the_last_text_column_of_the_padded_list_pane() {
+        use ratatui::buffer::Buffer;
+        use ratatui::widgets::BorderType;
+        let (sections, nodes) = aligned_forest();
+        let pane = Rect::new(0, 0, 80, 3);
+        let line = row_line(&nodes[0], sections.first(), list_text_width(pane.width));
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .padding(Padding::new(1, 1, 0, 0));
+        let mut buf = Buffer::empty(pane);
+        let list = List::new(vec![ListItem::new(line)]).highlight_symbol("  ▸ ");
+        let mut state = ListState::default();
+        state.select(Some(0));
+        StatefulWidget::render(list, block.inner(pane), &mut buf, &mut state);
+        assert_eq!(buf[(77, 1)].symbol(), "4", "the count is not clipped");
+        assert_eq!(buf[(76, 1)].symbol(), " ");
     }
 
     // --- Delete ---
