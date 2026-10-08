@@ -74,10 +74,12 @@ change, saying `reloaded (files changed)`. It does not look while a
 prompt, a mode, the help or a split drag is open, and a change inside a
 closed folder waits for the next reload. The todo board has no reload.
 
-A row starts with a one-column gutter (the mark of a marked row), then the
-row's tag dots: only the tags it has, left-aligned in their colours, in a
-field as wide as the most tags on any visible row, and no field at all
-when no visible row has a tag. Clicking a dot removes that tag. The
+A row starts with a one-column gutter (the mark of a marked row), then a
+tag field that is always three columns wide, so the tree never shifts as
+tags come and go. Each column holds two tags in their fixed order (1 and
+2, 3 and 4, then 5) as a half block: `▌` in the left tag's colour on the
+right tag's colour when both are set, `▌` or `▐` alone when only one is.
+Clicking the field opens tag mode on that row, as `t` does. The
 selected row is shown by its highlight across the whole line. Nested rows
 are drawn as a classic tree (`├─` for a row with a later sibling, `└─` for
 the last, `│` for an ancestor with more to come), with `▾`/`▸` on open and
@@ -179,7 +181,7 @@ is never a move destination; `n` and `N` work there as anywhere.
 
 **Marking several notes.** `Space` marks the note or folder under the
 cursor (again to unmark) and steps down one row; section rows cannot be
-marked. Marked rows show a bar in the
+marked. Marked rows show a thin bar (`▎`) in the
 gutter and are drawn bold, and the footer leads with `<n> marked`. With
 marks present, `d`, `m` and `S` act on the marked set with one prompt and
 one confirm: `d` asks `delete 2 notes and 1 folder (3 notes inside) from
