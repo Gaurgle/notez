@@ -480,7 +480,16 @@ comment style in an unterminated `sh` fence, footer `rust` for
 highlighted fence uncaptured code uses the plain text colour as base
 so PEACH strings stand out; `theme::code()` stays for inline code and
 unknown-tag fences; sent to the worker at 22:05 CEST with the pass 1
-clippy nit, RUNNING. Then one review of the whole diff. Board item
+clippy nit, DONE at 22:15 CEST (`highlighted_code_base()` in
+`markdown.rs`, one new test, one pass 2 test updated; the clippy
+closure is needed for lifetimes so it carries an `allow` with a
+comment). Whole diff against `9e1bb20`: 8 files, 1692 insertions, 43
+deletions, hashing to
+`e77347223d168f7f151563885629ce45b3c7d0e161d8a2cba31ef154efa05809`;
+worker checks: build clean, notez-cli 416 passed, notez-core 146
+passed; about 142k agent tokens for pass 2 over three rounds. Workers
+stopped. REVIEW dispatched at 22:18 CEST (`nz-reviewer`, opus) on that
+hash, RUNNING. Then branch push, CI, merge, `main` run, cleanup. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight. Disk: 9.3 GB free; the
 grammars compile C, so the lead watches `target` size.
 
