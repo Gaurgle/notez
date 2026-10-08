@@ -570,8 +570,9 @@ fn find_top_dir(nodes: &[TreeNode], idx: usize) -> Option<usize> {
     None
 }
 
-/// Contiguous 5-dot geometry shared with the todoz board: dot 0 sits at
-/// `area_x + 5` (4-column highlight symbol plus one leading space).
+/// The filter strip's contiguous 5-dot geometry, shared with the todoz
+/// board: dot 0 sits at `area_x + 5`. List rows draw their dots elsewhere
+/// (see [`mouse_x_to_row_tag`]).
 fn mouse_x_to_dot(mouse_col: u16, area_x: u16) -> Option<u8> {
     let dot_start = area_x.saturating_add(5);
     let dot_end = dot_start + 4;
@@ -582,7 +583,115 @@ fn mouse_x_to_dot(mouse_col: u16, area_x: u16) -> Option<u8> {
     }
 }
 
-/// The 5 fixed tag-dot slots with leading space, matching the todoz rows.
+/// The tags set in `flags`, as indices into [`FLAG_DEFS`], in the order a
+/// row draws their dots.
+fn set_tags(flags: u8) -> impl Iterator<Item = usize> {
+    FLAG_DEFS.iter().enumerate().filter(move |(_, def)| flags & def.bit != 0).map(|(i, _)| i)
+}
+
+/// How many columns the tag field of the rows `visible` takes: the most
+/// tags set on any of them, 0 when none has a tag.
+fn tag_field_width(nodes: &[TreeNode], visible: &[usize]) -> usize {
+    visible.iter().map(|&i| set_tags(nodes[i].flags).count()).max().unwrap_or(0)
+}
+
+/// A list row's tag field: the dots of the tags set in `flags`,
+/// left-aligned in their colours, padded with spaces to `width`, then one
+/// space before the tree. Nothing at all when `width` is 0.
+fn tag_field(flags: u8, width: usize) -> Vec<Span<'static>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut spans: Vec<Span<'static>> = set_tags(flags)
+        .map(|i| Span::styled("●", Style::default().fg(theme::FLAG_COLORS[i])))
+        .collect();
+    let padding = width.saturating_sub(spans.len()) + 1;
+    spans.push(Span::raw(" ".repeat(padding)));
+    spans
+}
+
+/// The tag whose dot a list row with `flags` draws at `mouse_col`, as an
+/// index into [`FLAG_DEFS`]: the n-th dot after the one-column gutter at
+/// `area_x` is the row's n-th set tag. `None` off the dots.
+fn mouse_x_to_row_tag(mouse_col: u16, area_x: u16, flags: u8) -> Option<usize> {
+    let first = area_x.checked_add(1)?;
+    let n = mouse_col.checked_sub(first)?;
+    set_tags(flags).nth(usize::from(n))
+}
+
+/// For each row, whether a later row of `visible` (rows in tree order)
+/// shares its parent: the row draws `├─` and its descendants a bar at its
+/// level. Rows outside `visible`, such as rows the filter hides, neither
+/// get one nor count as a later sibling. Indexed like `nodes`.
+fn later_siblings(nodes: &[TreeNode], visible: &[usize]) -> Vec<bool> {
+    let mut later = vec![false; nodes.len()];
+    let mut seen: HashSet<Option<usize>> = HashSet::new();
+    for &i in visible.iter().rev() {
+        later[i] = !seen.insert(nodes[i].parent_idx);
+    }
+    later
+}
+
+/// The tree drawing before row `idx`'s badge, from [`theme::TREE_GLYPHS`]. A
+/// section row shows its expand mark. A nested row shows, for each ancestor
+/// below the section, a bar if that ancestor has a later sibling and a
+/// blank otherwise, then its own branch (`├─`, or `└─` when it is the last
+/// child), then a folder's expand mark or a file's blank. `later` comes
+/// from [`later_siblings`].
+fn branch_prefix(nodes: &[TreeNode], idx: usize, later: &[bool]) -> String {
+    let g = &theme::TREE_GLYPHS;
+    let node = &nodes[idx];
+    if node.depth == 0 {
+        return if !node.is_dir {
+            "  ".to_string()
+        } else if node.expanded {
+            g.section_open.to_string()
+        } else {
+            g.section_closed.to_string()
+        };
+    }
+    let mut levels = Vec::new();
+    let mut up = node.parent_idx;
+    while let Some(p) = up.filter(|&p| nodes[p].depth > 0) {
+        levels.push(if later[p] { g.ancestor_bar } else { g.ancestor_blank });
+        up = nodes[p].parent_idx;
+    }
+    levels.reverse();
+    let mut prefix = levels.concat();
+    prefix.push_str(if later[idx] { g.branch } else { g.last_branch });
+    prefix.push_str(match (node.is_dir, node.expanded) {
+        (true, true) => g.folder_open,
+        (true, false) => g.folder_closed,
+        (false, _) => g.file,
+    });
+    prefix
+}
+
+/// Every row of `visible` drawn for a list `inner_width` columns wide:
+/// branch lines and the tag field measured over these rows, marked rows
+/// drawn as marked.
+fn list_lines(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    visible: &[usize],
+    marks: &HashSet<PathBuf>,
+    inner_width: usize,
+) -> Vec<Line<'static>> {
+    let later = later_siblings(nodes, visible);
+    let dot_width = tag_field_width(nodes, visible);
+    visible
+        .iter()
+        .map(|&idx| {
+            let node = &nodes[idx];
+            let branch = branch_prefix(nodes, idx, &later);
+            let line = row_line(node, sections.get(node.section), &branch, dot_width, inner_width);
+            if is_marked(marks, node) { mark_row(line) } else { line }
+        })
+        .collect()
+}
+
+/// The 5 fixed tag-dot slots with leading space, as the preview's title
+/// shows them.
 fn flags_slots(flags: u8) -> Vec<Span<'static>> {
     let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
     for (i, def) in FLAG_DEFS.iter().enumerate() {
@@ -602,7 +711,7 @@ fn flags_slots(flags: u8) -> Vec<Span<'static>> {
     spans
 }
 
-/// The colour of a section's badge, scope icon and scope word. A docs
+/// The colour of a section's badge and scope icon. A docs
 /// section is published with the repository, so it takes the public colour.
 fn section_color(spec: &SectionSpec) -> Color {
     theme::scope_color(if spec.is_doc { Scope::Public } else { spec.scope })
@@ -629,10 +738,10 @@ fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
 }
 
 /// The columns a list row may fill in a list pane `pane_width` wide: the
-/// pane less its two borders, its one-column padding on each side and the
-/// four-column highlight symbol.
+/// pane less its two borders and its one-column padding on each side. The
+/// list draws no highlight symbol, so a row starts at the padding.
 fn list_text_width(pane_width: u16) -> usize {
-    pane_width.saturating_sub(8) as usize
+    pane_width.saturating_sub(4) as usize
 }
 
 /// The list pane's frame without its title and border colour: rounded
@@ -653,34 +762,25 @@ fn list_chunks(list_area: Rect) -> std::rc::Rc<[Rect]> {
         .split(list_block().inner(list_area))
 }
 
-/// One list row: the tag dots, a one-column gutter, the tree indentation
-/// and branch glyph, the scope badge on a nested row, the name, and on a
-/// directory row a dotted leader to its file count, which ends at
-/// `inner_width` in display columns. A section header also shows its scope
-/// icon before the label and the scope word after it, both in the scope
-/// colour. `spec` is the row's section and `inner_width` the list pane's
-/// text width.
-fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> Line<'static> {
-    let indent = "  ".repeat(node.depth);
-    let icon = if node.depth == 0 {
-        if node.is_dir {
-            if node.expanded { "▼ " } else { "▶ " }
-        } else {
-            "  "
-        }
-    } else if node.is_dir {
-        if node.expanded { "├─▼ " } else { "├─▶ " }
-    } else {
-        "│   "
-    };
-
+/// One list row: a one-column gutter (blank, or the mark of a marked row),
+/// the tag field `dot_width` columns wide (see [`tag_field`]), the `branch`
+/// drawing from [`branch_prefix`], the scope badge on a nested row, the
+/// name, and on a directory row a dotted leader to its file count, which
+/// ends at `inner_width` in display columns. A section header also shows
+/// its scope icon in the scope colour before the label; the icon and colour
+/// name the scope, so no scope word follows. `spec` is the row's section
+/// and `inner_width` the list pane's text width.
+fn row_line(
+    node: &TreeNode,
+    spec: Option<&SectionSpec>,
+    branch: &str,
+    dot_width: usize,
+    inner_width: usize,
+) -> Line<'static> {
     let header_color = spec.map_or(theme::OVERLAY, section_color);
-    let mut spans = flags_slots(node.flags);
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(
-        format!("{}{}", indent, icon),
-        Style::default().fg(theme::SURFACE),
-    ));
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(tag_field(node.flags, dot_width));
+    spans.push(Span::styled(branch.to_string(), Style::default().fg(theme::SURFACE)));
     if node.depth > 0 {
         spans.push(row_badge(node, spec));
     }
@@ -692,11 +792,6 @@ fn row_line(node: &TreeNode, spec: Option<&SectionSpec>, inner_width: usize) -> 
     }
     if node.is_dir {
         spans.push(Span::styled(node.name.clone(), Style::default().fg(theme::SAPPHIRE)));
-        let scope_word = spec.filter(|_| node.depth == 0).map(|s| s.scope.label());
-        if let Some(word) = scope_word {
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled(word, Style::default().fg(header_color)));
-        }
         if node.child_count > 0 {
             let count_str = format!("{}", node.child_count);
             let prefix_len: usize = spans.iter().map(Span::width).sum();
@@ -3481,13 +3576,9 @@ fn event_loop(
                 body_area = rows[0];
                 let inner_width = list_text_width(list_area.width);
 
-                let items: Vec<ListItem> = visible
-                    .iter()
-                    .map(|&idx| {
-                        let node = &nodes[idx];
-                        let line = row_line(node, sections.get(node.section), inner_width);
-                        ListItem::new(if is_marked(&marks, node) { mark_row(line) } else { line })
-                    })
+                let items: Vec<ListItem> = list_lines(nodes, sections, &visible, &marks, inner_width)
+                    .into_iter()
+                    .map(ListItem::new)
                     .collect();
 
                 let header = pane_title(Pane::List, panes.focus, vec![
@@ -3618,9 +3709,7 @@ fn event_loop(
                         inner_chunks[2],
                     );
                 } else {
-                    let list = List::new(items)
-                        .highlight_style(theme::selected())
-                        .highlight_symbol("  ▸ ");
+                    let list = List::new(items).highlight_style(theme::selected_row());
                     frame.render_stateful_widget(list, inner_chunks[2], &mut state);
                 }
 
@@ -3933,10 +4022,12 @@ fn event_loop(
                         if let Some(&real) = visible_for_mouse.get(vis_idx) {
                             state.select(Some(vis_idx));
                             if !nodes[real].is_dir {
-                                if let Some(d) =
-                                    mouse_x_to_dot(mouse.column, list_inner_area.x)
-                                {
-                                    nodes[real].flags ^= FLAG_DEFS[d as usize].bit;
+                                if let Some(tag) = mouse_x_to_row_tag(
+                                    mouse.column,
+                                    list_inner_area.x,
+                                    nodes[real].flags,
+                                ) {
+                                    nodes[real].flags ^= FLAG_DEFS[tag].bit;
                                     continue;
                                 }
                             }
@@ -4604,7 +4695,7 @@ fn warning_layout(warning: &str, width: usize) -> (String, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notez_core::tags::{FLAG_IMPORTANT, FLAG_PRIO};
+    use notez_core::tags::{FLAG_BLOCKED, FLAG_IDEA, FLAG_IMPORTANT, FLAG_LONGTERM, FLAG_PRIO};
 
     #[test]
     fn warning_layout_puts_the_quit_hint_four_columns_from_the_right_edge() {
@@ -4991,15 +5082,15 @@ mod tests {
         let total = Rect::new(2, 1, 120, 30);
         let mut panes = Panes::default();
         let (list, _, _) = panes.layout(total);
-        assert_eq!(list_text_width(list.width), 60 - 8);
+        assert_eq!(list_text_width(list.width), 60 - 4);
         panes.handle_key(KeyCode::Char('<'), total.width);
         let (narrower, _, _) = panes.layout(total);
-        assert_eq!(list_text_width(narrower.width), 54 - 8);
+        assert_eq!(list_text_width(narrower.width), 54 - 4);
         panes.handle_key(KeyCode::Char('2'), total.width);
         panes.handle_key(KeyCode::Char('2'), total.width);
         let (folded, _, preview) = panes.layout(total);
         assert!(preview.is_none());
-        assert_eq!(list_text_width(folded.width), 120 - 8);
+        assert_eq!(list_text_width(folded.width), 120 - 4);
     }
 
     #[test]
@@ -5021,13 +5112,16 @@ mod tests {
                     assert_eq!(clicked.focus, Pane::List);
                     assert!(!clicked.dragging);
                 }
-                // The five dots map to their tags, as at 50/50.
-                for dot in 0..5u8 {
-                    assert_eq!(mouse_x_to_dot(area.x + 5 + u16::from(dot), area.x), Some(dot), "split {split}");
-                }
             }
-            // A row fits its dots and the text width the split gives it.
-            assert_eq!(usize::from(rows.width), list_text_width(list.width) + 4, "split {split}");
+            // The strip's five dots map to their tags, as at 50/50, and so
+            // do a row's dots with every tag set, right after its gutter.
+            for dot in 0..5u8 {
+                assert_eq!(mouse_x_to_dot(strip.x + 5 + u16::from(dot), strip.x), Some(dot), "split {split}");
+                let col = rows.x + 1 + u16::from(dot);
+                assert_eq!(mouse_x_to_row_tag(col, rows.x, 0b1_1111), Some(usize::from(dot)), "split {split}");
+            }
+            // A row fills exactly the text width the split gives it.
+            assert_eq!(usize::from(rows.width), list_text_width(list.width), "split {split}");
         }
     }
 
@@ -6135,46 +6229,64 @@ mod tests {
         (sections, nodes)
     }
 
+    /// Row `idx` as the event loop draws it in a list `width` columns wide,
+    /// with the rows `compute_visible` gives for no filter and no marks.
+    fn line_at_width(sections: &[SectionSpec], nodes: &[TreeNode], idx: usize, width: usize) -> Line<'static> {
+        let visible = compute_visible(nodes, "");
+        let pos = visible.iter().position(|&i| i == idx).expect("a visible row");
+        list_lines(nodes, sections, &visible, &HashSet::new(), width).swap_remove(pos)
+    }
+
+    /// [`line_at_width`] at [`LIST_TEXT_WIDTH`].
+    fn line_of(sections: &[SectionSpec], nodes: &[TreeNode], idx: usize) -> Line<'static> {
+        line_at_width(sections, nodes, idx, LIST_TEXT_WIDTH)
+    }
+
     /// `line` drawn as the selected row of an 80-column list, the way the
     /// event loop draws it: the cells of that row.
     fn render_row(line: Line<'static>) -> Vec<(String, Option<Color>)> {
+        render_row_styled(line).into_iter().map(|(symbol, style)| (symbol, style.fg)).collect()
+    }
+
+    /// [`render_row`] with each cell's whole style.
+    fn render_row_styled(line: Line<'static>) -> Vec<(String, Style)> {
         use ratatui::buffer::Buffer;
         let area = Rect::new(0, 0, 80, 1);
         let mut buf = Buffer::empty(area);
-        let list = List::new(vec![ListItem::new(line)]).highlight_symbol("  ▸ ");
+        let list = List::new(vec![ListItem::new(line)]).highlight_style(theme::selected_row());
         let mut state = ListState::default();
         state.select(Some(0));
         StatefulWidget::render(list, area, &mut buf, &mut state);
         (0..80)
             .map(|x| {
                 let cell = &buf[(x, 0)];
-                (cell.symbol().to_string(), cell.style().fg)
+                (cell.symbol().to_string(), cell.style())
             })
             .collect()
     }
 
-    /// Highlight symbol plus the tag dots: the badge sits in this column.
-    const BADGE_COL: usize = 4 + 7;
+    /// The first column of a row: blank, or the mark of a marked row.
+    const GUTTER_COL: usize = 0;
 
     #[test]
     fn every_file_row_has_a_badge_in_its_scope_colour_and_the_rest_unchanged() {
         let (sections, nodes) = badged_forest();
         let cases = [
-            ("/n/personal/proj/top.md", Scope::Personal.icon(), Scope::Personal, 1),
-            ("/p/notez/plans/b.md", Scope::Public.icon(), Scope::Public, 2),
-            ("/p/docs/design/c.md", "\u{f02d}", Scope::Public, 2),
-            ("/p/.notez/d.md", Scope::Local.icon(), Scope::Local, 1),
-            ("/n/e.md", Scope::Global.icon(), Scope::Global, 1),
+            ("/n/personal/proj/top.md", Scope::Personal.icon(), Scope::Personal, "└─  "),
+            ("/p/notez/plans/b.md", Scope::Public.icon(), Scope::Public, "  └─  "),
+            ("/p/docs/design/c.md", "\u{f02d}", Scope::Public, "  └─  "),
+            ("/p/.notez/d.md", Scope::Local.icon(), Scope::Local, "└─  "),
+            ("/n/e.md", Scope::Global.icon(), Scope::Global, "└─  "),
         ];
-        for (path, icon, colour_scope, depth) in cases {
+        for (path, icon, colour_scope, branch) in cases {
             let node = &nodes[row(&nodes, path)];
-            let cells = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
-            assert_eq!(cells[BADGE_COL].0, " ", "{path}: the gutter keeps a blank");
-            let badge = BADGE_COL + 1 + 2 * depth + 4;
+            let cells = render_row(line_of(&sections, &nodes, row(&nodes, path)));
+            assert_eq!(cells[GUTTER_COL].0, " ", "{path}: the gutter keeps a blank");
+            let badge = GUTTER_COL + 1 + Span::raw(branch).width();
             assert_eq!(cells[badge].0, icon, "{path}");
             assert_eq!(cells[badge].1, Some(theme::scope_color(colour_scope)), "{path}");
-            let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-            let expected = format!("{}│   {icon} {}", "  ".repeat(depth), node.name);
+            let rest: String = cells[GUTTER_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+            let expected = format!("{branch}{icon} {}", node.name);
             assert_eq!(rest.trim_end(), expected, "{path}");
         }
     }
@@ -6182,37 +6294,36 @@ mod tests {
     #[test]
     fn folder_rows_have_the_badge_too() {
         let (sections, nodes) = badged_forest();
-        let node = &nodes[row(&nodes, "/n/personal/proj/ideas")];
-        let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        let line = line_of(&sections, &nodes, row(&nodes, "/n/personal/proj/ideas"));
         let cells = render_row(line);
-        assert_eq!(cells[BADGE_COL].0, " ", "the gutter keeps a blank");
-        let badge = BADGE_COL + 1 + 2 + 4;
+        assert_eq!(cells[GUTTER_COL].0, " ", "the gutter keeps a blank");
+        let badge = GUTTER_COL + 1 + 4;
         assert_eq!(cells[badge].0, Scope::Personal.icon());
         assert_eq!(cells[badge].1, Some(theme::scope_color(Scope::Personal)));
-        let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-        let expected = format!("  ├─▼ {} ideas ", Scope::Personal.icon());
+        let rest: String = cells[GUTTER_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+        let expected = format!("├─▾ {} ideas ", Scope::Personal.icon());
         assert!(rest.starts_with(&expected), "{rest:?}");
         assert!(rest.trim_end().ends_with('1'), "{rest:?}");
     }
 
     #[test]
-    fn a_section_header_shows_its_scope_word_in_the_scope_colour() {
+    fn a_section_header_shows_its_scope_by_icon_and_colour_without_the_scope_word() {
         let (sections, nodes) = badged_forest();
         for (i, spec) in sections.iter().enumerate() {
-            let node = nodes.iter().find(|n| n.depth == 0 && n.section == i).unwrap();
-            let line = row_line(node, Some(spec), LIST_TEXT_WIDTH);
+            let idx = nodes.iter().position(|n| n.depth == 0 && n.section == i).unwrap();
+            let node = &nodes[idx];
+            let line = line_of(&sections, &nodes, idx);
             let word = spec.scope.label();
             let colour = Some(theme::scope_color(spec.scope));
-            let word_span = line.spans.iter().find(|s| s.content == word).expect(word);
-            assert_eq!(word_span.style.fg, colour, "{word}");
+            assert!(line.spans.iter().all(|s| s.content != word), "{word}: {:?}", span_texts(&line));
             let icon_span =
                 line.spans.iter().find(|s| s.content.starts_with(spec.icon)).expect("icon");
             assert_eq!(icon_span.style.fg, colour, "{word} icon");
 
             let cells = render_row(line);
-            assert_eq!(cells[BADGE_COL].0, " ", "{word}: no second icon on the header");
-            let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-            let expected = format!("▼ {} {} {word} ", spec.icon, spec.label);
+            assert_eq!(cells[GUTTER_COL].0, " ", "{word}: no second icon on the header");
+            let rest: String = cells[GUTTER_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+            let expected = format!("▼ {} {} ··", spec.icon, spec.label);
             assert!(rest.starts_with(&expected), "{rest:?}");
             assert!(rest.trim_end().ends_with(&node.child_count.to_string()), "{rest:?}");
         }
@@ -6224,10 +6335,11 @@ mod tests {
         let idx = row(&nodes, "/p/.notez/d.md");
         let prio = FLAG_DEFS.iter().position(|d| d.bit == FLAG_PRIO).unwrap();
         nodes[idx].flags = FLAG_PRIO;
-        let cells = render_row(row_line(&nodes[idx], sections.get(nodes[idx].section), LIST_TEXT_WIDTH));
+        let cells = render_row(line_of(&sections, &nodes, idx));
         let lit = cells.iter().position(|c| c.0 == "●").expect("a lit dot");
-        assert_eq!(mouse_x_to_dot(lit as u16, 0), Some(prio as u8));
-        assert_eq!(mouse_x_to_dot(BADGE_COL as u16, 0), None, "the badge is no dot");
+        assert_eq!(mouse_x_to_row_tag(lit as u16, 0, FLAG_PRIO), Some(prio));
+        let badge = cells.iter().position(|c| c.0 == Scope::Local.icon()).expect("the badge");
+        assert_eq!(mouse_x_to_row_tag(badge as u16, 0, FLAG_PRIO), None, "the badge is no dot");
     }
 
     // --- Todo icon (NZ-24) ---
@@ -6253,7 +6365,7 @@ mod tests {
     /// The badge `path`'s row draws right before its name: text and colour.
     fn badge_of(sections: &[SectionSpec], nodes: &[TreeNode], path: &str) -> (String, Option<Color>) {
         let node = &nodes[row(nodes, path)];
-        let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        let line = line_of(sections, nodes, row(nodes, path));
         let badge = &line.spans[name_index(&line, node) - 1];
         (badge.content.to_string(), badge.style.fg)
     }
@@ -6265,13 +6377,12 @@ mod tests {
         for path in ["/n/_todos", "/n/_todos/t.md", "/n/_todos/work", "/n/_todos/work/w.md"] {
             assert_eq!(badge_of(&sections, &nodes, path), todo, "{path}");
         }
-        let node = &nodes[row(&nodes, "/n/_todos/t.md")];
-        let cells = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
-        let badge = BADGE_COL + 1 + 2 * node.depth + 4;
+        let cells = render_row(line_of(&sections, &nodes, row(&nodes, "/n/_todos/t.md")));
+        let badge = GUTTER_COL + 1 + 6;
         assert_eq!(cells[badge].0, theme::ICON_TODO);
         assert_eq!(cells[badge].1, Some(theme::scope_color(Scope::Global)));
-        let rest: String = cells[BADGE_COL + 1..].iter().map(|c| c.0.as_str()).collect();
-        assert_eq!(rest.trim_end(), format!("    │   {} t.md", theme::ICON_TODO));
+        let rest: String = cells[GUTTER_COL + 1..].iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(rest.trim_end(), format!("│ └─  {} t.md", theme::ICON_TODO));
     }
 
     #[test]
@@ -6290,8 +6401,8 @@ mod tests {
     #[test]
     fn section_headers_keep_their_scope_icon_next_to_the_todo_rows() {
         let (sections, nodes) = todo_icon_forest();
-        for node in nodes.iter().filter(|n| n.depth == 0) {
-            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        for (idx, node) in nodes.iter().enumerate().filter(|(_, n)| n.depth == 0) {
+            let line = line_of(&sections, &nodes, idx);
             let texts = span_texts(&line);
             let icon = sections[node.section].icon;
             assert!(texts.contains(&format!("{icon} ")), "{texts:?}");
@@ -6309,7 +6420,7 @@ mod tests {
         let (sections, nodes) = todo_icon_forest();
         for path in ["/n/_todos", "/n/_todos/work"] {
             let node = &nodes[row(&nodes, path)];
-            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            let line = line_of(&sections, &nodes, row(&nodes, path));
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
             assert_eq!(line.spans.last().unwrap().content, node.child_count.to_string(), "{path}");
         }
@@ -6353,34 +6464,109 @@ mod tests {
     fn a_nested_row_draws_its_badge_right_before_the_name_and_keeps_the_gutter() {
         let (sections, nodes) = aligned_forest();
         let colour = Some(theme::scope_color(Scope::Personal));
-        for node in nodes.iter().filter(|n| n.depth > 0) {
-            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        for (idx, node) in nodes.iter().enumerate().filter(|(_, n)| n.depth > 0) {
+            let line = line_of(&sections, &nodes, idx);
             let name = name_index(&line, node);
             let path = node.path.display();
             let badge = format!("{} ", Scope::Personal.icon());
             assert_eq!(line.spans[name - 1].content, badge, "{path}");
             assert_eq!(line.spans[name - 1].style.fg, colour, "{path}");
-            let glyph = if node.is_dir { "├─▼ " } else { "│   " };
-            let expected = format!("{}{glyph}", "  ".repeat(node.depth));
-            assert_eq!(line.spans[name - 2].content, expected, "{path}");
-            assert_eq!(line.spans[7].content, " ", "{path}: the gutter keeps a blank");
-            assert_eq!(column_of(&line, 7), 7, "{path}: the gutter does not move");
+            assert_eq!(line.spans[name - 2].content, aligned_branch(node), "{path}");
+            assert_eq!(line.spans[0].content, " ", "{path}: the gutter keeps a blank");
+            assert_eq!(name - 2, 1, "{path}: no tag field when no row has tags");
         }
+    }
+
+    /// The branch drawing of each nested row of [`aligned_forest`].
+    fn aligned_branch(node: &TreeNode) -> &'static str {
+        let rel = node.path.strip_prefix("/n/personal/proj").unwrap().to_str().unwrap();
+        match rel {
+            "ideas" => "├─▾ ",
+            "ideas/deep" => "│ ├─▾ ",
+            "ideas/deep/x.md" => "│ │ └─  ",
+            "ideas/a.md" => "│ └─  ",
+            "åäö" => "├─▾ ",
+            "åäö/b.md" => "│ └─  ",
+            "日本語" => "└─▾ ",
+            "日本語/c.md" => "  └─  ",
+            other => panic!("no row {other}"),
+        }
+    }
+
+    #[test]
+    fn a_nested_folder_shows_tee_or_corner_by_its_later_siblings_and_its_open_state() {
+        let (sections, mut nodes) = aligned_forest();
+        let branch = |nodes: &[TreeNode], path: &str| {
+            let idx = row(nodes, path);
+            let line = line_of(&sections, nodes, idx);
+            line.spans[name_index(&line, &nodes[idx]) - 2].content.to_string()
+        };
+        assert_eq!(branch(&nodes, "/n/personal/proj/ideas"), "├─▾ ", "a later sibling follows");
+        assert_eq!(branch(&nodes, "/n/personal/proj/日本語"), "└─▾ ", "the last child");
+        let last = row(&nodes, "/n/personal/proj/日本語");
+        nodes[last].expanded = false;
+        assert_eq!(branch(&nodes, "/n/personal/proj/日本語"), "└─▸ ", "closed");
+        let ideas = row(&nodes, "/n/personal/proj/ideas");
+        nodes[ideas].expanded = false;
+        assert_eq!(branch(&nodes, "/n/personal/proj/ideas"), "├─▸ ", "closed");
+    }
+
+    #[test]
+    fn a_nested_file_at_depth_2_as_the_last_child_draws_a_bar_for_its_parent_and_a_corner() {
+        let (sections, nodes) = aligned_forest();
+        let idx = row(&nodes, "/n/personal/proj/ideas/a.md");
+        assert_eq!(nodes[idx].depth, 2);
+        let rest: String = render_row(line_of(&sections, &nodes, idx))[GUTTER_COL + 1..]
+            .iter()
+            .map(|c| c.0.as_str())
+            .collect();
+        assert_eq!(rest.trim_end(), format!("│ └─  {} a.md", Scope::Personal.icon()));
+        let under_last = row(&nodes, "/n/personal/proj/日本語/c.md");
+        let line = line_of(&sections, &nodes, under_last);
+        assert_eq!(line.spans[name_index(&line, &nodes[under_last]) - 2].content, "  └─  ", "no bar under the last folder");
+    }
+
+    #[test]
+    fn later_siblings_counts_only_the_visible_rows_under_the_same_parent() {
+        let (_, nodes) = aligned_forest();
+        let all = compute_visible(&nodes, "");
+        let later = later_siblings(&nodes, &all);
+        let at = |later: &[bool], path: &str| later[row(&nodes, path)];
+        assert!(at(&later, "/n/personal/proj/ideas"));
+        assert!(at(&later, "/n/personal/proj/ideas/deep"));
+        assert!(!at(&later, "/n/personal/proj/ideas/a.md"));
+        assert!(!at(&later, "/n/personal/proj/ideas/deep/x.md"));
+        assert!(at(&later, "/n/personal/proj/åäö"));
+        assert!(!at(&later, "/n/personal/proj/日本語"));
+        assert!(!at(&later, "/n/personal/proj"), "the only section");
+
+        // The filter keeps x.md and its ancestors: the siblings it hides no
+        // longer count, so the path down to x.md is all corners and blanks.
+        let filtered = compute_visible(&nodes, "x.md");
+        assert_eq!(filtered.len(), 4);
+        let later = later_siblings(&nodes, &filtered);
+        assert!(!at(&later, "/n/personal/proj/ideas"));
+        assert!(!at(&later, "/n/personal/proj/ideas/deep"));
+        assert!(!at(&later, "/n/personal/proj/åäö"), "a hidden row gets none");
+        let x = row(&nodes, "/n/personal/proj/ideas/deep/x.md");
+        assert_eq!(branch_prefix(&nodes, x, &later), "    └─  ");
+        assert_eq!(branch_prefix(&nodes, x, &later_siblings(&nodes, &all)), "│ │ └─  ");
     }
 
     #[test]
     fn every_directory_count_ends_at_the_text_width_at_every_depth() {
         let (sections, nodes) = aligned_forest();
-        let dirs: Vec<&TreeNode> = nodes.iter().filter(|n| n.is_dir).collect();
-        assert_eq!(dirs.iter().map(|n| n.depth).max(), Some(2));
-        for node in dirs {
-            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+        let dirs: Vec<usize> = (0..nodes.len()).filter(|&i| nodes[i].is_dir).collect();
+        assert_eq!(dirs.iter().map(|&i| nodes[i].depth).max(), Some(2));
+        for idx in dirs {
+            let node = &nodes[idx];
+            let line = line_of(&sections, &nodes, idx);
             let path = node.path.display();
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
             let count = node.child_count.to_string();
             assert_eq!(line.spans.last().unwrap().content, count, "{path}");
             let cells = render_row(line);
-            let last = 4 + LIST_TEXT_WIDTH - 1;
+            let last = LIST_TEXT_WIDTH - 1;
             assert_eq!(cells[last].0, count, "{path}");
             assert!(cells[last + 1..].iter().all(|c| c.0 == " "), "{path}");
         }
@@ -6390,42 +6576,40 @@ mod tests {
     fn a_folder_name_with_multi_byte_or_wide_characters_still_aligns_its_count() {
         let (sections, nodes) = aligned_forest();
         for path in ["/n/personal/proj/åäö", "/n/personal/proj/日本語"] {
-            let node = &nodes[row(&nodes, path)];
-            let line = row_line(node, sections.get(node.section), LIST_TEXT_WIDTH);
+            let line = line_of(&sections, &nodes, row(&nodes, path));
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{path}: {:?}", span_texts(&line));
         }
     }
 
+    /// A file's blank after the branch is as wide as a folder's expand
+    /// mark, so siblings' badges share a column and a file's name starts
+    /// two columns after its sibling folder's badge.
     #[test]
     fn a_file_name_starts_two_columns_after_its_sibling_folders_badge() {
         let (sections, nodes) = aligned_forest();
-        let spec = sections.first();
-        let folder = &nodes[row(&nodes, "/n/personal/proj/ideas/deep")];
-        let file = &nodes[row(&nodes, "/n/personal/proj/ideas/a.md")];
-        let folder_line = row_line(folder, spec, LIST_TEXT_WIDTH);
-        let file_line = row_line(file, spec, LIST_TEXT_WIDTH);
-        let folder_badge = column_of(&folder_line, name_index(&folder_line, folder) - 1);
-        let file_name = column_of(&file_line, name_index(&file_line, file));
+        let folder_idx = row(&nodes, "/n/personal/proj/ideas/deep");
+        let file_idx = row(&nodes, "/n/personal/proj/ideas/a.md");
+        let folder_line = line_of(&sections, &nodes, folder_idx);
+        let file_line = line_of(&sections, &nodes, file_idx);
+        let folder_badge = column_of(&folder_line, name_index(&folder_line, &nodes[folder_idx]) - 1);
+        let file_name = column_of(&file_line, name_index(&file_line, &nodes[file_idx]));
         assert_eq!(file_name, folder_badge + 2);
     }
 
-    /// The section row's spans as they were before nested rows were
-    /// aligned. Only the leader differs: it was computed from the bytes of
-    /// `"▼ "` (4) instead of its columns (2), so it ended two columns short
-    /// of `inner_width`, which the event loop passed two columns too wide.
+    /// A section row: the gutter, no tag field while no row has tags, the
+    /// expand mark at column 1, then the scope icon, the label and the
+    /// leader to the count at the text width; no scope word.
     #[test]
     fn a_section_row_keeps_its_spans() {
         let (sections, nodes) = aligned_forest();
-        let line = row_line(&nodes[0], sections.first(), LIST_TEXT_WIDTH);
+        let line = line_of(&sections, &nodes, 0);
         let dots = |n: usize| format!(" {} ", "·".repeat(n));
-        let base = [
-            " ", "·", "·", "·", "·", "·", " ", " ", "▼ ", "\u{f007} ", "/n/personal/proj", " ",
-            "personal",
-        ];
+        let base = [" ", "▼ ", "\u{f007} ", "/n/personal/proj"];
         let mut expected: Vec<String> = base.iter().map(|s| s.to_string()).collect();
-        expected.push(dots(32 + 2));
+        expected.push(dots(32 + 2 + 7 + 9));
         expected.push("4".to_string());
         assert_eq!(span_texts(&line), expected);
+        assert_eq!(column_of(&line, 1), 1, "the expand mark starts at column 1");
     }
 
     #[test]
@@ -6434,18 +6618,143 @@ mod tests {
         use ratatui::widgets::BorderType;
         let (sections, nodes) = aligned_forest();
         let pane = Rect::new(0, 0, 80, 3);
-        let line = row_line(&nodes[0], sections.first(), list_text_width(pane.width));
+        let line = line_at_width(&sections, &nodes, 0, list_text_width(pane.width));
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .padding(Padding::new(1, 1, 0, 0));
         let mut buf = Buffer::empty(pane);
-        let list = List::new(vec![ListItem::new(line)]).highlight_symbol("  ▸ ");
+        let list = List::new(vec![ListItem::new(line)]).highlight_style(theme::selected_row());
         let mut state = ListState::default();
         state.select(Some(0));
         StatefulWidget::render(list, block.inner(pane), &mut buf, &mut state);
         assert_eq!(buf[(77, 1)].symbol(), "4", "the count is not clipped");
         assert_eq!(buf[(76, 1)].symbol(), " ");
+        assert_eq!(buf[(2, 1)].symbol(), " ", "the gutter right after the padding");
+        assert_eq!(buf[(3, 1)].symbol(), "▼", "the expand mark right after the gutter");
+    }
+
+    #[test]
+    fn the_selected_row_is_shown_by_its_style_across_the_whole_line_without_a_symbol() {
+        let (sections, nodes) = aligned_forest();
+        let plain = span_texts(&line_of(&sections, &nodes, 0)).concat();
+        let cells = render_row_styled(line_of(&sections, &nodes, 0));
+        let drawn: String = cells.iter().map(|c| c.0.as_str()).collect();
+        assert!(drawn.starts_with(&plain), "no symbol shifts the row: {drawn:?}");
+        for (x, (_, style)) in cells.iter().enumerate() {
+            assert_eq!(style.bg, theme::selected_row().bg, "column {x}");
+            assert!(style.add_modifier.contains(Modifier::BOLD), "column {x}");
+        }
+    }
+
+    // --- Compact tag field ---
+
+    /// [`aligned_forest`] with three tags on `ideas/a.md` and one on
+    /// `åäö/b.md`; the other rows have none.
+    fn tagged_forest() -> (Vec<SectionSpec>, Vec<TreeNode>) {
+        let (sections, mut nodes) = aligned_forest();
+        let a = row(&nodes, "/n/personal/proj/ideas/a.md");
+        nodes[a].flags = FLAG_IMPORTANT | FLAG_LONGTERM | FLAG_BLOCKED;
+        let b = row(&nodes, "/n/personal/proj/åäö/b.md");
+        nodes[b].flags = FLAG_IDEA;
+        (sections, nodes)
+    }
+
+    /// The tag field of `path`'s row: the spans between the gutter and the
+    /// branch drawing, text and colour.
+    fn field_of(sections: &[SectionSpec], nodes: &[TreeNode], path: &str) -> Vec<(String, Option<Color>)> {
+        let idx = row(nodes, path);
+        let line = line_of(sections, nodes, idx);
+        let branch = line.spans.iter().position(|s| s.style.fg == Some(theme::SURFACE)).expect("branch");
+        line.spans[1..branch].iter().map(|s| (s.content.to_string(), s.style.fg)).collect()
+    }
+
+    #[test]
+    fn the_tag_field_is_as_wide_as_the_most_tags_on_a_visible_row() {
+        let (sections, mut nodes) = tagged_forest();
+        let dot = |i: usize| ("●".to_string(), Some(theme::FLAG_COLORS[i]));
+        let blank = |n: usize| (" ".repeat(n), None);
+        assert_eq!(
+            field_of(&sections, &nodes, "/n/personal/proj/ideas/a.md"),
+            vec![dot(0), dot(2), dot(4), blank(1)],
+            "three tags fill the field"
+        );
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/åäö/b.md"), vec![dot(3), blank(3)], "one tag");
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語/c.md"), vec![blank(4)], "no tag");
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj"), vec![blank(4)], "the section row");
+        for idx in (0..nodes.len()).filter(|&i| nodes[i].is_dir) {
+            let line = line_of(&sections, &nodes, idx);
+            assert_eq!(line.width(), LIST_TEXT_WIDTH, "{:?}", span_texts(&line));
+        }
+
+        // Folding `ideas` hides the three-tag row: the field shrinks to one.
+        let ideas = row(&nodes, "/n/personal/proj/ideas");
+        nodes[ideas].expanded = false;
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/åäö/b.md"), vec![dot(3), blank(1)]);
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語/c.md"), vec![blank(2)]);
+
+        // With no tag on any visible row there is no field at all.
+        let accented = row(&nodes, "/n/personal/proj/åäö");
+        nodes[accented].expanded = false;
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語/c.md"), vec![]);
+        for idx in (0..nodes.len()).filter(|&i| nodes[i].is_dir && compute_visible(&nodes, "").contains(&i)) {
+            let line = line_of(&sections, &nodes, idx);
+            assert_eq!(line.width(), LIST_TEXT_WIDTH, "{:?}", span_texts(&line));
+        }
+    }
+
+    #[test]
+    fn a_tagless_forest_draws_no_tag_placeholders_and_the_section_mark_follows_the_gutter() {
+        let (sections, nodes) = aligned_forest();
+        assert!(nodes.iter().all(|n| n.flags == 0));
+        for idx in 0..nodes.len() {
+            let line = line_of(&sections, &nodes, idx);
+            assert_eq!(line.spans[0].content, " ", "the gutter");
+            // Below depth 1 a blank ancestor level may lead the tree drawing.
+            if nodes[idx].depth <= 1 {
+                let first = &line.spans[1];
+                assert!(!first.content.starts_with(' '), "nothing between gutter and tree: {:?}", span_texts(&line));
+            }
+            let before_name: String =
+                line.spans[..name_index(&line, &nodes[idx])].iter().map(|s| s.content.as_ref()).collect();
+            assert!(!before_name.contains('·') && !before_name.contains('●'), "{before_name:?}");
+        }
+        assert_eq!(line_of(&sections, &nodes, 0).spans[1].content, "▼ ");
+    }
+
+    #[test]
+    fn a_click_on_the_nth_dot_toggles_the_rows_nth_set_tag() {
+        let (sections, nodes) = tagged_forest();
+        let a = row(&nodes, "/n/personal/proj/ideas/a.md");
+        let cells = render_row(line_of(&sections, &nodes, a));
+        let flags = nodes[a].flags;
+        for (col, tag) in [(1u16, 0usize), (2, 2), (3, 4)] {
+            assert_eq!(cells[usize::from(col)].0, "●", "column {col}");
+            assert_eq!(mouse_x_to_row_tag(col, 0, flags), Some(tag), "column {col}");
+            assert_eq!(cells[usize::from(col)].1, Some(theme::FLAG_COLORS[tag]), "column {col}");
+        }
+        assert_eq!(mouse_x_to_row_tag(0, 0, flags), None, "the gutter");
+        assert_eq!(mouse_x_to_row_tag(4, 0, flags), None, "past the dots");
+
+        let b = row(&nodes, "/n/personal/proj/åäö/b.md");
+        let flags = nodes[b].flags;
+        assert_eq!(mouse_x_to_row_tag(1, 0, flags), Some(3));
+        for col in [0u16, 2, 3, 4, 5] {
+            assert_eq!(mouse_x_to_row_tag(col, 0, flags), None, "column {col}: the blank field");
+        }
+        // Offset by the list's left edge, and a toggle clears the clicked tag.
+        let tag = mouse_x_to_row_tag(10 + 2, 10, nodes[a].flags).unwrap();
+        assert_eq!(nodes[a].flags ^ FLAG_DEFS[tag].bit, FLAG_IMPORTANT | FLAG_BLOCKED);
+        assert_eq!(mouse_x_to_row_tag(5, 0, 0), None, "a row without tags has no dot");
+    }
+
+    #[test]
+    fn a_marked_row_with_tags_keeps_the_mark_in_the_gutter_before_its_dots() {
+        let (sections, nodes) = tagged_forest();
+        let a = row(&nodes, "/n/personal/proj/ideas/a.md");
+        let marked = render_row(mark_row(line_of(&sections, &nodes, a)));
+        let texts: Vec<&str> = marked[..6].iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(texts, [MARK_GLYPH, "●", "●", "●", " ", "│"]);
     }
 
     // --- Delete ---
@@ -8882,16 +9191,15 @@ mod tests {
         assert!(filtering.starts_with(" 1 marked  enter keep"), "{filtering}");
     }
 
-    /// The gutter: after the highlight symbol, before the tag dots.
-    const MARK_COL: usize = 4;
+    /// The gutter: the row's first column, before the tag dots.
+    const MARK_COL: usize = 0;
 
     #[test]
     fn a_marked_row_shows_the_mark_in_the_gutter_and_keeps_every_other_column() {
         let (sections, nodes) = badged_forest();
         for path in ["/p/.notez/d.md", "/n/personal/proj/ideas"] {
-            let node = &nodes[row(&nodes, path)];
-            let plain = render_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
-            let line = mark_row(row_line(node, sections.get(node.section), LIST_TEXT_WIDTH));
+            let plain = render_row(line_of(&sections, &nodes, row(&nodes, path)));
+            let line = mark_row(line_of(&sections, &nodes, row(&nodes, path)));
             let marked = render_row(line.clone());
             assert_eq!(plain[MARK_COL].0, " ", "{path}");
             assert_eq!(marked[MARK_COL].0, MARK_GLYPH, "{path}");
@@ -8900,7 +9208,7 @@ mod tests {
             }
             assert!(line.spans.iter().all(|s| s.style.add_modifier.contains(Modifier::BOLD)), "{path}");
         }
-        assert_eq!(mouse_x_to_dot(MARK_COL as u16, 0), None, "the mark is no tag dot");
+        assert_eq!(mouse_x_to_row_tag(MARK_COL as u16, 0, 0b1_1111), None, "the mark is no tag dot");
     }
 
     // --- Marks: bulk move and set scope ---

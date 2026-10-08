@@ -64,13 +64,22 @@ folders), `-p` only the project's personal notes, `-l` only its scratch
 notes. It opens even when the view has no notes yet, with an empty-state
 line pointing at `n` that names the scope in a narrowed view.
 
-Every row carries a scope badge in the column after its tag dots: the
+A row starts with a one-column gutter (the mark of a marked row), then the
+row's tag dots: only the tags it has, left-aligned in their colours, in a
+field as wide as the most tags on any visible row, and no field at all
+when no visible row has a tag. Clicking a dot removes that tag. The
+selected row is shown by its highlight across the whole line. Nested rows
+are drawn as a classic tree (`├─` for a row with a later sibling, `└─` for
+the last, `│` for an ancestor with more to come), with `▾`/`▸` on open and
+closed folders and `▼`/`▶` on sections.
+
+Every nested row carries a scope badge right before its name: the
 section's scope icon (the docs icon for a `docs` section) in that scope's
 colour, so rows from different sections tell apart at a glance. Section
-headers show the scope icon and the scope word (`personal`, `public`,
-`scratch`, `notez`) in the same colour. Todo rows (the `_todos` store, every
-row in it, and every `TODO.md` file) carry a check-list icon instead of the
-scope icon, still in the scope's colour.
+headers show the scope icon in the same colour before their label; the
+icon and colour name the scope, so no scope word is repeated. Todo rows
+(the `_todos` store, every row in it, and every `TODO.md` file) carry a
+check-list icon instead of the scope icon, still in the scope's colour.
 
 **New notes in the tree.** `n` creates a note in the folder under the
 cursor, in that row's scope. The footer prompt names the target before

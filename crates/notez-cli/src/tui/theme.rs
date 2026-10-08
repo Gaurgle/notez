@@ -30,6 +30,46 @@ pub fn selected() -> Style {
     Style::default().bg(SURFACE0)
 }
 
+/// The tree browser's cursor row. The tree draws no highlight symbol, so
+/// the row is marked by this style alone, over the whole line: the
+/// [`selected`] background plus bold, which brightens every glyph on it.
+pub fn selected_row() -> Style {
+    selected().add_modifier(Modifier::BOLD)
+}
+
+/// The glyphs that draw the tree browser's hierarchy, in one table so they
+/// can be swapped. Every entry is as wide as the one it pairs with, so a
+/// swap keeps the rows aligned only if it keeps those widths.
+pub struct TreeGlyphs {
+    /// A section row's expand mark, open and closed.
+    pub section_open: &'static str,
+    pub section_closed: &'static str,
+    /// One ancestor level: the ancestor has a later sibling, or it has not.
+    pub ancestor_bar: &'static str,
+    pub ancestor_blank: &'static str,
+    /// The row's own branch: it has a later sibling, or it is the last.
+    pub branch: &'static str,
+    pub last_branch: &'static str,
+    /// After the branch: a folder's expand mark, open and closed, or the
+    /// file's blank.
+    pub folder_open: &'static str,
+    pub folder_closed: &'static str,
+    pub file: &'static str,
+}
+
+/// The classic `tree` drawing.
+pub const TREE_GLYPHS: TreeGlyphs = TreeGlyphs {
+    section_open: "▼ ",
+    section_closed: "▶ ",
+    ancestor_bar: "│ ",
+    ancestor_blank: "  ",
+    branch: "├─",
+    last_branch: "└─",
+    folder_open: "▾ ",
+    folder_closed: "▸ ",
+    file: "  ",
+};
+
 pub fn normal() -> Style {
     Style::default().fg(TEXT)
 }
@@ -240,6 +280,25 @@ mod tests {
     fn dim_color_passes_through_non_rgb() {
         let dimmed = dim_color(Color::Red);
         assert_eq!(dimmed, Color::Red);
+    }
+
+    #[test]
+    fn the_tree_glyph_pairs_share_their_widths() {
+        use ratatui::text::Span;
+        let g = TREE_GLYPHS;
+        let width = |s: &str| Span::raw(s).width();
+        assert_eq!(width(g.section_open), width(g.section_closed));
+        assert_eq!(width(g.ancestor_bar), width(g.ancestor_blank));
+        assert_eq!(width(g.branch), width(g.last_branch));
+        assert_eq!(width(g.folder_open), width(g.folder_closed));
+        assert_eq!(width(g.folder_open), width(g.file), "sibling names align");
+        assert_eq!(width(g.ancestor_bar), width(g.branch), "one level is one branch wide");
+    }
+
+    #[test]
+    fn the_tree_cursor_row_is_the_selection_background_in_bold() {
+        assert_eq!(selected_row().bg, selected().bg);
+        assert!(selected_row().add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
