@@ -332,6 +332,16 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   RECORD ONLY as NZ-18 (Draft, design first). Not an instruction to run;
   the standing scope does not cover it. Andreas names it in a lead
   session before any brainstorming session or code starts.
+- 2026-10-08 about 12:30 CEST: RELAYED by the advisor session
+  (`repos-f9`), Andreas's words "yes, ok from me. lets set this up" on
+  adding CI to notez, with the advisor's uncountered recommendation that
+  this lead runs it without being paused. Recorded as NZ-19 (brief
+  Ready). RECORD ONLY until Andreas confirms in the lead session: a CI
+  change is outside the standing scope and a relayed message cannot
+  widen it. Questions put to him at 12:35 CEST: confirm the ticket; slot
+  (second worker now, or after NZ-15); permission to push the ticket
+  branch to `origin` so the workflow runs before the merge; permission
+  to delete that remote branch afterwards.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -1884,6 +1894,88 @@ a short design note under `docs/` that the ticket links; implementation
 tickets follow only from the approved note. Proposed order: after NZ-14 to
 NZ-16, since it touches the same browser code; Andreas can pull it
 forward.
+
+#### NZ-19: add CI (GitHub Actions) for build and tests
+
+Status: brief Ready; EXECUTION NOT YET AUTHORIZED in the lead session.
+Relayed on 2026-10-08 at about 12:30 CEST by the advisor session
+(`repos-f9`) with Andreas's words "yes, ok from me. lets set this up",
+given there in answer to adding CI to notez, and the advisor's own
+recommendation (not countered by Andreas) that this lead runs it rather
+than being paused. Board item created by the advisor at Ready; the lead
+only keeps its Status current. The lead's reading: a relayed approval
+cannot widen the standing scope, which excludes CI changes
+(`CLAUDE.md`: ask before CI changes), so the lead asked Andreas in the
+lead session at 12:35 CEST to confirm (a) the ticket, (b) the slot (second
+worker slot now, disjoint from `tui/`, or after NZ-15), (c) pushing the
+ticket branch to `origin` so the workflow runs there before the merge,
+and (d) deleting that remote branch afterwards. Nothing runs before his
+answer.
+
+Problem: the repository has no CI (no `.github/`), yet the safe-merge
+rule in `docs/agent-workflow.md` names "CI is green on the pushed ticket
+branch" and "CI on `main` is green", which every merge so far has
+satisfied vacuously.
+
+Outcome: a GitHub Actions workflow (public repository, free minutes) that
+builds and tests pushes and pull requests.
+
+Decisions (as relayed, adopted by the lead):
+
+1. One workflow `.github/workflows/ci.yml`: triggers `push` on every
+   branch and `pull_request`, with `paths-ignore` for `**.md` and
+   `docs/**`; `permissions: contents: read`; a `concurrency` group per
+   ref that cancels superseded runs.
+2. Job `check` on a matrix of `ubuntu-latest` and `macos-latest`:
+   checkout, stable Rust toolchain, cargo cache, `cargo build
+   --workspace`, `cargo test --workspace`. The sync tests shell out to
+   `git` and commit in temp repositories, so the job sets a git identity
+   (`user.name`, `user.email`) for the runner before testing, if any
+   test needs it (the worker verifies by running the suite in a shell
+   with no global git identity).
+3. Every action pinned to a full commit SHA with the version in a
+   trailing comment (Andreas's rule: never `@latest`, not a tag).
+4. Job `lint`, NOT gating: `cargo clippy --workspace --all-targets`
+   with `continue-on-error: true`, so warnings are visible and can be
+   tightened later (floors only ratchet up). `cargo fmt --check` is not
+   run at all: it fails repo-wide on old drift, and untouched files are
+   not reformatted.
+5. No new dependency, no secrets, no release or publish step.
+6. Docs in the same ticket: `CLAUDE.md` Ship policy line ("No CI: a push
+   triggers nothing" becomes what CI runs and that a push to any branch
+   triggers it) and its Checks section; `docs/agent-workflow.md`
+   integration policy and safe-merge text (CI exists, what it runs, a
+   green run is the condition, how to read it with `gh run list`);
+   `README.md` only if it mentions the checks.
+
+Acceptance criteria:
+
+1. The workflow is green on the pushed ticket branch on both runners
+   (link the run ids in the worker report).
+2. A deliberately failing test turns it red: one throwaway commit on the
+   branch shows a red run, then is removed from the branch before review
+   (`git reset` on the unpushed tip or a revert commit; the reviewer
+   sees the final branch, and the lead records both run ids).
+3. Every `uses:` is a full SHA that resolves to the stated version
+   (reviewer checks with `gh api repos/<owner>/<repo>/commits/<sha>` or
+   the tag's commit); permissions are `contents: read` only.
+4. `actionlint` or `gh workflow view` parses the file without error
+   (whichever is available; say which).
+5. Docs updated as in decision 6; `cargo build --workspace` and `cargo
+   test --workspace` still pass locally (no code change expected).
+
+Allowed files: `.github/workflows/ci.yml` (new), `CLAUDE.md` (the Ship
+policy and Checks lines only), `docs/agent-workflow.md` (integration
+policy and safe-merge text only), `README.md` (checks mention only). No
+code change.
+
+Method: bounded ticket, one `nz-worker` pass, one review. The lead
+pushes the branch (worker never pushes) so the worker can read the run;
+if the worker needs a second push for the red-run demonstration, it
+reports and the lead pushes. Reviewer probes: SHA pins resolve to the
+claimed versions; `paths-ignore` does not skip a push that mixes docs
+and code; the concurrency group does not cancel `main` runs needed for
+the safe-merge check; the git identity step; no `pull_request_target`.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
