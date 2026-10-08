@@ -375,6 +375,13 @@ State at the stop, in short (details under In flight, Tickets, Next step):
     Scope: ticket branches under the recorded standing scope only. No
     force-push, no tags, no releases. If a run is red the ticket stops
     at Ready to integrate.
+- 2026-10-08 16:35 CEST, Andreas, in the lead session (`4ffb11e2`):
+  "you may create board items for tickets i request here". STANDING
+  PERMISSION: the lead creates the board item for any ticket Andreas
+  requests in a lead session (title `NZ-n: ...`, Status matching the
+  handoff). Not for tickets the lead invents, not for relayed ones
+  until he confirms them here, and never deleting items or changing the
+  board's visibility. Applied at once to NZ-21 to NZ-25.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -384,10 +391,24 @@ at 16:10 CEST by lead `4ffb11e2` on Andreas's direct request ("two
 things directly", 15:55 CEST). `git status --short` before dispatch:
 only this file modified. Base `483cb1c` (= `main` = `origin/main`),
 branch `fix/NZ-21-tree-row-alignment`, worktree `.claude/worktrees/
-NZ-21`, model `opus` via `nz-worker`, one pass. RUNNING. Board item
-not yet created (asked Andreas for leave or for standing permission to
-create items for tickets he requests in the lead session). Then review,
-branch push, CI, merge, `main` run, cleanup; then NZ-22.
+NZ-21`, model `opus` via `nz-worker`, one pass. Worker REPORTED at
+16:25 CEST, one lead adjustment (a space after the badge, like section
+rows) DONE at 16:32 CEST: only `tui/tree.rs`, 174 insertions, 32
+deletions, uncommitted diff against `9a6c0e0` hashing to
+`031b6acbdbcccaaa9631c41f4702f7c09eac4316e24af90c4969b412b62cf5a2`;
+worker checks: build clean, notez-cli 318 passed, notez-core 146
+passed; about 120k agent tokens over both rounds. Lead decisions:
+keep the worker's `list_text_width` correction (the event loop's
+`inner_width` was pane minus 6, the list's real text width is pane
+minus 8; the old value only looked right through a cancelling
+byte-count error on section rows); badge drawn as `icon` plus a space
+before the name; `LIST_TEXT_WIDTH` test constant keeps its value with a
+corrected comment. Two pre-existing tests updated to the new badge
+position, every assertion kept. REVIEW dispatched at 16:38 CEST
+(`nz-reviewer`, opus) on that hash, RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_Y3Lk` (In flight), created under the 16:35
+permission. Then branch push, CI, merge, `main` run, cleanup; then
+NZ-22 (board `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`, Ready).
 
 NZ-20 is Done (merge `483cb1c` at 16:00 CEST; branch run `37771278846`
 and the `main` run both green; remote branch deleted; worktree and
@@ -2414,7 +2435,7 @@ structure is a bit weird, visibly, the icons for the expanded branch
 are visibly to the left ... indent correctly. Same for number of
 documents in view, gets skewed, everything in an extended branch is
 skewed to the left"), named as one of "two things directly". Runs
-first after NZ-20. Board item still to be created (asked). Touches
+first after NZ-20. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3Lk`. Touches
 `tui/tree.rs` only.
 
 Problem (verified by the lead in `row_line`, `tui/tree.rs` about line
@@ -2465,7 +2486,7 @@ accept; under the delegation it merges and he tries it installed.
 Status: Ready. Requested by Andreas in the lead session on 2026-10-08
 ("i want shift + j/k & up/down to scroll document in the right pane"),
 the second of "two things directly". Runs after NZ-21 (same file).
-Board item to be created (asked).
+Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3NA`.
 
 Facts (verified at `483cb1c`): `J` and `K` (that is Shift+j/k) already
 scroll the preview one line (`preview_scroll`, `tui/tree.rs` about
@@ -2492,7 +2513,7 @@ Allowed files: `crates/notez-cli/src/tui/tree.rs`, `tui/footer.rs`,
 #### NZ-23: the bonsai docs are not listed (project not attached)
 
 Status: Investigated by the lead, waiting for Andreas's answer; no code
-change identified yet. Andreas on 2026-10-08: "i added a document in
+change identified yet. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3Pg` (Draft). Andreas on 2026-10-08: "i added a document in
 bonsai two days ago. i can see the directory for it, but not that
 note, i think it was about 2.5kb".
 
@@ -2535,7 +2556,7 @@ scope colour stays), and the help legend lists it. Depends on NZ-20's
 constant belongs there). Needs Andreas's word on the glyph (proposal:
 `☑` or `✓`) and on whether `TODO.md` files in project stores count as
 todo rows too (the todo board reads project `TODO.md` files, so the
-lead says yes). Board item to be created (asked).
+lead says yes). Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3RQ` (Draft).
 
 #### NZ-25: markdown rendering in the preview pane, toggleable
 
@@ -2556,7 +2577,7 @@ markdown in ratatui needs a parser (`pulldown-cmark`) and highlighting
 needs `syntect` or `tree-sitter`; adding either is a dependency
 decision Andreas must approve (standing scope forbids new
 dependencies). The lead will propose exact crates and versions in the
-brief once he confirms the phases. Board item to be created (asked).
+brief once he confirms the phases. Board item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` (Draft).
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
