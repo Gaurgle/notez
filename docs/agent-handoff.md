@@ -3331,11 +3331,57 @@ tolerant, confirm no panic); the cache key including the language.
 #### NZ-28: linting in the preview (design)
 
 Status: Draft, design first (Andreas 17:20 CEST). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Design note written by the lead at
-21:15 CEST on 2026-10-08: `docs/design-nz28-linting.md` (tree-sitter
-syntax diagnostics plus in-process markdown checks, gutter marks,
-footer count, an `!` issue overlay; no external tools). Waiting for
-Andreas's approval or changes. Original questions: which
+`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Design note written by the lead:
+`docs/design-nz28-linting.md` (tree-sitter syntax diagnostics plus
+in-process markdown checks, gutter marks, footer count, an `!` issue
+overlay; no external tools). Andreas on 2026-10-08 21:30 CEST: "perhaps
+28 & 29?", read with the working rule as: go ahead as designed; he
+overrules after reading the note or trying the build. Status: Ready,
+runs after NZ-5, as ONE ticket in two passes.
+
+Brief (from the design note; the worker verifies the code facts):
+
+1. Pass 1, `tui/lint.rs` (new): `pub struct Diagnostic { line: usize
+   (0-based source line), severity: Severity (Warning, Error), message:
+   String }`, `pub fn lint(path: &Path, text: &str, language:
+   Option<Language>) -> Vec<Diagnostic>` sorted by line. Sources: (a)
+   tree-sitter `ERROR` and `MISSING` nodes from a parse with the NZ-27
+   grammar when `language` is `Some` (one diagnostic per node, message
+   `syntax error` or `missing <kind>`, Error); (b) markdown checks when
+   the language is Markdown, built on the pulldown events: heading
+   level jump (`#` to `###`), duplicate heading text, unterminated
+   fence, relative link whose target file does not exist (resolved
+   against `path`'s directory), reference link without a definition,
+   trailing whitespace, a `TODO.md` task line not matching `- [ ]` or
+   `- [x]`, no `#` heading in the note (all Warning). Each check is one
+   function listed in a table so single checks can be turned off in
+   code. Files over 1 MiB return no diagnostics. Tests per check (one
+   positive, one negative), per language for the syntax source, and a
+   bounded-time guard.
+2. Pass 2, integration: `tui/markdown.rs` keeps a source line map
+   (rendered line index to source line) so marks land on the right
+   rendered line; a gutter mark `▲` in a warning colour (`theme`,
+   existing palette) at the start of a line with a diagnostic, in both
+   rendered and raw view; the footer file type segment gains `<n>
+   issues` (nothing at zero); `!` opens an issue list overlay (reusing
+   the help overlay drawing): `line: message` sorted, `j`/`k` move,
+   `Enter` scrolls the preview to that line and closes, `Esc` closes;
+   `!` in the key table (help "issues"), footer hint low priority
+   shown only when there are issues. Lint runs with the preview cache
+   (same key) so it costs nothing per frame. README paragraph.
+3. Not in scope: external tools, auto-fix, vault-wide lint, config
+   files.
+
+Allowed files: `crates/notez-cli/src/tui/lint.rs` (new), `tui/mod.rs`,
+`tui/markdown.rs`, `tui/highlight.rs` (expose a parse or error-node
+walk), `tui/tree.rs`, `tui/footer.rs`, `tui/help.rs`, `tui/theme.rs`,
+`README.md`. No new dependency, no notez-core change. One review of the
+whole diff. Reviewer probes: a relative link check must never touch
+files outside the vault or repo (no network, no absolute paths
+followed); overlay keys inert elsewhere; line map correctness after
+wrapping; performance on a 500 KB note.
+
+Original questions: which
 linters (markdownlint-style rules in-process, or shelling out to tools
 on the machine such as `ruff`, `ktlint`, `clippy`), when they run (on
 selection, on demand with a key), what the pane shows (gutter marks and
@@ -3347,17 +3393,53 @@ before code.
 #### NZ-29: LSP in the preview (design)
 
 Status: Draft, design first (Andreas 17:20 CEST). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Design note written by the lead at
-21:20 CEST on 2026-10-08: `docs/design-nz29-lsp.md`, recommending NOT
-to embed LSP in a read-only preview and to open NZ-29a (symbol outline
-from tree-sitter) instead; three options for Andreas. Waiting for his
-answer. Original questions: what a
+`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Design note written by the lead:
+`docs/design-nz29-lsp.md`, recommending NOT to embed LSP in a
+read-only preview and to build a symbol outline from tree-sitter
+instead. Andreas on 2026-10-08 21:30 CEST: "perhaps 28 & 29?", read
+with the working rule as leave to follow the recommendation: NZ-29
+stays Draft as the LSP record (closed as "not now" unless he objects
+after reading the note) and the work runs as NZ-30 below. Original
+questions: what a
 read-only preview gains from a language server (hover, diagnostics,
 symbols), which servers and how they are found, process lifetime
 inside a TUI, and whether this belongs in the notes browser at all
 versus opening the file in the editor. The lead recommends deciding
 this after NZ-27 and NZ-28 have been used. Needs Andreas's approval of
 the design before code.
+
+#### NZ-30: symbol outline for the preview (tree-sitter, in place of LSP)
+
+Status: Ready, runs after NZ-28. Opened by the lead on 2026-10-08 at
+21:45 CEST under Andreas's "perhaps 28 & 29?" and the NZ-29 design
+note's recommendation. Board item `PVTI_lAHOCU842c4BmE5Zzg_e_xc`.
+
+Outcome: a toggleable outline of the selected file: for markdown the
+headings (level, text); for code the top-level definitions (functions,
+types, constants, classes, modules) with their kind and name. `Enter` on
+an entry scrolls the preview to that line. No process, no dependency.
+
+Decisions: source for code is each grammar's bundled `TAGS_QUERY`
+(`tree-sitter-rust 0.24.2` ships `queries/tags.scm` and exports
+`TAGS_QUERY`; the worker checks which of the other grammars do and
+falls back to a small local query per language for the rest, or to
+"no outline" for a language with neither); markdown headings come from
+the pulldown events (NZ-25); the outline is an overlay like the help
+and NZ-28 issue overlays (same drawing), toggled with a key the worker
+picks from the free ones (proposal `O`), `j`/`k` move, `Enter` jumps
+and closes, `Esc` closes; the footer shows the key at low priority
+when the file has an outline; computed with the preview cache key, no
+per-frame cost; files over 1 MiB get no outline.
+
+Acceptance: `outline(text, language) -> Vec<Entry { line, kind, name,
+depth }>` tested per language with a small snippet and for markdown
+heading levels; overlay navigation tested on its pure state; jump
+scrolls to the entry's rendered line (through NZ-28's source line map
+for rendered markdown); key table and help tests; README. Allowed
+files: `crates/notez-cli/src/tui/outline.rs` (new), `tui/mod.rs`,
+`tui/highlight.rs` (expose languages and tags queries), `tui/markdown.rs`,
+`tui/tree.rs`, `tui/footer.rs`, `tui/help.rs`, `README.md`. One worker
+pass, one review.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
