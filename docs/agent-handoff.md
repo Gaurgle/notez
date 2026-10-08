@@ -422,9 +422,24 @@ before dispatch: only this file modified. Base `706e169` (= `main` =
 `origin/main`), branch `feat/NZ-25-markdown-preview`, worktree
 `.claude/worktrees/NZ-25`, model `opus` via `nz-worker`. Pass 1
 (`tui/markdown.rs` renderer with tests, theme styles, dependency
-`pulldown-cmark = "0.13.4"`, `Cargo.lock`) RUNNING; pass 2 (toggle
-key, footer file type, integration in `tui/tree.rs`, README) follows
-on the same worktree; one review of the whole diff. The dependency
+`pulldown-cmark = "0.13.4"`, `Cargo.lock`) REPORTED at 19:35 CEST: 5
+files (`Cargo.lock`, `crates/notez-cli/Cargo.toml`, new
+`tui/markdown.rs` registered with `git add -N`, `tui/mod.rs`,
+`tui/theme.rs`), 1041 insertions, uncommitted diff against `706e169`
+hashing to
+`68d2f99f5a159cc49b60791c6644296eaa51db3b905c0e163a9fd50c12426f32`;
+worker checks: build clean, notez-cli 363 passed (32 new), notez-core
+146 passed; about 117k agent tokens. Dependency as added:
+`pulldown-cmark = { version = "0.13.4", default-features = false }`
+(drops `html` and `getopts`); `Cargo.lock` gained `pulldown-cmark
+0.13.4` and `unicase 2.10.0` only. Renderer does its own wrapping so
+`lines.len()` is the scroll count; 2 MB document renders in about 0.42
+s debug. Lead decisions on the report (accepted): language line
+indented two spaces like the code; table and raw HTML source lines
+wrap at the width; nested list indent follows the parent marker width;
+tab is 4 spaces. Pass 2 (toggle key, footer file type, cache,
+integration in `tui/tree.rs`, README) DISPATCHED at 19:40 CEST on the
+same worktree, RUNNING; one review of the whole diff after it. The dependency
 change is approved for this ticket (Authorized by the owner, 17:20
 CEST), so the safe-merge rule's dependency condition is met. Board
 item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` In flight. Disk: 11 GB free.
