@@ -78,7 +78,7 @@ const TODO_KEYS: &[KeyHint] = &[
     key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
     key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
     key("bksp", "delete", "filter: delete the char before the cursor; at the start, clear the filter and close", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(4), None),
-    key("esc", "clear", "clear the filter; with no filter, quit", theme::PEACH, Group::Filter, BOARD, Slot::HelpOnly, None),
+    key("esc", "clear", "clear the filter", theme::PEACH, Group::Filter, BOARD, Slot::HelpOnly, None),
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::SAPPHIRE, Group::Filter, BOARD, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BOARD, Slot::Priority(5), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
@@ -87,7 +87,7 @@ const TODO_KEYS: &[KeyHint] = &[
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
     key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
     key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
-    key("q", "quit", "quit", theme::PEACH, Group::View, BOARD, Slot::Quit, None),
+    key("q", "quit", "quit (also :q)", theme::PEACH, Group::View, BOARD, Slot::Quit, None),
 ];
 
 /// The board's input flags, read each frame to pick the footer mode.
@@ -296,6 +296,12 @@ fn footer_warning(session: Option<&str>, prose_sections: &[String]) -> Option<St
         (Some(session), None) => Some(session.to_string()),
         (None, prose) => prose,
     }
+}
+
+/// `Esc` in browse mode: clear the filter if there is one, otherwise do
+/// nothing. `Esc` never quits; `q` and `:q` are the ways out.
+fn browse_escape(search_buffer: &mut String) {
+    search_buffer.clear();
 }
 
 /// Filter-aware visible indices: collapse-aware order, then the filter's
@@ -1453,13 +1459,7 @@ fn event_loop(
 
         match key.code {
             KeyCode::Char('q') => break,
-            KeyCode::Esc => {
-                if !search_buffer.is_empty() {
-                    search_buffer.clear();
-                } else {
-                    break;
-                }
-            }
+            KeyCode::Esc => browse_escape(&mut search_buffer),
 
             KeyCode::Char('j') | KeyCode::Down => {
                 if vis_sel + 1 < visible.len() {
@@ -1722,6 +1722,15 @@ mod tests {
     use super::*;
     use notez_core::tags::{FLAG_BLOCKED, FLAG_IMPORTANT, FLAG_PRIO};
     use std::path::PathBuf;
+
+    #[test]
+    fn esc_clears_the_filter_and_otherwise_does_nothing() {
+        let mut search = "abc".to_string();
+        browse_escape(&mut search);
+        assert!(search.is_empty());
+        browse_escape(&mut search);
+        assert!(search.is_empty(), "with no filter Esc changes nothing and never quits");
+    }
 
     fn task(text: &str, depth: u8, flags: u8) -> Task {
         Task {

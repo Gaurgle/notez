@@ -227,8 +227,8 @@ tag legend, prompt or command comes first and the keys follow in the space
 left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
 it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. While browsing the tree,
 `Esc` clears the marks if there are any (and does nothing else), otherwise
-clears the filter, otherwise quits. In the tree, `J`/`K` (or
-Shift+Down/Up) scroll the preview pane a line and PgDn/PgUp a page; plain
+clears the filter, otherwise does nothing: `Esc` never quits (use `q` or
+`:q`). In the tree, `J`/`K` (or Shift+Down/Up) scroll the preview pane a line and PgDn/PgUp a page; plain
 `j`/`k` and Down/Up move the cursor. The mouse wheel scrolls the pane under
 the pointer: three lines of the preview, or the list's cursor a row.
 Shift+Down/Up need a terminal that sends them as distinct keys: Ghostty,

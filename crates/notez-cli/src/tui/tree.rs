@@ -1642,17 +1642,15 @@ fn press_space(
 }
 
 /// `Esc` in browse mode: clear the marks if there are any and do nothing
-/// else; otherwise clear the filter if there is one. Returns true when
-/// neither applied, which quits the browser as before marks existed.
-fn browse_escape(marks: &mut HashSet<PathBuf>, search_buffer: &mut String) -> bool {
+/// else; otherwise clear the filter if there is one; otherwise do nothing.
+/// `Esc` never quits, so a stray press after a prompt closes is harmless;
+/// `q` and `:q` are the ways out.
+fn browse_escape(marks: &mut HashSet<PathBuf>, search_buffer: &mut String) {
     if !marks.is_empty() {
         marks.clear();
-    } else if !search_buffer.is_empty() {
-        search_buffer.clear();
     } else {
-        return true;
+        search_buffer.clear();
     }
-    false
 }
 
 /// Drop every mark whose path no note or folder row lists any more.
@@ -3385,7 +3383,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
     key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
     key("bksp", "delete", "filter: delete the char before the cursor; at the start, clear the filter and close", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(4), None),
-    key("esc", "clear", "clear marks; with none, clear the filter; with no filter, quit",theme::PEACH, Group::Filter, BROWSE, Slot::HelpOnly, None),
+    key("esc", "clear", "clear marks; with none, clear the filter",theme::PEACH, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
@@ -3405,7 +3403,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key(PANE_CYCLE_KEY, "pane", "focus the other pane (in a prompt, tab cycles the scope instead)", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(14), None),
     key("</>", "split", "narrow / widen the list by 5 points (both panes keep a usable width)", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(15), None),
     key("=", "reset", "reset the split to 50/50", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(16), None),
-    key("q", "quit", "quit", theme::PEACH, Group::View, BROWSE, Slot::Quit, None),
+    key("q", "quit", "quit (also :q)", theme::PEACH, Group::View, BROWSE, Slot::Quit, None),
 ];
 
 /// The footer mode for the tree's input state, most specific first.
@@ -4418,11 +4416,7 @@ fn event_loop(
 
         match key.code {
             KeyCode::Char('q') => break,
-            KeyCode::Esc => {
-                if browse_escape(&mut marks, &mut search_buffer) {
-                    break;
-                }
-            }
+            KeyCode::Esc => browse_escape(&mut marks, &mut search_buffer),
             KeyCode::Char(' ') => {
                 if let Some(message) =
                     press_space(&mut marks, nodes, &mut state, &visible, focus_active)
@@ -8903,15 +8897,16 @@ mod tests {
     }
 
     #[test]
-    fn esc_clears_the_marks_first_then_the_filter_then_quits() {
+    fn esc_clears_the_marks_first_then_the_filter_then_does_nothing() {
         let mut marks = marks_of(&["/r/a.md", "/r/b.md"]);
         let mut search = "a".to_string();
-        assert!(!browse_escape(&mut marks, &mut search));
+        browse_escape(&mut marks, &mut search);
         assert!(marks.is_empty());
         assert_eq!(search, "a", "with marks, Esc clears only the marks");
-        assert!(!browse_escape(&mut marks, &mut search));
-        assert!(search.is_empty(), "then the filter, as before");
-        assert!(browse_escape(&mut marks, &mut search), "then Esc quits, as before");
+        browse_escape(&mut marks, &mut search);
+        assert!(search.is_empty(), "then the filter");
+        browse_escape(&mut marks, &mut search);
+        assert!(marks.is_empty() && search.is_empty(), "then Esc does nothing and never quits");
     }
 
     #[test]
