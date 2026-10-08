@@ -81,22 +81,29 @@ repository, so the prompt says so: `public (committed with the project)`.
 `Enter` creates the note the way `notez add` does (same file name and
 content, never overwriting an existing file; an empty title becomes
 `untitled`), opens it in the editor, and selects it in the refreshed tree;
-`Esc` cancels.
+`Esc` cancels. A name the file name sanitizing would change (capitals, `_`,
+`.`, spaces) is refused in `n`, `N` and `r` with `name would become
+<cleaned>; use letters, digits and -`, and the prompt stays open with what
+you typed; the `notez add`, `notez mkdir` and `notez rename` commands still
+sanitize.
 
 **Folders in the tree.** Every folder under a section's root is listed,
 including empty ones; hidden folders (names starting with `.`) are not.
 `N` creates a folder with the same prompt as `n`: the target is the folder
 under the cursor, the footer names it (`new folder in personal/ideas: _`)
 and `Tab` cycles the scope the same way. `Enter` creates the folder the way
-`notez mkdir` does (same name sanitizing, the same `.gitignore` step for
-local scratch), then selects and expands it in the refreshed tree; `Esc`
+`notez mkdir` does (the same `.gitignore` step for local scratch), then selects and expands it in the refreshed tree; `Esc`
 cancels. An empty name, or the name of anything already in the target
 folder, is refused in the footer and creates nothing. `N` does nothing in a
 `docs` section.
 
 `r` on a folder renames it in place: the prompt shows the current name,
-`Enter` renames it with the same name sanitizing, and every note inside
-moves with it; their `.tags` entries move to the new paths on exit. A name
+`Enter` renames it, and every note inside
+moves with it; their `.tags` entries move to the new paths on exit. `r` on
+a note shows its title (the file name without the date and `.md`) and
+renames it the way `notez rename` does; on a note or a folder, `Enter` on
+the name as shown changes nothing, even one like `My_Note` that sanitizing
+would alter. A name
 already taken in that folder (file or folder, in any case) is refused and
 nothing changes; changing only the case of a name works where the file
 system allows it. `d` on a folder asks first, counting what goes, for
@@ -142,7 +149,11 @@ commits or pushes in a project repository: a note moved into public is
 yours to commit. A move between volumes copies, checks the copy, then
 deletes the original; if that fails partway, both copies stay and the footer
 names where. `m` and `S` on a section row or in a `docs` section change
-nothing; `docs` is never a destination.
+nothing; `docs` is never a destination. The todo board's store, `_todos`
+in the global notes, belongs to the todo view: `d`, `r`, `m` and `S` on it
+or on anything in it are refused (`delete: the todo board's store is managed
+by the todo view`), a marked set holding such a row is refused whole, and it
+is never a move destination; `n` and `N` work there as anywhere.
 
 **Marking several notes.** `Space` marks the note or folder under the
 cursor (again to unmark) and steps down one row; section rows cannot be
