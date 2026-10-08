@@ -26,6 +26,62 @@ standing scope and integration delegation (recorded 2026-10-07 16:25
 under Authorized by the owner), next ticket NZ-14; stated back to
 Andreas at takeover so he can correct it.
 
+STOPPED FOR THE DAY at 17:00 CEST on 2026-10-08 on Andreas's
+instruction ("i must go now, find a place to stop, stop the workers,
+commit and ship this"). BATON RELEASED. No lead is active. No worker or
+reviewer is running: the only agent running at the instruction (the
+NZ-4 pass 1 worker, started a minute earlier) was stopped before it
+changed a file; its clean worktree and branch were removed and NZ-4 is
+back at Ready. A new lead may take over from this file once Andreas
+says to continue; nothing here authorizes starting on its own.
+
+CLOCK CORRECTION: the CEST times this lead wrote into this file
+between about 12:00 and 17:00 on 2026-10-08 were estimates and run up
+to six hours ahead of the real clock (the lead wrote "23:05" at what
+was about 16:50). The order of events is right; for real times use
+`git log --date=iso` and the CI run `createdAt` fields. From this note
+on, times come from `date`.
+
+State at the stop, in short:
+
+- Done and merged today by this lead, in order: NZ-14 (`ae3617e`),
+  NZ-15 (`36699c1`), NZ-16 (`5298d54`), NZ-19 CI (`3941481`), NZ-20
+  (`483cb1c`), NZ-21 (`d667999`), NZ-22 (`82fae54`), NZ-26 (`5442854`),
+  NZ-24 (`706e169`), NZ-25 (`6a1c814`), NZ-27 (`299770e`). NZ-23 was
+  resolved without code (files moved). `main` = `origin/main` =
+  `08deabb` plus this stop commit; the last `main` CI run
+  (`37796746297` on `08deabb`) is green on lint, ubuntu and macos.
+- No ticket worktree or branch exists; `git worktree list` shows only
+  the main checkout. No remote ticket branches remain.
+- Board: NZ-14 to NZ-16, NZ-19 to NZ-27 Done except NZ-28 and NZ-29
+  (Draft, design notes written) and NZ-4 (Ready, next); NZ-5, NZ-3,
+  NZ-17, NZ-18 as before.
+- Andreas installed during the day (around 17:20 of the estimated
+  clock, about 14:00 real) and has NZ-13 to NZ-21 at the latest; NZ-22
+  to NZ-27 (preview scroll keys, soft names, todo icon, rendered
+  markdown with `p`, syntax highlighting) need another `./install.sh`,
+  his to run. Look items for him to judge: the `p` toggle key, the
+  dimmed `#`/`-`/`>` markers in the raw markdown view (NZ-27 F2), the
+  todo glyph, the row badge next to the name.
+- Next: NZ-4 (brief Ready with the lead's decisions), then NZ-5, NZ-3;
+  NZ-28 and NZ-29 wait for Andreas to read `docs/design-nz28-linting.md`
+  and `docs/design-nz29-lsp.md`; NZ-18 (Pinz) waits for his word;
+  NZ-11 and NZ-6 in the second slot when their files are free.
+- Standing permissions in force (Authorized by the owner): the
+  integration delegation, branch pushes with remote deletion after the
+  merge, board item creation for tickets he requests here, the
+  dependency approval for the tree-sitter and pulldown-cmark family,
+  and the working rule of "20:50" (the lead decides open design points
+  and reports; asks only for the listed owner-only matters). All paused
+  with the baton, not withdrawn.
+- Process lesson for the next lead: the integration chain picks the
+  `main` run with `gh run list --limit 1`; when the lead commits the
+  handoff onto `main` while a chain is between its merge and its push,
+  the handoff push carries the merge and the chain then watches the
+  previous run (this happened on NZ-27; the real run was watched
+  afterwards and is green). Either do not commit to `main` while a
+  chain runs, or select the run by `headSha`.
+
 Previous lead, for history:
 
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
@@ -428,8 +484,18 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-27 (syntax highlighting, tree-sitter). Dispatched 2026-10-08 at
-21:05 CEST by lead `4ffb11e2` under the dependency approval of 17:20
+Nothing is in flight. STOPPED FOR THE DAY at 17:00 CEST (real clock) on
+2026-10-08 on Andreas's instruction. No worker or reviewer is running.
+NZ-27 is Done (merge `299770e`; branch run green; the real `main` run
+`37796746297` on `08deabb` green on all three jobs; remote branch
+deleted; worktree and local branch removed; board Done). NZ-4 pass 1
+had been dispatched a minute before the stop and was STOPPED before it
+changed any file; its clean worktree `.claude/worktrees/NZ-4` and
+branch `feat/NZ-4-panes` were removed; NZ-4 is Ready on the board and
+is the next ticket.
+
+NZ-27 record, for history. Dispatched 2026-10-08 at
+21:05 CEST (estimated clock, see the correction under Current lead) by lead `4ffb11e2` under the dependency approval of 17:20
 CEST and the working rule of 20:50 CEST. `git status --short` before
 dispatch: clean. Base `9e1bb20` (= `main` = `origin/main`; code at the
 NZ-25 merge `6a1c814`), branch `feat/NZ-27-syntax-highlighting`,
@@ -3123,12 +3189,43 @@ pass, one review.
 
 #### NZ-27: syntax highlighting in the preview (tree-sitter)
 
-Status: Ready, authorized to run after NZ-25 (Andreas 17:20 CEST: "add
-linting and LSP and syntax highlighting too. approved to add
-dependencies, tree-sitter ive used before"; working rule of 20:50
-CEST: the lead decides the open points). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIHA`. Brief finalized by the lead at 20:55
-CEST on 2026-10-08. Touches `tui/tree.rs`, `tui/markdown.rs`, a new
+Status: Done. Merged into `main` as `299770e` on 2026-10-08 (about
+16:45 CEST real clock) and pushed; branch run green; `main` run
+`37796746297` green; board Done; remote branch deleted. Not yet
+installed by Andreas.
+
+Record: base `9e1bb20`, branch `feat/NZ-27-syntax-highlighting`, ticket
+commit `608235c` (8 files: `Cargo.lock`, `README.md`,
+`crates/notez-cli/Cargo.toml`, new `tui/highlight.rs`, `tui/markdown.rs`,
+`tui/mod.rs`, `tui/theme.rs`, `tui/tree.rs`; 1692 insertions, 43
+deletions), merge `299770e` with `git merge --no-ff`; undo with `git
+revert -m 1 299770e`. Dependencies added (approved family): tree-sitter
+0.27.0, tree-sitter-highlight 0.27.0, tree-sitter-rust 0.24.2,
+tree-sitter-python 0.25.0, tree-sitter-kotlin-ng 1.1.0 (replacing the
+approved tree-sitter-kotlin 0.3.8, which pins an old runtime; ships no
+queries, so `highlight.rs` carries a local `KOTLIN_HIGHLIGHTS`),
+tree-sitter-java 0.23.5, tree-sitter-c 0.24.2, tree-sitter-toml-ng
+0.7.0, tree-sitter-json 0.24.8, tree-sitter-bash 0.25.1, tree-sitter-md
+0.5.3; lock closure tree-sitter-language 0.1.8, streaming-iterator
+0.1.9, regex 1.13.1 with regex-automata, regex-syntax, aho-corasick;
+build-dep bumps cc 1.6.0, shlex 2.0.1, find-msvc-tools 0.1.14,
+serde_json 1.0.151. Release binary 11,992,256 B (was 2,359,440 B).
+Agents: two `nz-worker` (opus) passes with two continuations, about 385k
+tokens; one `nz-reviewer` (opus), about 87k, accepted first time.
+Committed diff hashes to the accepted
+`e77347223d168f7f151563885629ce45b3c7d0e161d8a2cba31ef154efa05809`.
+Lead checks: build clean, notez-cli 416 passed, notez-core 146 passed.
+Leftovers: F1 Kotlin receiver method calls capture as property; F2 raw
+markdown markers dimmed (Andreas to judge installed); F3 the 1 MiB
+limit measured differently by renderer and footer; F4 README says 1 MB;
+measure python and bash near 1 MiB in release; feature flags for bash,
+c, java grammars as a later option.
+
+Brief as run. Authorized after NZ-25 (Andreas: "add linting and LSP
+and syntax highlighting too. approved to add dependencies, tree-sitter
+ive used before"; working rule: the lead decides the open points).
+Board item `PVTI_lAHOCU842c4BmE5Zzg_ZIHA`. Brief finalized by the lead
+on 2026-10-08. Touches `tui/tree.rs`, `tui/markdown.rs`, a new
 module, `Cargo.toml`, `Cargo.lock`.
 
 Dependencies (approved family; versions are the current crates.io
@@ -3395,9 +3492,16 @@ and deciding on it as its own ticket once NZ-1 is in use.
 
 #### NZ-4: resizable split, preview fold and pane focus (tree only)
 
-Status: Ready, in the standing scope since 2026-10-06 (NZ-2 to NZ-5 and
-the integration delegation), confirmed in the 2026-10-07 queue. Runs
-after NZ-27. The two open points below were decided by the lead on
+Status: Ready, NEXT. In the standing scope since 2026-10-06 (NZ-2 to
+NZ-5 and the integration delegation), confirmed in the 2026-10-07
+queue. A pass 1 worker was dispatched on 2026-10-08 at 16:58 CEST (base
+`08deabb`, branch `feat/NZ-4-panes`, worktree `.claude/worktrees/NZ-4`)
+and STOPPED one minute later on Andreas's stop instruction before it
+changed any file; worktree and branch removed. The next lead creates
+them again from `main` and dispatches pass 1 (the panes model with
+tests, the split keys `<` `>` `=`, focus `1` `2` `Tab`, the fold on `2`,
+preview-focused scrolling, footer hints) then pass 2 (mouse drag with
+the grip, wheel per pane, click to focus, auto-fold, README). The two open points below were decided by the lead on
 2026-10-08 at 22:25 CEST under the working rule: (a) the split and fold
 are NOT remembered between runs (no state file; the standing scope
 forbids a new persisted format), (b) the todo board is left alone.
@@ -3553,8 +3657,9 @@ Current lead):
    (files moved). NZ-22: DONE 2026-10-08, merge `82fae54`.
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
    `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
-   `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 IN FLIGHT (pass 1
-   running),
+   `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 DONE (merge
+   `299770e`), NEXT NZ-4 (Ready, see its Status for the aborted
+   dispatch),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
