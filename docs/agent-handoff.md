@@ -3911,6 +3911,56 @@ unchanged; help and footer tests pass; README. Allowed files:
 `crates/notez-cli/src/tui/tree.rs`, `tui/todo.rs`, `tui/help.rs`,
 `README.md`. `nz-small` is enough, one review.
 
+#### NZ-38: fixed-width tag field with two tags per cell
+
+Status: Ready, runs right after NZ-34 (same file). Requested by Andreas
+on 2026-10-08 at 22:37 CEST: "the importance tags should never adjust
+the width of the margin. the margin must stay put. but the tags
+themselves could perhaps overlap each other slightly, to tighten this
+space, is this possible in ratatui ... if possible, overlap by 40-50%
+or so". Board item `PVTI_lAHOCU842c4BmE5Zzg_fr30`.
+
+Facts: a terminal is a cell grid, one glyph per cell, so glyphs cannot
+overlap; a cell does carry two colours (foreground and background), so
+a half-block `▌` with the left tag's colour as fg and the right tag's
+colour as bg shows two tags in one column. NZ-31 made the tag field
+variable (0 to 5 columns by the most-tagged visible row), which moves
+the margin as tags come and go; Andreas wants it fixed.
+
+Decisions (lead, working rule):
+
+1. The tag field is ALWAYS 3 columns wide, on every row, followed by one
+   space, between the gutter and the tree: the margin never moves.
+2. Set tags are packed two per cell, in `FLAG_DEFS` order, left to
+   right: cell k shows tags 2k and 2k+1 as `▌` with fg = colour of tag
+   2k and bg = colour of tag 2k+1; when only the left tag of a pair is
+   set the bg is the row's background (so the half-block shows one
+   colour); when only the right one is set, draw `▐` with fg = its
+   colour; an unset pair is a plain space. The cursor row's background
+   (NZ-31 `selected_row()`) must stay visible on unset halves (use the
+   selection bg there), and the mark glyph stays in the gutter.
+3. Mouse: a click anywhere in the field opens tag mode on that row
+   (`t`'s behaviour), since one cell holds two tags; the per-dot toggle
+   from NZ-31 is removed. A click elsewhere on the row keeps its
+   behaviour.
+4. The filter strip keeps its five full dots, left-aligned above the
+   field.
+5. The preview title's `flags_slots` use is unchanged.
+
+Acceptance: render tests for rows with 0, 1, 2, 3 and 5 tags pinning
+the three cells' glyphs, fg and bg; the margin column of the name is
+identical for all of them and for section rows; the cursor row's
+unset halves carry the selection background; the count column still
+ends at the text width (NZ-21 math with the fixed field); click on the
+field opens tag mode (test on the pure hit test); NZ-31 tests that
+pinned the variable field are updated and listed (`tag_field_width`
+goes away or becomes the constant); README sentence. Allowed files:
+`crates/notez-cli/src/tui/tree.rs`, `tui/theme.rs`, `README.md`. One
+worker pass, one review. Reviewer probes: colour contrast of two
+adjacent flag colours in one cell; a terminal without half-block
+glyphs (fallback is the owner's font problem, note it); the preview
+title unchanged.
+
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
 Drafted by the lead on 2026-10-06 from Andreas's direction below, and
