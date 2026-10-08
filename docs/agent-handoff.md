@@ -335,9 +335,38 @@ NZ-14 (folders). Dispatched 2026-10-08 about 09:55 CEST by lead
 modified. Base `4a239e3` (= `main` = `origin/main`), branch
 `feat/NZ-14-folders`, worktree `.claude/worktrees/NZ-14`, model `opus`
 via `nz-worker`. Pass 1 (directory listing, `mkdir::create_in_dir`, the
-`N` prompt) RUNNING; pass 2 (folder rename and delete) and the review
-follow on the same worktree. Board: In flight. No second worker slot is
-in use.
+`N` prompt) REPORTED at 10:05 CEST: 4 files changed (`README.md`,
+`commands/mkdir.rs`, `commands/tree.rs`, `tui/tree.rs`), 612 insertions,
+26 deletions, uncommitted diff against `4a239e3` hashing to
+`17a84c7a831cba5dcf2ad7723bcea46c6c955095371758c2a2dc58d908f2bf8e`;
+worker checks: build clean, notez-cli 237 passed, notez-core 146
+passed; about 168k agent tokens. Pass 2 (folder rename and delete)
+DISPATCHED at 10:08 CEST on the same worktree, RUNNING. Then one review
+of the whole diff. Board: In flight. No second worker slot is in use.
+
+Lead decisions on the pass 1 report (recorded for the reviewer and the
+ticket record):
+
+- `N` footer priority is 8 (first hint dropped on a narrow footer),
+  not literally "just below `n`": `N` is used less than `n`, `r` and
+  `d`, and the lower priority leaves NZ-12's narrow-footer width
+  assertions untouched. The table order still puts `N` right after `n`.
+- `N` on any docs row is refused with `new folder: not in a docs
+  section`. `n` there redirects to the project's personal root (NZ-8);
+  a folder has no such natural redirect, and the ticket's criterion 5
+  says `N` on a section row changes nothing.
+- NZ-8's prompt key rows keep their count; their help text is widened to
+  "new note or folder: ...".
+- One existing test changed beyond the mechanical `SectionSpec` literals:
+  `normal_and_focus_footers_hint_the_browse_keys` now expects `N` after
+  `n` (it lists every footer key at width 200). Legitimate contract
+  update, not a weakening.
+- Behaviour change to note for Andreas: deleting the last note in a
+  folder now leaves the empty folder listed with the cursor on it
+  (before, the folder vanished). The global section now lists every
+  non-hidden folder under the vault root except `personal/`, so a
+  repository nested in the vault adds empty `notez`/`docs` folder rows
+  there (same family as the NZ-13 leftover).
 
 Previous state, for history: nothing was in flight at the 2026-10-07
 19:25 CEST stop. No worker or reviewer was running: the last agent (the
