@@ -533,9 +533,19 @@ CEST (`refresh_probe` helper called from `R` and after every
 disk-changing action; two new tests; checks 498 + 146 passed); new diff
 against `5ff3745` 2 files, 404 insertions, 1 deletion, hashing to
 `7708731c5b3074c2eb2a40a7ba81adff412c89cf7a108ccc52e2ea15667b5d1c`.
-RE-REVIEW sent at 22:58 CEST, RUNNING. Then branch push, CI, merge,
-`main` run, cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32, NZ-28,
-NZ-30.
+RE-REVIEW sent at 22:58 CEST; CHANGES REQUESTED at 23:03 CEST (about
+79k tokens): the refresh after a rename (in place, no relist, also on
+no-op and failed renames) and after a refused `create_folder` could
+absorb an external change that landed while the prompt was open, since
+the probe is gated then; the same for the listing-failure fallbacks.
+Rule set by the lead: refresh only right after a successful relist.
+FIX CYCLE 2 sent at 23:05 CEST (rename relists via `reload_view` on
+success; folder refresh only in the success branch; fallbacks skip the
+refresh; tests for untouched readings on no-op, refused and cancelled
+actions), RUNNING. Then re-review, branch push, CI, merge, `main` run,
+cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30. This is
+the second fix cycle on NZ-34; a third on the same blocker stops the
+ticket and asks Andreas (stop condition).
 
 NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
