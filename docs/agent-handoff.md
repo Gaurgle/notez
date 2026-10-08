@@ -3718,6 +3718,40 @@ rule; raw HTML, images and math unchanged. Allowed files:
 probes: CJK cells; a 200k-row table in bounded time; a table with
 ragged rows; wrapping inside a cell keeps inline styles.
 
+#### NZ-37: Esc never quits the browser
+
+Status: Ready, runs right after NZ-31 (same file, tiny). Requested by
+Andreas on 2026-10-08 at 22:30 CEST ("must be able to use esc to close
+prompts like when renaming a doc. esc is quitting the app completely
+now? perhaps have a warning for quit as well. do we have :q for
+quit?"). Board item `PVTI_lAHOCU842c4BmE5Zzg_fY-g`.
+
+Findings (code at `709f814`): `Esc` inside every prompt and confirm
+closes that prompt (`rename_buffer = None`, `new_note = None`, the
+move prompt, the confirms, tag mode, the filter, the `:` line). What
+quits is `Esc` in BROWSE mode with nothing to clear: `browse_escape`
+(tree.rs about line 1552) clears marks, else clears the filter, else
+returns true and the loop exits (the rule since NZ-2, documented in
+the `esc` help row). So an `Esc` pressed once more after a prompt has
+closed quits the app. `:q` exists (`:wq`, `:qa`, `:q!` too) and `q`
+quits. The todo board handles `Esc` at todo.rs about line 1262; the
+worker checks whether it quits there too.
+
+Decisions (lead, working rule): `Esc` never quits, in either view: it
+clears marks, else the filter, else does nothing. `q` and `:q` stay the
+two ways out with NO confirmation (nothing is lost on quit, the exit
+sync commits, and a confirm on `q` taxes every session); the `q` help
+row says "quit (also :q)". The `esc` help row and README are updated.
+
+Acceptance: `browse_escape` returns a three-way result or the loop
+ignores its "quit" value; tests: `Esc` with marks clears marks only,
+with a filter clears the filter only, with neither does nothing and the
+loop continues (unit test on the helper plus a dispatch test if one
+exists); same for the todo board if it quit on `Esc`; `q` and `:q`
+unchanged; help and footer tests pass; README. Allowed files:
+`crates/notez-cli/src/tui/tree.rs`, `tui/todo.rs`, `tui/help.rs`,
+`README.md`. `nz-small` is enough, one review.
+
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
 Drafted by the lead on 2026-10-06 from Andreas's direction below, and
