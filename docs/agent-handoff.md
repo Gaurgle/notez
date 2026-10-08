@@ -377,8 +377,22 @@ uncommitted diff against `a0773b9` hashing to
 `ae021671a1ef8014bde4c9c05dd483180ff98f093f0423cc6050c871372698ca`;
 worker checks: build clean, notez-cli 299 passed, notez-core 146
 passed; about 168k agent tokens. Pass 2 (bulk `m` and `S`, README, two
-amendments below) DISPATCHED at 13:45 CEST on the same worktree,
-RUNNING. Then one review of the whole diff. Board: In flight.
+amendments below) REPORTED at 14:20 CEST: `tui/tree.rs` and
+`README.md`; whole diff against `a0773b9` 2 files, 1445 insertions, 98
+deletions, hashing to
+`9f090720694db7c39fcfaa8defcfdfbac0133680ce47c289f09743aca467967a`;
+worker checks: build clean, notez-cli 304 passed, notez-core 146
+passed; about 169k agent tokens. Workers stopped. REVIEW dispatched at
+14:25 CEST (`nz-reviewer`, opus) on that hash, RUNNING. Lead decisions
+on the pass 2 report (accepted as built): refusal message `<name>:
+<verb>: <reason>`; items already at their destination are skipped in a
+bulk `m`/`S` (whole set already there: `S` no-op, `m` says so); the
+confirm counts only items that will move; duplicate names compared
+exactly (case variants fail safely as "already exists"); a set spanning
+projects is refused. Refactors to verify in review: `remove_and_retire`
+out of `answer_delete`, `resolve_folder` out of `resolve_move`,
+`move_and_repoint` out of `apply_move`, `move_question` generalized.
+Board: In flight.
 
 NZ-19 (CI) in the SECOND worker slot. Dispatched 2026-10-08 at 14:05
 CEST by lead `4ffb11e2` on Andreas's authorization of 13:55 CEST
@@ -386,7 +400,19 @@ CEST by lead `4ffb11e2` on Andreas's authorization of 13:55 CEST
 this file modified. Base `77c3758` (= `main` = `origin/main`), branch
 `feat/NZ-19-ci`, worktree `.claude/worktrees/NZ-19`, model `opus` via
 `nz-worker`, one pass. Files disjoint from NZ-16 (`.github/`,
-`CLAUDE.md`, `docs/agent-workflow.md`, `README.md` at most). RUNNING.
+`CLAUDE.md`, `docs/agent-workflow.md`, `README.md` at most). Worker
+REPORTED at 14:12 CEST (about 38k agent tokens): `.github/workflows/
+ci.yml` new, `CLAUDE.md` and `docs/agent-workflow.md` edited, README
+untouched (its only test mention is not the checks); pins
+`actions/checkout@3d3c42e5...` (v7.0.1), `dtolnay/rust-toolchain@
+89b12181...` (branch `stable`, 2026-10-01), `Swatinem/rust-cache@
+6323deb1...` (v2.9.2); tests pass with no git identity visible, the
+identity step is kept with a comment; Ruby parsed the YAML. Lead
+committed it as commit A `33a5793` on `feat/NZ-19-ci` (diff against
+`77c3758` hashes to
+`830d7b902c3e3695f5f240362c825e96a75c68897415d8c58c531746c21311dd`) and
+pushed the branch at 14:15 CEST; workflow `CI` registered (id
+378310189); run `37760007328` on `33a5793` in progress at 14:16 CEST.
 Integration plan for this ticket, a deviation from the usual order
 because CI can only be seen on a pushed commit: worker reports; lead
 commits the diff as commit A on the branch and pushes (green run
