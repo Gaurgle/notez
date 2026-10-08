@@ -185,8 +185,12 @@ moved or deleted loses its mark.
 case) rendered by default: headings styled by level, emphasis, strong and
 strikethrough, inline code, code blocks with their language tag, bullet,
 numbered and task lists, block quotes with a bar, horizontal rules, and links
-as their text with the url dimmed after it. Tables and raw HTML show as
-their source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
+as their text with the url dimmed after it. Tables show as aligned columns
+with a bold header: a table wider than the pane shrinks its widest columns
+and wraps their cells, and one that cannot fit even then is cut off with
+`…`. A footnote reference shows as `[1]`, `[2]` in order of first use, and
+the footnotes follow the note under a short rule. Raw HTML shows as its
+source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
 width; code block lines wrap by character and keep their indentation. `p`
 switches between rendered and raw; the footer hint names the view
 `p` switches to (`p raw` or `p rendered`) and shows only while a markdown
