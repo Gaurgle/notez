@@ -1331,24 +1331,148 @@ dispatch order so `N` never fires inside another prompt.
 
 #### NZ-15: move a note or folder, change its visibility
 
-Status: Draft, relayed, not confirmed in the lead session.
+Status: brief finalized, board still Draft; becomes Ready when Andreas
+has answered the three decisions marked "Andreas" below (the lead's
+recommendation runs if he says nothing against it when asked in the
+lead session). Confirmed in scope by Andreas on 2026-10-07 in the lead
+session ("NZ-15: move and change visibility, with the warning"). Builds
+on NZ-8 (prompt machinery, `Tab` scope cycling, `NewNoteRoots`), NZ-12
+(confirm mode, retired tag keys), NZ-13 (sections, `tag_root` per
+section) and NZ-14 (folder rows, `dirs`, folder rename path updates).
+Runs after NZ-14 is on `main`. Brief finalized by the lead at 10:30 CEST
+on 2026-10-08 from the relayed draft and the code at `4a239e3`.
 
-Outcome: `m` moves a note or folder to a chosen destination; the picker's
-first step is the scope (private, public, local, global), then the folder.
-`S` (set scope) is a shortcut that keeps the relative path and changes only
-the scope. Both show the visibility warning above before acting, check for
-name collisions and never overwrite (as NZ-9), carry `.tags` keys, and
-handle moves across filesystems (vault versus repository). The public
-target prompt says "public" in so many words.
+Code facts the brief rests on (verified at `4a239e3`): section roots are
+personal `<notez_root>/personal/<proj>`, public `<repo>/notez`, docs
+`<repo>/docs`, local `<repo>/.notez`, global `<notez_root>`
+(`commands/tree.rs::section_meta`). Tag roots differ: personal and
+global sections key `.tags` from `<notez_root>` (`personal/<proj>/...`),
+public, docs and local from their own store root. `TreeNode` carries
+`tag_root` (index) and `origin`; `changed_tag_maps_retiring` retires
+`rel_key(origin)` and writes `rel_key(path)` in the SAME tag root, so a
+cross-section move cannot be expressed as `origin != path` alone.
+`NewNoteRoots` (in `TreeContext`) already lists the global root and each
+project's personal, public and local roots in `Tab` order. `std::fs::
+rename` fails with `EXDEV` across filesystems; the vault and a
+repository may sit on different volumes.
 
-Lead's notes for the brief: a cross-filesystem move is copy then delete,
-so the sequence must be copy, verify, carry tags, then remove, and leave
-both copies rather than none on failure. Who commits is decided as relayed
-on 2026-10-07: notez only moves the file and never commits or pushes in a
-project repository; the private-to-public warning says the note is now in
-the repository and not yet committed. Moving out of the vault leaves the
-file in vault history until the next `notez sync` pushes the deletion;
-moving into the vault is picked up by the exit sync.
+Outcome and decisions:
+
+1. `m` on a note or folder row opens a move prompt built on NZ-8's
+   machinery: lead `move <name> to <scope>/<folder>: _`, where the text
+   buffer is the destination folder path relative to the chosen scope
+   root (empty means the root), prefilled with the row's current
+   relative folder, and `Tab` cycles the scope through the row's
+   project's scopes and global exactly as `n` does (`NewNoteRoots`).
+   `Enter` moves, `Esc` cancels. The destination folder must exist (NZ-14
+   has `N` for creating one); a missing folder is refused with `move: no
+   folder <scope>/<folder>`. Docs sections are never a destination, and
+   `m` on a docs row is refused like `N` is. Andreas: typed folder path
+   with `Tab` for scope (recommended, reuses the prompt code, no list
+   widget) versus a two-step list picker (scope list, then folder list).
+2. `S` on a note or folder row opens a scope prompt: lead `set scope of
+   <name>: <scope> (Tab cycles, Enter applies)`, no text buffer; the
+   destination is the same relative path under the chosen scope root
+   (for a section row nothing happens). It is `m` with the folder fixed.
+3. Visibility warning. When the destination scope differs from the
+   source scope, `Enter` in either prompt first opens a NZ-12 style
+   confirm: `move <rel> to <scope>/<folder>? y/n` plus one clause chosen
+   by the transition: into public, "it will be in the <repo name>
+   repository, public, not yet committed"; out of public, "it stays in
+   the repository's git history"; into local, "scratch is not synced and
+   not recoverable"; out of global or personal into a repository, "it
+   leaves the vault; the deletion syncs on exit". The word "public"
+   appears in so many words whenever the destination is public. A move
+   within the same scope has no confirm. notez never commits or pushes in
+   a project repository (Andreas, relayed and confirmed 2026-10-07).
+4. The move itself: a single pure function `move_path(src, dst) ->
+   Result<()>` in a new file `crates/notez-cli/src/tui/move_path.rs`.
+   It refuses if `dst` exists (`symlink_metadata`, any kind; never
+   merges or overwrites, as NZ-9), then `std::fs::rename`; on an
+   `EXDEV`-class error it falls back to copy then delete: for a file
+   copy, read back and compare length and contents, then remove the
+   source; for a folder copy the tree recursively (files and
+   directories only; a symlink inside refuses the whole move before
+   anything is copied), verify each file, then `remove_dir_all` the
+   source. Any failure before the source removal leaves BOTH copies in
+   place and reports `move failed: <error> (destination left at
+   <dst>)`; a failure during source removal reports the same with the
+   partial source. Never leave zero copies.
+5. Tags. On a successful move the browser carries flags: for each file
+   row moved (the row itself or every file row under a moved folder)
+   push `(old tag root, old key)` onto NZ-12's retired list, then set
+   the row's `path` and `origin` to the new path, `tag_root` to the
+   destination section's tag root and `section` to the destination
+   section, keeping `flags`. `changed_tag_maps_retiring` then drops the
+   old key and writes the new one on exit, in two different `.tags`
+   files when the tag root changes. No `.tags` file is written at move
+   time. The tree is rebuilt with the cursor on the moved row at its new
+   place (the destination section expanded as needed); if the rebuild
+   does not list it (store with no section yet), the footer reports the
+   new path like NZ-14 does for a created folder.
+6. Keys in `TREE_KEYS`: `m` help "move note or folder", `S` help "set
+   scope"; footer priority below `N`. Both are browse-mode keys and never
+   fire inside another prompt or the confirm mode. Andreas: `S` as a
+   separate key (recommended, it was his relayed key map) versus folding
+   it into `m` only.
+7. Not in this ticket: multi-select (NZ-16), moving into or out of docs,
+   moving across projects other than through the global root, a `:mv`
+   command line, undo. Andreas: should `m` offer OTHER projects' scopes
+   as destinations (the lead recommends no: cross-project moves are rare
+   and the prompt stays short; global is the hand-off point).
+
+Acceptance criteria:
+
+1. `m` moves a note within its scope to an existing folder and to the
+   root, in each of the four scopes; the file is at the new path, the
+   old path is gone, nothing else changed; `Esc` moves nothing; a
+   missing destination folder or an existing destination name moves
+   nothing and shows the message. Tests on a temp tree with a real
+   `rebuild` closure.
+2. `m` with `Tab` and `S` move a note across scopes for each ordered pair
+   among personal, public, local and global that `NewNoteRoots` offers;
+   after exit the source tag root's `.tags` has no key for the note and
+   the destination tag root's `.tags` has the key with the original
+   flags (test with non-zero flags and with zero flags, where neither
+   file gets a key); other keys untouched.
+3. A folder move (within and across scopes) moves every note under it,
+   including one two levels down, and carries every key as in 2; an
+   existing destination name refuses the whole move with nothing
+   changed.
+4. The confirm appears exactly when the scope changes, with the clause
+   per transition in decision 3 and "public" for a public destination;
+   tests on the pure prompt-building function for all transitions;
+   `n`/`Esc` moves nothing.
+5. `move_path` tests: rename path; forced copy fallback (a test hook or
+   an injectable "rename failed with EXDEV" so the fallback runs on one
+   volume) for a file and for a folder tree; verification mismatch
+   leaves both copies; a symlink inside a folder refuses before copying;
+   an existing destination refuses.
+6. `m` and `S` on a section row, on a docs row and on an empty tree
+   change nothing and never panic; NZ-8, NZ-12, NZ-13 and NZ-14 tests
+   pass unchanged (list any mechanical change).
+7. `m` and `S` in the key table, help and footer tests pass, README
+   updated (key table and a short "moving notes" paragraph with the
+   warning semantics and the "notez never commits" rule).
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`crates/notez-cli/src/tui/footer.rs`, `crates/notez-cli/src/tui/help.rs`,
+`crates/notez-cli/src/tui/move_path.rs` (new), `crates/notez-cli/src/tui/
+mod.rs` (module line only), `crates/notez-cli/src/commands/tree.rs` (only
+if the destination sections need data the specs do not carry yet),
+`README.md`. No new dependency, no `notez-core` change, no file format
+change.
+
+Method: bounded ticket, two worker passes on one worktree: pass 1
+`move_path` with its tests and the `m` prompt for notes within a scope
+and across scopes (decisions 1, 3, 4, 5 for files); pass 2 folders, `S`,
+the rebuild cursor rule and README. One review of the whole diff.
+Reviewer probes: a move whose destination is inside the source folder
+(must refuse); a case-only destination on APFS; `tag_root` and `section`
+on rows under a moved folder after the rebuild; a public destination in
+a repository that is not the current project; the retired list after a
+move that failed midway (must be empty); `y` arriving when no confirm is
+open.
 
 #### NZ-16: multi-select with `Space`
 
