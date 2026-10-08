@@ -64,6 +64,16 @@ folders), `-p` only the project's personal notes, `-l` only its scratch
 notes. It opens even when the view has no notes yet, with an empty-state
 line pointing at `n` that names the scope in a narrowed view.
 
+**Reload.** `R` lists the tree again from disk, so a note written by the
+editor, by `notez add` in another shell or by a sync shows up; the cursor
+row, open folders, the filter, marks and unsaved tag edits stay, and the
+footer says `reloaded`. The tree also reloads by itself: after 2 seconds
+without input it compares the modified times of the section roots and the
+open folders with its last look (no file is read) and reloads on any
+change, saying `reloaded (files changed)`. It does not look while a
+prompt, a mode, the help or a split drag is open, and a change inside a
+closed folder waits for the next reload. The todo board has no reload.
+
 A row starts with a one-column gutter (the mark of a marked row), then the
 row's tag dots: only the tags it has, left-aligned in their colours, in a
 field as wide as the most tags on any visible row, and no field at all

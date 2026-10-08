@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use crossterm::event::{
@@ -1171,6 +1172,9 @@ fn new_folder_lead(label: &str, buffer: &str) -> Vec<Span<'static>> {
 struct FolderOutcome {
     row: Option<usize>,
     message: Option<String>,
+    /// Whether the forest was listed again from disk; only then may the
+    /// file-change probe take a fresh reading ([`refresh_probe`]).
+    relisted: bool,
 }
 
 /// Create the folder `name` in `target` through [`mkdir::create_in_dir`],
@@ -1186,7 +1190,7 @@ fn create_folder(
     name: &str,
     rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
 ) -> FolderOutcome {
-    let refuse = |message: String| FolderOutcome { row: None, message: Some(message) };
+    let refuse = |message: String| FolderOutcome { row: None, message: Some(message), relisted: false };
     let cleaned = sanitize::name(name);
     if cleaned.is_empty() {
         return refuse(FOLDER_NAME_EMPTY.to_string());
@@ -1208,8 +1212,8 @@ fn create_folder(
         }
     };
     match forest.rebuild(sections, &path) {
-        Some(row) => FolderOutcome { row: Some(row), message: None },
-        None => refuse(format!("created {}", path.display())),
+        Some(row) => FolderOutcome { row: Some(row), message: None, relisted: true },
+        None => FolderOutcome { row: None, message: Some(format!("created {}", path.display())), relisted: true },
     }
 }
 
@@ -1453,6 +1457,8 @@ fn delete_lead(prompt: &DeletePrompt) -> Vec<Span<'static>> {
 struct DeleteOutcome {
     row: Option<usize>,
     message: String,
+    /// Whether `rebuild` listed the forest again (not the fallback).
+    relisted: bool,
 }
 
 /// Answer the open delete prompt with `key`. Anything but `y` cancels and
@@ -1481,7 +1487,9 @@ fn answer_delete(
         Ok(()) => format!("deleted {}", prompt.rel),
         Err(e) => format!("delete failed: {e}"),
     };
+    let mut relisted = true;
     let sections = rebuild().unwrap_or_else(|e| {
+        relisted = false;
         message = format!("{message}, but the list could not be refreshed: {e:#}");
         if is_folder {
             let gone = |p: &Path| p.starts_with(&prompt.path) && std::fs::symlink_metadata(p).is_err();
@@ -1492,7 +1500,7 @@ fn answer_delete(
         }
     });
     let row = forest.rebuild_after_delete(sections, &prompt.path, search);
-    Some(DeleteOutcome { row, message })
+    Some(DeleteOutcome { row, message, relisted })
 }
 
 /// Remove what `prompt` names, a note or (through [`remove_folder`]) a
@@ -1877,7 +1885,9 @@ fn answer_bulk_delete(
         None => format!("deleted {deleted}"),
         Some(first) => format!("deleted {deleted}, failed {failed}: {first}"),
     };
+    let mut relisted = true;
     let sections = rebuild().unwrap_or_else(|e| {
+        relisted = false;
         message = format!("{message}, but the list could not be refreshed: {e:#}");
         let gone = |p: &Path| {
             items.iter().any(|i| p.starts_with(&i.path)) && std::fs::symlink_metadata(p).is_err()
@@ -1886,7 +1896,7 @@ fn answer_bulk_delete(
     });
     let anchor = last_deleted.or_else(|| items.last().map(|i| i.path.as_path()));
     let row = forest.rebuild_after_delete(sections, anchor.unwrap_or(Path::new("")), search);
-    Some(DeleteOutcome { row, message })
+    Some(DeleteOutcome { row, message, relisted })
 }
 
 // --- Rename ---
@@ -2436,6 +2446,8 @@ fn move_confirm_lead(plan: &MovePlan) -> Vec<Span<'static>> {
 struct MoveOutcome {
     row: Option<usize>,
     message: String,
+    /// Whether `rebuild` listed the forest again (not the fallback).
+    relisted: bool,
 }
 
 /// A moved note the rebuilt list does not show (its destination is outside
@@ -2488,11 +2500,11 @@ fn apply_move(
     let moved = match move_and_repoint(forest, retired, carried, plan, roots) {
         Ok(moved) => moved,
         Err(e) => {
-            let row = match rebuild() {
-                Ok(sections) => forest.rebuild(sections, &plan.src),
-                Err(_) => forest.nodes.iter().position(|n| n.path == plan.src),
+            let (row, relisted) = match rebuild() {
+                Ok(sections) => (forest.rebuild(sections, &plan.src), true),
+                Err(_) => (forest.nodes.iter().position(|n| n.path == plan.src), false),
             };
-            return MoveOutcome { row, message: format!("move failed: {e}") };
+            return MoveOutcome { row, message: format!("move failed: {e}"), relisted };
         }
     };
     let mut message = format!("moved {} to {}", plan.what(), plan.display);
@@ -2507,7 +2519,7 @@ fn apply_move(
     if row.is_none() && refreshed {
         message = format!("moved to {}", plan.dst.display());
     }
-    MoveOutcome { row, message }
+    MoveOutcome { row, message, relisted: refreshed }
 }
 
 /// What [`move_and_repoint`] moved: the destination tag root and every
@@ -2876,7 +2888,9 @@ fn apply_bulk_move(
         None => format!("moved {}", done.len()),
         Some(first) => format!("moved {}, failed {failed}: {first}", done.len()),
     };
+    let mut relisted = true;
     let sections = rebuild().unwrap_or_else(|e| {
+        relisted = false;
         message = format!("{message}, but the list could not be refreshed: {e:#}");
         sections_after_moves(forest, &done)
     });
@@ -2885,7 +2899,7 @@ fn apply_bulk_move(
     for m in &moved {
         carry_unlisted_moved(forest, carried, m);
     }
-    MoveOutcome { row, message }
+    MoveOutcome { row, message, relisted }
 }
 
 // --- Rebuild ---
@@ -2951,6 +2965,136 @@ fn carry_initial_tags(
             None => note_tags::load_tags(r),
         })
         .collect()
+}
+
+// --- Reload (`R` and the file-change probe) ---
+
+/// How long the event loop waits for input before it probes the disk.
+const PROBE_INTERVAL: Duration = Duration::from_secs(2);
+
+/// The modified time of each probed directory; `None` when it could not be
+/// read (the path is gone or unreadable).
+type ProbeSnapshot = HashMap<PathBuf, Option<SystemTime>>;
+
+/// List the sections again through `rebuild` and swap them in, keeping the
+/// session state the delete rebuild keeps: expanded folders, unsaved tag
+/// edits and original paths, matched by path (see [`carry_state`]). Unlike
+/// the post-create rebuild nothing is expanded, so the folder under the
+/// cursor stays as it was. Returns the row the cursor goes to: `cursor`
+/// itself while it is listed, else its nearest listed neighbour as after a
+/// delete, among the rows the filter `search` shows. A failed listing leaves
+/// the forest untouched and returns the footer message.
+fn reload_forest(
+    forest: &mut Forest,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+    cursor: &Path,
+    search: &str,
+) -> std::result::Result<Option<usize>, String> {
+    let sections = rebuild().map_err(|e| format!("reload failed: {e:#}"))?;
+    Ok(forest.rebuild_after_delete(sections, cursor, search))
+}
+
+/// The directories the probe stats: every section root, listed as a row or
+/// not, and every expanded folder row. A collapsed folder is not probed, so
+/// a change inside it shows on the next reload (`R`, or one the probe
+/// triggers elsewhere).
+fn probe_paths(sections: &[SectionSpec], nodes: &[TreeNode]) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
+    paths.extend(nodes.iter().filter(|n| n.depth > 0 && n.is_dir && n.expanded).map(|n| n.path.clone()));
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+/// The modified time of each of `paths`, from `metadata`: one `stat` per
+/// path, no file is opened or read. Symlinks are followed, so a section
+/// root or folder that is a link reports its target directory's time and a
+/// change under the target is seen.
+fn probe_snapshot(paths: &[PathBuf]) -> ProbeSnapshot {
+    paths
+        .iter()
+        .map(|p| (p.clone(), std::fs::metadata(p).and_then(|m| m.modified()).ok()))
+        .collect()
+}
+
+/// Whether `new` shows a change on disk against `old`: a path probed in both
+/// whose modified time differs, which covers a path that appeared or
+/// vanished. A path in only one of them is no change: its folder was just
+/// expanded (a new baseline) or collapsed (no longer probed).
+fn probe_changed(old: &ProbeSnapshot, new: &ProbeSnapshot) -> bool {
+    new.iter().any(|(path, time)| old.get(path).is_some_and(|before| before != time))
+}
+
+/// Merge a fresh reading of `forest` into the probe's last one. Call it
+/// only right after the forest was listed again from disk (`R`, or a
+/// create, delete, rename or move whose `rebuild` succeeded), so the next
+/// idle probe does not reload for that again. Never after a refused,
+/// failed or in-place action: a change made elsewhere while its prompt
+/// was open (the probe does not run then) would be absorbed unseen.
+fn refresh_probe(probe: &mut Option<ProbeSnapshot>, forest: &Forest) {
+    let reading = probe_snapshot(&probe_paths(&forest.sections, &forest.nodes));
+    probe.get_or_insert_with(HashMap::new).extend(reading);
+}
+
+/// After `Enter` in the rename prompt on row `idx`, whose path was
+/// `before`. A rename renames in place without listing again, so one that
+/// moved the row (its path changed) lists the forest again through
+/// [`reload_view_at`], cursor on the renamed row, and on success refreshes
+/// the probe. A refused, failed or unchanged rename does neither and
+/// returns `None`; otherwise the reload's result.
+fn relist_after_rename(
+    forest: &mut Forest,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+    state: &mut ListState,
+    pre_focus_expanded: &mut Vec<(usize, bool)>,
+    search: &str,
+    probe: &mut Option<ProbeSnapshot>,
+    idx: usize,
+    before: &Path,
+) -> Option<std::result::Result<Option<usize>, String>> {
+    let after = forest.nodes.get(idx).map(|n| n.path.clone()).filter(|p| p != before)?;
+    let result = reload_view_at(forest, rebuild, state, pre_focus_expanded, search, after);
+    if result.is_ok() {
+        refresh_probe(probe, forest);
+    }
+    Some(result)
+}
+
+/// `R` and a probe-triggered reload in the event loop: [`reload_forest`]
+/// from the cursor row, then the cursor goes to the returned row and focus
+/// mode's saved expansion follows its paths. Returns the cursor's new row
+/// when it stayed on the same path, so the preview keeps its scroll.
+fn reload_view(
+    forest: &mut Forest,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+    state: &mut ListState,
+    pre_focus_expanded: &mut Vec<(usize, bool)>,
+    search: &str,
+) -> std::result::Result<Option<usize>, String> {
+    let visible = compute_visible(&forest.nodes, search);
+    let cursor = visible
+        .get(state.selected().unwrap_or(0))
+        .map(|&i| forest.nodes[i].path.clone())
+        .unwrap_or_default();
+    reload_view_at(forest, rebuild, state, pre_focus_expanded, search, cursor)
+}
+
+/// [`reload_view`] with the cursor on `cursor` rather than the selected row.
+fn reload_view_at(
+    forest: &mut Forest,
+    rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
+    state: &mut ListState,
+    pre_focus_expanded: &mut Vec<(usize, bool)>,
+    search: &str,
+    cursor: PathBuf,
+) -> std::result::Result<Option<usize>, String> {
+    let old_nodes = forest.nodes.clone();
+    let row = reload_forest(forest, rebuild, &cursor, search)?;
+    *pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, pre_focus_expanded);
+    let visible = compute_visible(&forest.nodes, search);
+    let pos = row.and_then(|r| visible.iter().position(|&i| i == r));
+    state.select(Some(pos.unwrap_or(0)));
+    Ok(row.filter(|&r| forest.nodes[r].path == cursor))
 }
 
 // --- Preview scrolling ---
@@ -3387,6 +3531,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
+    key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
     key(PREVIEW_TOGGLE_KEY, "raw", "toggle rendered / raw preview", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),
@@ -3514,6 +3659,10 @@ fn event_loop(
     let mut list_inner_area: Rect = Rect::default();
     let mut visible_for_mouse: Vec<usize> = Vec::new();
     let mut prev_filter_buffer = String::new();
+    // The file-change probe's last reading; `None` until the first probe,
+    // which only records it. Paths no longer probed keep their entry, so a
+    // folder expanded again compares against its last reading.
+    let mut probe: Option<ProbeSnapshot> = None;
 
     loop {
         let nodes = &mut forest.nodes;
@@ -3954,7 +4103,43 @@ fn event_loop(
             })
             .context("failed to draw")?;
 
-        let ev = event::read().context("failed to read event")?;
+        // Wait for input. Each `PROBE_INTERVAL` without any, probe the disk
+        // unless a prompt, mode, the help overlay or a drag is open; only a
+        // change ends the wait without an event, to reload and redraw.
+        let can_probe = !(input_open || help.open || panes.dragging);
+        let ev = loop {
+            if event::poll(PROBE_INTERVAL).context("failed to poll for events")? {
+                break Some(event::read().context("failed to read event")?);
+            }
+            if !can_probe {
+                continue;
+            }
+            let reading = probe_snapshot(&probe_paths(sections, nodes));
+            let Some(last) = probe.as_mut() else {
+                probe = Some(reading);
+                continue;
+            };
+            let changed = probe_changed(last, &reading);
+            last.extend(reading);
+            if changed {
+                break None;
+            }
+        };
+        let Some(ev) = ev else {
+            match reload_view(forest, rebuild, &mut state, &mut pre_focus_expanded, &search_buffer) {
+                Ok(kept) => {
+                    if let Some(row) = kept {
+                        last_preview_idx = row;
+                    }
+                    // A message already showing (an action's outcome) stays.
+                    if status_message.is_none() {
+                        status_message = Some("reloaded (files changed)".to_string());
+                    }
+                }
+                Err(message) => status_message = Some(message),
+            }
+            continue;
+        };
 
         if let Event::Mouse(mouse) = ev {
             // A drag owns every mouse event until the button comes up,
@@ -4066,6 +4251,9 @@ fn event_loop(
             if let Some(outcome) =
                 answer_delete(key.code, forest, retired, &prompt, &search_buffer, rebuild)
             {
+                if outcome.relisted {
+                    refresh_probe(&mut probe, forest);
+                }
                 pre_focus_expanded =
                     remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
                 status_message = Some(outcome.message);
@@ -4081,6 +4269,9 @@ fn event_loop(
             if let Some(outcome) =
                 answer_bulk_delete(key.code, forest, retired, &items, &search_buffer, rebuild)
             {
+                if outcome.relisted {
+                    refresh_probe(&mut probe, forest);
+                }
                 marks.clear();
                 pre_focus_expanded =
                     remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
@@ -4156,6 +4347,9 @@ fn event_loop(
                 .map(|&i| old_nodes[i].path.clone());
             let outcome =
                 apply_bulk_move(forest, retired, carried, &plan.plans, &ctx.new_note_roots, rebuild);
+            if outcome.relisted {
+                refresh_probe(&mut probe, forest);
+            }
             marks.clear();
             pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
             status_message = Some(outcome.message);
@@ -4180,6 +4374,9 @@ fn event_loop(
             let old_nodes = forest.nodes.clone();
             let outcome =
                 apply_move(forest, retired, carried, &plan, &ctx.new_note_roots, rebuild);
+            if outcome.relisted {
+                refresh_probe(&mut probe, forest);
+            }
             pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
             status_message = Some(outcome.message);
             let Some(row) = outcome.row else {
@@ -4216,6 +4413,9 @@ fn event_loop(
                         new_note.take().expect("the prompt is open");
                     let old_nodes = forest.nodes.clone();
                     let outcome = create_folder(forest, &target, &buffer, rebuild);
+                    if outcome.relisted {
+                        refresh_probe(&mut probe, forest);
+                    }
                     pre_focus_expanded =
                         remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
                     status_message = outcome.message;
@@ -4260,6 +4460,7 @@ fn event_loop(
                     };
                     let old_nodes = forest.nodes.clone();
                     let row = forest.rebuild(sections, &created.path);
+                    refresh_probe(&mut probe, forest);
                     pre_focus_expanded =
                         remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
                     let Some(row) = row else {
@@ -4297,6 +4498,7 @@ fn event_loop(
                         rename_buffer = None;
                         continue;
                     };
+                    let before = nodes[ri].path.clone();
                     match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
                         RenameEnter::Keep(message) => status_message = Some(message),
                         RenameEnter::Done(message) => {
@@ -4308,6 +4510,20 @@ fn event_loop(
                                 }
                             }
                             status_message = message;
+                            match relist_after_rename(
+                                forest,
+                                rebuild,
+                                &mut state,
+                                &mut pre_focus_expanded,
+                                &search_buffer,
+                                &mut probe,
+                                ri,
+                                &before,
+                            ) {
+                                Some(Ok(Some(row))) => last_preview_idx = row,
+                                Some(Err(failure)) => status_message = Some(failure),
+                                Some(Ok(None)) | None => {}
+                            }
                         }
                     }
                 }
@@ -4531,6 +4747,18 @@ fn event_loop(
                     state.select(Some(pos));
                 }
                 focus_active = false;
+            }
+            KeyCode::Char('R') => {
+                match reload_view(forest, rebuild, &mut state, &mut pre_focus_expanded, &search_buffer) {
+                    Ok(kept) => {
+                        if let Some(row) = kept {
+                            last_preview_idx = row;
+                        }
+                        status_message = Some("reloaded".to_string());
+                        refresh_probe(&mut probe, forest);
+                    }
+                    Err(message) => status_message = Some(message),
+                }
             }
             KeyCode::Char('/') => {
                 search_mode = true;
@@ -9760,5 +9988,328 @@ mod tests {
         assert!(!in_todo_store(&notez.join("_todos-archive/a.md"), &notez));
         assert!(!in_todo_store(&notez, &notez));
         assert!(!in_todo_store(&notez.join("personal/proj/_todos"), &notez));
+    }
+
+    // --- NZ-34: reload on demand and when files change ---
+
+    #[test]
+    fn r_after_an_external_create_lists_the_note_and_keeps_cursor_expansion_filter_and_marks() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let root = roots[0].1.clone();
+        let p = |rel: &str| root.join(rel).to_string_lossy().into_owned();
+        for path in [p(""), p("ideas")] {
+            let i = row(&forest.nodes, path.trim_end_matches('/'));
+            forest.nodes[i].expanded = true;
+        }
+        let c = row(&forest.nodes, &p("c.md"));
+        forest.nodes[c].flags = FLAG_PRIO;
+        let mut marks = marks_of(&[&p("ideas/a.md"), &p("ideas/b.md")]);
+        let search = "a";
+
+        // Another shell adds a note and removes a marked one.
+        std::fs::write(root.join("ideas/a2.md"), "# new\n").unwrap();
+        std::fs::remove_file(root.join("ideas/b.md")).unwrap();
+
+        let cursor = PathBuf::from(p("ideas/a.md"));
+        let sel = reload_forest(&mut forest, &rebuild, &cursor, search).expect("the listing works");
+        prune_marks(&mut marks, &forest.nodes);
+
+        let n = &forest.nodes;
+        let visible = compute_visible(n, search);
+        assert_eq!(sel, Some(row(n, &p("ideas/a.md"))), "the cursor stays on its row");
+        assert!(visible.contains(&row(n, &p("ideas/a2.md"))), "the new note is listed and passes the filter");
+        assert!(!n.iter().any(|node| node.path == root.join("ideas/b.md")));
+        assert!(n[row(n, root.to_str().unwrap())].expanded && n[row(n, &p("ideas"))].expanded);
+        assert!(
+            !n[row(n, roots[1].1.to_str().unwrap())].expanded,
+            "a closed section stays closed"
+        );
+        assert_eq!(n[row(n, &p("c.md"))].flags, FLAG_PRIO, "unsaved tag edits survive");
+        assert_eq!(marks, marks_of(&[&p("ideas/a.md")]), "a mark on a vanished row is pruned");
+    }
+
+    #[test]
+    fn r_does_not_expand_the_folder_under_the_cursor() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let ideas = roots[0].1.join("ideas");
+        let section = row(&forest.nodes, roots[0].1.to_str().unwrap());
+        forest.nodes[section].expanded = true;
+        let sel = reload_forest(&mut forest, &rebuild, &ideas, "").unwrap();
+        let n = &forest.nodes;
+        assert_eq!(sel, Some(row(n, ideas.to_str().unwrap())));
+        assert!(!n[row(n, ideas.to_str().unwrap())].expanded, "the cursor folder stays collapsed");
+    }
+
+    #[test]
+    fn r_moves_the_cursor_to_the_next_note_when_its_note_vanished() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let root = &roots[0].1;
+        for path in [root.clone(), root.join("ideas")] {
+            let i = row(&forest.nodes, path.to_str().unwrap());
+            forest.nodes[i].expanded = true;
+        }
+        std::fs::remove_file(root.join("ideas/a.md")).unwrap();
+        let sel = reload_forest(&mut forest, &rebuild, &root.join("ideas/a.md"), "").unwrap();
+        assert_eq!(sel, Some(row(&forest.nodes, root.join("ideas/b.md").to_str().unwrap())));
+    }
+
+    #[test]
+    fn a_failed_reload_keeps_the_tree_and_names_the_error() {
+        let (_dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections(&roots));
+        let before: Vec<PathBuf> = forest.nodes.iter().map(|n| n.path.clone()).collect();
+        let failing = || -> Result<Vec<SectionSpec>> { Err(anyhow::anyhow!("disk gone")) };
+        let err = reload_forest(&mut forest, &failing, Path::new(""), "").unwrap_err();
+        assert_eq!(err, "reload failed: disk gone");
+        let after: Vec<PathBuf> = forest.nodes.iter().map(|n| n.path.clone()).collect();
+        assert_eq!(before, after);
+    }
+
+    fn at(secs: u64) -> Option<SystemTime> {
+        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+    }
+
+    fn snapshot(entries: &[(&str, Option<SystemTime>)]) -> ProbeSnapshot {
+        entries.iter().map(|(p, t)| (PathBuf::from(p), *t)).collect()
+    }
+
+    #[test]
+    fn the_probe_sees_a_changed_root_or_expanded_folder_and_nothing_else() {
+        let old = snapshot(&[("/r", at(1)), ("/r/ideas", at(2))]);
+        assert!(!probe_changed(&old, &old.clone()), "no change");
+        assert!(probe_changed(&old, &snapshot(&[("/r", at(5)), ("/r/ideas", at(2))])), "root mtime");
+        assert!(probe_changed(&old, &snapshot(&[("/r", at(1)), ("/r/ideas", at(5))])), "folder mtime");
+        assert!(probe_changed(&old, &snapshot(&[("/r", at(1)), ("/r/ideas", None)])), "folder vanished");
+        let missing = snapshot(&[("/r", None)]);
+        assert!(probe_changed(&missing, &snapshot(&[("/r", at(1))])), "root appeared");
+    }
+
+    #[test]
+    fn a_path_probed_on_one_side_only_is_no_change() {
+        let old = snapshot(&[("/r", at(1))]);
+        let expanded = snapshot(&[("/r", at(1)), ("/r/ideas", at(9))]);
+        assert!(!probe_changed(&old, &expanded), "a folder just expanded is a new baseline");
+        assert!(!probe_changed(&expanded, &old), "a folder just collapsed is not probed");
+    }
+
+    #[test]
+    fn the_probe_paths_are_every_section_root_and_every_expanded_folder() {
+        let files = ["ideas/a.md", "ideas/deep/x.md", "plans/p.md", "z.md"];
+        let sections = vec![spec("/r", "S", &files), spec("/empty", "E", &[])];
+        let (mut nodes, _) = build_forest(&sections);
+        let i = row(&nodes, "/r/ideas");
+        nodes[i].expanded = true;
+        let paths = probe_paths(&sections, &nodes);
+        let mut got: Vec<&str> = paths.iter().map(|p| p.to_str().unwrap()).collect();
+        got.sort();
+        assert_eq!(got, ["/empty", "/r", "/r/ideas"], "collapsed folders and files are not probed");
+    }
+
+    #[test]
+    fn a_collapsed_folders_change_is_ignored_and_an_expanded_ones_is_seen() {
+        let (_dir, roots) = temp_tree();
+        std::fs::create_dir_all(roots[0].1.join("plans")).unwrap();
+        std::fs::write(roots[0].1.join("plans/p.md"), "# p\n").unwrap();
+        let sections = list_sections(&roots);
+        let (mut nodes, _) = build_forest(&sections);
+        let ideas = roots[0].1.join("ideas");
+        let plans = roots[0].1.join("plans");
+        let i = row(&nodes, ideas.to_str().unwrap());
+        nodes[i].expanded = true;
+        let touch = |dir: &Path, secs: u64| {
+            let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            std::fs::File::open(dir).unwrap().set_modified(when).unwrap();
+        };
+        touch(&ideas, 1_000);
+        touch(&plans, 1_000);
+        let base = probe_snapshot(&probe_paths(&sections, &nodes));
+
+        touch(&plans, 2_000);
+        assert!(!probe_changed(&base, &probe_snapshot(&probe_paths(&sections, &nodes))), "plans is collapsed");
+
+        touch(&ideas, 2_000);
+        assert!(probe_changed(&base, &probe_snapshot(&probe_paths(&sections, &nodes))), "ideas is expanded");
+    }
+
+    #[test]
+    fn a_refreshed_probe_sees_no_change_until_the_disk_changes_again() {
+        let (_dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections(&roots));
+        let ideas = roots[0].1.join("ideas");
+        let i = row(&forest.nodes, ideas.to_str().unwrap());
+        forest.nodes[i].expanded = true;
+        let touch = |secs: u64| {
+            let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            std::fs::File::open(&ideas).unwrap().set_modified(when).unwrap();
+        };
+        let fresh = |forest: &Forest| probe_snapshot(&probe_paths(&forest.sections, &forest.nodes));
+        touch(1_000);
+        let mut probe = None;
+        refresh_probe(&mut probe, &forest);
+
+        // The browser's own change, then the refresh it makes after it.
+        touch(2_000);
+        assert!(probe_changed(probe.as_ref().unwrap(), &fresh(&forest)), "unrefreshed, the probe would reload");
+        refresh_probe(&mut probe, &forest);
+        assert!(!probe_changed(probe.as_ref().unwrap(), &fresh(&forest)), "refreshed, no reload for it");
+
+        touch(3_000);
+        assert!(probe_changed(probe.as_ref().unwrap(), &fresh(&forest)), "a later change is still seen");
+    }
+
+    #[test]
+    fn reload_view_keeps_the_filter_and_focus_expansion_and_says_whether_the_cursor_path_was_kept() {
+        let (_dir, roots) = temp_tree();
+        let rebuild = || Ok(list_sections(&roots));
+        let mut forest = forest_of(list_sections(&roots));
+        let root = &roots[0].1;
+        let path = |rel: &str| root.join(rel);
+        for dir in [root.clone(), path("ideas")] {
+            let i = row(&forest.nodes, dir.to_str().unwrap());
+            forest.nodes[i].expanded = true;
+        }
+        let search = "b";
+        let b = row(&forest.nodes, path("ideas/b.md").to_str().unwrap());
+        let mut state = ListState::default();
+        state.select(compute_visible(&forest.nodes, search).iter().position(|&i| i == b));
+        // Focus mode saved the second section's row as collapsed.
+        let other = row(&forest.nodes, roots[1].1.to_str().unwrap());
+        let mut saved = vec![(other, false)];
+
+        // A note listed before the cursor shifts every row index after it.
+        std::fs::write(path("ideas/ab.md"), "# ab\n").unwrap();
+        let kept = reload_view(&mut forest, &rebuild, &mut state, &mut saved, search).unwrap();
+
+        let n = &forest.nodes;
+        let b = row(n, path("ideas/b.md").to_str().unwrap());
+        assert_eq!(kept, Some(b), "the cursor stayed on its path, at its new row");
+        assert_eq!(compute_visible(n, search)[state.selected().unwrap()], b);
+        assert!(compute_visible(n, search).contains(&row(n, path("ideas/ab.md").to_str().unwrap())));
+        assert_eq!(saved, vec![(row(n, roots[1].1.to_str().unwrap()), false)], "focus expansion follows its path");
+
+        std::fs::remove_file(path("ideas/b.md")).unwrap();
+        let kept = reload_view(&mut forest, &rebuild, &mut state, &mut saved, search).unwrap();
+        assert_eq!(kept, None, "the cursor's note vanished, so its path was not kept");
+        assert!(state.selected().is_some());
+    }
+
+    /// A temp tree with the first store's `ideas` folder expanded, its mtime
+    /// set to 1000 s and recorded by the probe, then set to 2000 s: a change
+    /// made elsewhere while a prompt was open, which the probe still owes.
+    fn probe_with_a_pending_change() -> (tempfile::TempDir, Vec<(Scope, PathBuf)>, Forest, Option<ProbeSnapshot>) {
+        let (dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections(&roots));
+        let ideas = roots[0].1.join("ideas");
+        let i = row(&forest.nodes, ideas.to_str().unwrap());
+        forest.nodes[i].expanded = true;
+        let touch = |secs: u64| {
+            let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            std::fs::File::open(&ideas).unwrap().set_modified(when).unwrap();
+        };
+        touch(1_000);
+        let mut probe = None;
+        refresh_probe(&mut probe, &forest);
+        touch(2_000);
+        (dir, roots, forest, probe)
+    }
+
+    fn still_owed(probe: &Option<ProbeSnapshot>, forest: &Forest) -> bool {
+        probe_changed(probe.as_ref().unwrap(), &probe_snapshot(&probe_paths(&forest.sections, &forest.nodes)))
+    }
+
+    #[test]
+    fn a_no_op_rename_a_refused_folder_and_a_cancelled_or_unlisted_delete_leave_the_probe_reading() {
+        let (_dir, roots, mut forest, mut probe) = probe_with_a_pending_change();
+        let rebuild = || Ok(list_sections(&roots));
+        let failing = || -> Result<Vec<SectionSpec>> { Err(anyhow::anyhow!("disk gone")) };
+        let ideas = roots[0].1.join("ideas");
+        let mut state = ListState::default();
+        let mut saved = Vec::new();
+
+        let i = row(&forest.nodes, ideas.to_str().unwrap());
+        let before = forest.nodes[i].path.clone();
+        let entered = enter_rename(&mut forest.nodes, &mut forest.sections, i, "ideas", "ideas");
+        assert_eq!(entered, RenameEnter::Done(None));
+        let relisted = relist_after_rename(&mut forest, &rebuild, &mut state, &mut saved, "", &mut probe, i, &before);
+        assert!(relisted.is_none(), "an unchanged rename lists nothing again");
+        assert!(still_owed(&probe, &forest), "no-op rename");
+
+        for name in ["", "ideas"] {
+            let outcome = create_folder(&mut forest, &folder_target(&roots, roots[0].0, ""), name, &rebuild);
+            assert!(outcome.message.is_some(), "{name:?} is refused");
+            assert!(!outcome.relisted, "refused folder {name:?}");
+            assert!(still_owed(&probe, &forest), "refused folder {name:?}");
+        }
+
+        let note = roots[0].1.join("c.md");
+        let prompt = prompt_at(&mut forest, &note);
+        let mut retired = Vec::new();
+        assert!(answer_delete(KeyCode::Char('n'), &mut forest, &mut retired, &prompt, "", &rebuild).is_none());
+        assert!(still_owed(&probe, &forest), "cancelled delete");
+
+        let outcome = answer_delete(KeyCode::Char('y'), &mut forest, &mut retired, &prompt, "", &failing).unwrap();
+        assert!(!outcome.relisted, "a delete whose listing failed used the fallback");
+    }
+
+    #[test]
+    fn a_successful_rename_lists_again_keeps_the_cursor_on_it_and_refreshes_the_probe() {
+        let (_dir, roots, mut forest, mut probe) = probe_with_a_pending_change();
+        let rebuild = || Ok(list_sections(&roots));
+        let root = &roots[0].1;
+        let i = row(&forest.nodes, root.to_str().unwrap());
+        forest.nodes[i].expanded = true;
+        let ideas = root.join("ideas");
+        let mut state = ListState::default();
+        let mut saved = Vec::new();
+
+        let i = row(&forest.nodes, ideas.to_str().unwrap());
+        let entered = enter_rename(&mut forest.nodes, &mut forest.sections, i, "ideas", "thoughts");
+        assert_eq!(entered, RenameEnter::Done(None));
+        let result = relist_after_rename(&mut forest, &rebuild, &mut state, &mut saved, "", &mut probe, i, &ideas);
+
+        let n = &forest.nodes;
+        let thoughts = row(n, root.join("thoughts").to_str().unwrap());
+        assert_eq!(result, Some(Ok(Some(thoughts))), "the cursor row is the renamed folder");
+        assert_eq!(compute_visible(n, "")[state.selected().unwrap()], thoughts);
+        assert!(n[thoughts].expanded, "the folder keeps its open state");
+        assert!(!still_owed(&probe, &forest), "the relist is the probe's new reading");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_section_root_is_probed_at_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let paths = vec![link];
+        let touch = |secs: u64| {
+            let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            std::fs::File::open(&target).unwrap().set_modified(when).unwrap();
+        };
+        touch(1_000);
+        let base = probe_snapshot(&paths);
+        touch(2_000);
+        assert!(probe_changed(&base, &probe_snapshot(&paths)), "a change under the link's target is seen");
+    }
+
+    #[test]
+    fn r_is_a_help_only_browse_key_in_the_view_group_and_free_in_every_other_mode() {
+        let rows: Vec<(usize, &KeyHint)> = TREE_KEYS.iter().enumerate().filter(|(_, k)| k.key == "R").collect();
+        assert_eq!(rows.len(), 1);
+        let (idx, hint) = rows[0];
+        assert_eq!(hint.modes, BROWSE);
+        assert_eq!(hint.group, Group::View);
+        assert_eq!(hint.slot, Slot::HelpOnly);
+        assert!(help::rows(TREE_KEYS).contains(&help::Row::Key(idx)));
+        assert_eq!(preview_focus_key(KeyCode::Char('R'), 10), PreviewFocusKey::Pass);
+        assert!(!Panes::default().handle_key(KeyCode::Char('R'), 100));
     }
 }
