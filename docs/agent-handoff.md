@@ -512,6 +512,20 @@ CEST by lead `4ffb11e2` on Andreas's requests of 21:50 and 21:55 CEST.
 CI, merge, `main` run, cleanup; then NZ-34, NZ-3, NZ-5, NZ-32, NZ-28,
 NZ-30.
 
+NZ-35 (`install.sh` build progress and timing) in the SECOND slot.
+Dispatched 2026-10-08 at 22:10 CEST by lead `4ffb11e2` on Andreas's
+request ("can we add to it a little loading animation or bar that
+shows how fast its going"); only `install.sh`, disjoint from NZ-31.
+Base `727dae9`, branch `chore/NZ-35-install-progress`, worktree
+`.claude/worktrees/NZ-35`, model `sonnet` via `nz-small`. RUNNING.
+Decisions: drop `--quiet` on a TTY so cargo's own progress bar shows,
+keep `--quiet` when piped; `SECONDS` timing per build and total; one
+`ok` line per step. Board item `PVTI_lAHOCU842c4BmE5Zzg_fT_A` In
+flight. Review by `nz-reviewer` (content review of a shell script, no
+cargo checks needed beyond `bash -n`), then branch push (CI runs: the
+`paths-ignore` covers only `**.md` and `docs/**`, and `install.sh` is
+neither), merge on green, cleanup.
+
 NZ-4 is Done (merge `554fd0c` at 21:59 CEST; branch run and `main` run
 `37836071227` green; remote branch deleted; worktree and local branch
 removed; board Done). Andreas was told to install.
