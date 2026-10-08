@@ -12,6 +12,7 @@ pub mod help;
 pub mod highlight;
 pub mod markdown;
 pub mod move_path;
+pub mod panes;
 pub mod tags;
 pub mod text;
 pub mod theme;

@@ -32,6 +32,7 @@ use super::help::{self, HelpState};
 use super::highlight::{self, Language};
 use super::markdown;
 use super::move_path;
+use super::panes::{self, Pane, Panes, Press};
 use super::{VimCommandMode, VimKey, theme};
 use crate::commands::{add, mkdir, rename};
 
@@ -632,6 +633,24 @@ fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
 /// four-column highlight symbol.
 fn list_text_width(pane_width: u16) -> usize {
     pane_width.saturating_sub(8) as usize
+}
+
+/// The list pane's frame without its title and border colour: rounded
+/// borders and the padding that `list_chunks` measures inside.
+fn list_block() -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .padding(Padding::new(1, 1, 1, 0))
+}
+
+/// The list pane's inside, top to bottom: the filter strip, the separator
+/// and the rows. The mouse hit tests use the same rects the draw used.
+fn list_chunks(list_area: Rect) -> std::rc::Rc<[Rect]> {
+    Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
+        .split(list_block().inner(list_area))
 }
 
 /// One list row: the tag dots, a one-column gutter, the tree indentation
@@ -3103,6 +3122,83 @@ fn tree_keys(toggle: Option<PreviewMode>) -> Vec<KeyHint> {
         .collect()
 }
 
+/// The key of the `1`/`2` focus row in `TREE_KEYS`.
+const PANE_FOCUS_KEY: &str = "1/2";
+
+/// The key of the browse-mode `tab` row in `TREE_KEYS`.
+const PANE_CYCLE_KEY: &str = "tab";
+
+/// The footer rows for the focused pane. With the list focused, `keys`
+/// unchanged. With the preview focused, only the preview set: `j/k scroll`,
+/// `PgDn/PgUp page`, `2 fold`, `1/tab list`, the `p` toggle when `keys`
+/// shows it (a markdown note), `?` and `q`; every other row is help only.
+/// Same rows in the same order as `keys`, so the footer and the help
+/// overlay still agree and help lists each key once.
+fn pane_keys(keys: Vec<KeyHint>, focus: Pane) -> Vec<KeyHint> {
+    if focus == Pane::List {
+        return keys;
+    }
+    keys.into_iter()
+        .map(|hint| {
+            // Prompt rows keep their slots; only the browse footer changes.
+            if !hint.applies_in(Mode::Normal) {
+                return hint;
+            }
+            let preview_hint = |key, desc, priority| KeyHint { key, desc, slot: Slot::Priority(priority), ..hint };
+            match (hint.key, hint.slot) {
+                ("j/k", _) => preview_hint("j/k", "scroll", 1),
+                ("PgDn/PgUp", _) => preview_hint("PgDn/PgUp", "page", 2),
+                (PANE_FOCUS_KEY, _) => preview_hint("2", "fold", 3),
+                (PANE_CYCLE_KEY, _) => preview_hint("1/tab", "list", 4),
+                (PREVIEW_TOGGLE_KEY, Slot::Priority(_)) => KeyHint { slot: Slot::Priority(5), ..hint },
+                (_, Slot::Pinned | Slot::Quit) => hint,
+                _ => KeyHint { slot: Slot::HelpOnly, ..hint },
+            }
+        })
+        .collect()
+}
+
+/// What a browse key does while the preview is focused, before the list's
+/// own handling: scroll the preview by a number of lines, nothing, or the
+/// same as with the list focused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewFocusKey {
+    Scroll(i32),
+    Inert,
+    Pass,
+}
+
+/// The preview-focused meaning of `code`; `page` is the PgDn/PgUp step.
+/// `j`/`k`/Down/Up (Shift or not) scroll a line and PgDn/PgUp a page. The
+/// keys that act on the list's cursor row or tree shape are inert: `h`,
+/// `l`, Left, Right, Enter, `o` and Space. Everything else passes through
+/// to the list's handling, and a key that opens a prompt moves focus there.
+fn preview_focus_key(code: KeyCode, page: i32) -> PreviewFocusKey {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => PreviewFocusKey::Scroll(1),
+        KeyCode::Char('k') | KeyCode::Up => PreviewFocusKey::Scroll(-1),
+        KeyCode::PageDown => PreviewFocusKey::Scroll(page),
+        KeyCode::PageUp => PreviewFocusKey::Scroll(-page),
+        KeyCode::Char('h' | 'l' | 'o' | ' ') | KeyCode::Left | KeyCode::Right | KeyCode::Enter => {
+            PreviewFocusKey::Inert
+        }
+        _ => PreviewFocusKey::Pass,
+    }
+}
+
+/// The title of a pane: its number (the key that focuses it) in the pane
+/// number style, then `rest`.
+fn pane_title(pane: Pane, focus: Pane, rest: Vec<Span<'static>>) -> Line<'static> {
+    let mut spans = vec![Span::styled(format!(" {} ", pane.number()), theme::pane_number(pane == focus))];
+    spans.extend(rest);
+    Line::from(spans)
+}
+
+/// The border style of `pane`: highlighted while it has focus.
+fn pane_border(pane: Pane, focus: Pane) -> Style {
+    if pane == focus { theme::border_focused() } else { theme::border() }
+}
+
 /// The browsing footer: the selected file's type and the mark count, each
 /// when there is one, then the `table` hints for `mode` that fit after them.
 fn browse_footer(
@@ -3153,11 +3249,12 @@ const fn key(
 /// Every key, mouse action and command the tree browser handles, in footer
 /// order. Kept in step with `event_loop`.
 const TREE_KEYS: &[KeyHint] = &[
-    key("j/k", "move", "move down / up (also Down / Up)", theme::TEXT, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("j/k", "move", "move down / up (also Down / Up); with the preview focused, scroll it", theme::TEXT, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
     key("l", "expand", "expand directory (also Right)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
     key("h", "collapse", "collapse directory / go to parent (also Left)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
-    key("wheel", "preview", "mouse wheel scrolls the preview", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
-    key("click", "select", "click a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("wheel", "scroll", "mouse wheel scrolls the pane under the pointer: the preview, or the list's cursor", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("click", "select", "click a pane to focus it; a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    key("drag", "split", "drag the grip on the border between the panes to resize them", theme::LAVENDER, Group::View, BROWSE, Slot::HelpOnly, None),
     key("o", "open", "open file / toggle directory (also Enter)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(1), None),
     key("t", "tags", "tag mode on / off", theme::PEACH, Group::Edit, BROWSE_AND_TAG, Slot::Priority(2), Some(Toggle::Tag)),
     key("r", "rename", "rename note or folder", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(6), None),
@@ -3204,9 +3301,15 @@ const TREE_KEYS: &[KeyHint] = &[
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
     key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
     key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
-    // Navigate keys, listed last so "J/K preview" ends the footer's hints.
+    // Navigate keys, then the pane keys, listed last so they end the
+    // footer's hints. The pane keys drop first, then "J/K preview".
     key("J/K", "preview", "scroll preview down / up (also Shift+Down/Up)", theme::TEXT, Group::Navigate, BROWSE, Slot::Priority(11), None),
     key("PgDn/PgUp", "page", "scroll preview a page", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
+    // With the preview focused, `pane_keys` swaps in the preview footer.
+    key(PANE_FOCUS_KEY, "focus", "focus the list / the preview; 2 on the focused preview folds it, 2 on a folded one unfolds and focuses it", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(13), None),
+    key(PANE_CYCLE_KEY, "pane", "focus the other pane (in a prompt, tab cycles the scope instead)", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(14), None),
+    key("</>", "split", "narrow / widen the list by 5 points (both panes keep a usable width)", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(15), None),
+    key("=", "reset", "reset the split to 50/50", theme::LAVENDER, Group::View, BROWSE, Slot::Priority(16), None),
     key("q", "quit", "quit", theme::PEACH, Group::View, BROWSE, Slot::Quit, None),
 ];
 
@@ -3309,6 +3412,11 @@ fn event_loop(
     let mut preview_height: u16 = 0;
     let mut last_preview_idx: usize = usize::MAX;
     let mut preview = Preview::default();
+    // The split, focus, fold and drag; session only. `body_area` is the rect
+    // the two panes shared at the last draw, for the split keys' clamp and
+    // the mouse hit tests.
+    let mut panes = Panes::default();
+    let mut body_area: Rect = Rect::default();
     let mut filter_strip_area: Rect = Rect::default();
     let mut list_inner_area: Rect = Rect::default();
     let mut visible_for_mouse: Vec<usize> = Vec::new();
@@ -3337,6 +3445,22 @@ fn event_loop(
         let sel = state.selected().unwrap_or(0);
         let real_idx = visible.get(sel).copied().unwrap_or(0);
 
+        // Prompts, confirms, the filter, tag mode and the `:` line belong to
+        // the list: opening one with the preview focused moves focus there.
+        let input_open = new_note.is_some()
+            || rename_buffer.is_some()
+            || move_prompt.is_some()
+            || confirm_delete.is_some()
+            || confirm_bulk_delete.is_some()
+            || confirm_move.is_some()
+            || confirm_bulk_move.is_some()
+            || search_mode
+            || flag_mode
+            || vim.active;
+        if input_open {
+            panes.focus(Pane::List);
+        }
+
         terminal
             .draw(|frame| {
                 let full = frame.area();
@@ -3350,11 +3474,12 @@ fn event_loop(
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(1), Constraint::Length(1)])
                     .split(area);
-                let cols = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(rows[0]);
-                let inner_width = list_text_width(cols[0].width);
+                // Too narrow for both panes: the preview folds on its own.
+                panes.fit(rows[0].width);
+                // The border strip between the panes carries only the grip.
+                let (list_area, _, preview_area) = panes.layout(rows[0]);
+                body_area = rows[0];
+                let inner_width = list_text_width(list_area.width);
 
                 let items: Vec<ListItem> = visible
                     .iter()
@@ -3365,9 +3490,9 @@ fn event_loop(
                     })
                     .collect();
 
-                let header = Line::from(vec![
+                let header = pane_title(Pane::List, panes.focus, vec![
                     Span::styled(
-                        format!(" {} ", ctx.title),
+                        format!("{} ", ctx.title),
                         Style::default()
                             .fg(theme::LAVENDER)
                             .add_modifier(Modifier::BOLD),
@@ -3463,26 +3588,15 @@ fn event_loop(
                     ));
                 }
 
-                let block = Block::default()
+                let block = list_block()
                     .title(header)
-                    .borders(Borders::ALL)
-                    .border_style(theme::border())
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .padding(Padding::new(1, 1, 1, 0));
-                let inner = block.inner(cols[0]);
-                let inner_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                        Constraint::Min(1),
-                    ])
-                    .split(inner);
+                    .border_style(pane_border(Pane::List, panes.focus));
+                let inner_chunks = list_chunks(list_area);
                 filter_strip_area = inner_chunks[0];
                 list_inner_area = inner_chunks[2];
                 visible_for_mouse = visible.clone();
 
-                frame.render_widget(block, cols[0]);
+                frame.render_widget(block, list_area);
                 frame.render_widget(
                     Paragraph::new(Line::from(filter_spans)),
                     inner_chunks[0],
@@ -3515,95 +3629,112 @@ fn event_loop(
                     last_preview_idx = real_idx;
                 }
 
-                let mut preview_title_spans = flags_slots(if real_idx < nodes.len() {
-                    nodes[real_idx].flags
-                } else {
-                    0
-                });
-                preview_title_spans.push(Span::styled(
-                    if real_idx < nodes.len() {
-                        format!("{} ", nodes[real_idx].name)
+                // A folded preview is neither read nor drawn; its cache entry
+                // stays for the unfold. Nothing is left to scroll meanwhile.
+                if let Some(preview_area) = preview_area {
+                    // The pane number replaces the dots' leading space.
+                    let flags = if real_idx < nodes.len() { nodes[real_idx].flags } else { 0 };
+                    let mut preview_title_spans: Vec<Span<'static>> =
+                        flags_slots(flags).into_iter().skip(1).collect();
+                    preview_title_spans.push(Span::styled(
+                        if real_idx < nodes.len() {
+                            format!("{} ", nodes[real_idx].name)
+                        } else {
+                            String::new()
+                        },
+                        Style::default().fg(theme::OVERLAY),
+                    ));
+                    let real_path_display = if real_idx < nodes.len() {
+                        format!(
+                            " {} ",
+                            notez_core::util::tilde::contract(&nodes[real_idx].path)
+                        )
                     } else {
                         String::new()
-                    },
-                    Style::default().fg(theme::OVERLAY),
-                ));
-                let real_path_display = if real_idx < nodes.len() {
-                    format!(
-                        " {} ",
-                        notez_core::util::tilde::contract(&nodes[real_idx].path)
-                    )
-                } else {
-                    String::new()
-                };
-                let preview_block = Block::default()
-                    .title(Line::from(preview_title_spans))
-                    .title_bottom(Line::from(Span::styled(
-                        real_path_display,
-                        Style::default().fg(theme::OVERLAY),
-                    )))
-                    .borders(Borders::ALL)
-                    .border_style(theme::border())
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .padding(Padding::new(1, 1, 0, 0));
-                let preview_width = preview_block.inner(cols[1]).width;
-
-                // Preview pane: file content (cached), or a directory listing.
-                let dir_lines: Vec<Line>;
-                let preview_lines: &[Line] = if real_idx < nodes.len()
-                    && !nodes[real_idx].is_dir
-                {
-                    preview.file_lines(&nodes[real_idx].path, preview_width)
-                } else {
-                    dir_lines = if real_idx < nodes.len() {
-                        match std::fs::read_dir(&nodes[real_idx].path) {
-                            Ok(entries) => {
-                                // Match the tree rows: infrastructure dotfiles
-                                // (.git, .tags, .notez-config.toml) are not notes.
-                                let mut names: Vec<String> = entries
-                                    .flatten()
-                                    .map(|e| e.file_name().to_string_lossy().to_string())
-                                    .filter(|n| !n.starts_with('.'))
-                                    .collect();
-                                names.sort();
-                                names
-                                    .iter()
-                                    .map(|n| {
-                                        let color = if n.ends_with(".md") {
-                                            theme::TEXT
-                                        } else {
-                                            theme::SAPPHIRE
-                                        };
-                                        Line::from(Span::styled(
-                                            format!("  {}", n),
-                                            Style::default().fg(color),
-                                        ))
-                                    })
-                                    .collect()
-                            }
-                            Err(_) => vec![],
-                        }
-                    } else {
-                        vec![]
                     };
-                    &dir_lines
-                };
+                    let preview_block = Block::default()
+                        .title(pane_title(Pane::Preview, panes.focus, preview_title_spans))
+                        .title_bottom(Line::from(Span::styled(
+                            real_path_display,
+                            Style::default().fg(theme::OVERLAY),
+                        )))
+                        .borders(Borders::ALL)
+                        .border_style(pane_border(Pane::Preview, panes.focus))
+                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .padding(Padding::new(1, 1, 0, 0));
+                    let preview_width = preview_block.inner(preview_area).width;
 
-                // Past u16::MAX lines the scroll offset cannot reach anyway.
-                let total_lines = u16::try_from(preview_lines.len()).unwrap_or(u16::MAX);
-                preview_height = cols[1].height.saturating_sub(2);
-                preview_max = total_lines.saturating_sub(preview_height);
-                preview_scroll = scrolled(preview_scroll, 0, preview_max);
+                    // Preview pane: file content (cached), or a directory listing.
+                    let dir_lines: Vec<Line>;
+                    let preview_lines: &[Line] = if real_idx < nodes.len()
+                        && !nodes[real_idx].is_dir
+                    {
+                        preview.file_lines(&nodes[real_idx].path, preview_width)
+                    } else {
+                        dir_lines = if real_idx < nodes.len() {
+                            match std::fs::read_dir(&nodes[real_idx].path) {
+                                Ok(entries) => {
+                                    // Match the tree rows: infrastructure dotfiles
+                                    // (.git, .tags, .notez-config.toml) are not notes.
+                                    let mut names: Vec<String> = entries
+                                        .flatten()
+                                        .map(|e| e.file_name().to_string_lossy().to_string())
+                                        .filter(|n| !n.starts_with('.'))
+                                        .collect();
+                                    names.sort();
+                                    names
+                                        .iter()
+                                        .map(|n| {
+                                            let color = if n.ends_with(".md") {
+                                                theme::TEXT
+                                            } else {
+                                                theme::SAPPHIRE
+                                            };
+                                            Line::from(Span::styled(
+                                                format!("  {}", n),
+                                                Style::default().fg(color),
+                                            ))
+                                        })
+                                        .collect()
+                                }
+                                Err(_) => vec![],
+                            }
+                        } else {
+                            vec![]
+                        };
+                        &dir_lines
+                    };
 
-                // Only the visible lines are handed over, so a long cached
-                // preview is not copied whole on every frame. Same picture
-                // as scrolling the whole text: nothing wraps here.
-                let first = usize::from(preview_scroll).min(preview_lines.len());
-                let last = (first + usize::from(preview_height)).min(preview_lines.len());
-                frame.render_widget(
-                    Paragraph::new(preview_lines[first..last].to_vec()).block(preview_block),
-                    cols[1],
-                );
+                    // Past u16::MAX lines the scroll offset cannot reach anyway.
+                    let total_lines = u16::try_from(preview_lines.len()).unwrap_or(u16::MAX);
+                    preview_height = preview_area.height.saturating_sub(2);
+                    preview_max = total_lines.saturating_sub(preview_height);
+                    preview_scroll = scrolled(preview_scroll, 0, preview_max);
+
+                    // Only the visible lines are handed over, so a long cached
+                    // preview is not copied whole on every frame. Same picture
+                    // as scrolling the whole text: nothing wraps here.
+                    let first = usize::from(preview_scroll).min(preview_lines.len());
+                    let last = (first + usize::from(preview_height)).min(preview_lines.len());
+                    frame.render_widget(
+                        Paragraph::new(preview_lines[first..last].to_vec()).block(preview_block),
+                        preview_area,
+                    );
+                } else {
+                    preview_height = 0;
+                    preview_max = 0;
+                }
+
+                // The grip on the border strip, from the same layout the
+                // drag hit test uses; lit while it is being dragged.
+                if let Some(grip) = panes.grip(rows[0]) {
+                    for y in grip.y..grip.y + grip.height {
+                        if let Some(cell) = frame.buffer_mut().cell_mut((grip.x, y)) {
+                            cell.set_symbol(panes::GRIP);
+                            cell.set_style(theme::grip(panes.dragging));
+                        }
+                    }
+                }
 
                 // Status bar.
                 let slot = status_slot(
@@ -3626,7 +3757,10 @@ fn event_loop(
                 let selected_file =
                     nodes.get(real_idx).filter(|n| !n.is_dir).map(|n| n.path.as_path());
                 let row_type = selected_file.and_then(|path| file_type(path, false));
-                let keys = tree_keys(selected_file.filter(|p| is_markdown(p)).map(|_| preview.mode));
+                let keys = pane_keys(
+                    tree_keys(selected_file.filter(|p| is_markdown(p)).map(|_| preview.mode)),
+                    panes.focus,
+                );
                 let status = match slot {
                     _ if confirm_delete.is_some() => {
                         let prompt = confirm_delete.as_ref().expect("checked by the guard");
@@ -3736,14 +3870,45 @@ fn event_loop(
         let ev = event::read().context("failed to read event")?;
 
         if let Event::Mouse(mouse) = ev {
+            // A drag owns every mouse event until the button comes up,
+            // wherever the pointer wanders. Anything but a drag ends it: a
+            // release outside the terminal can swallow the Up event.
+            if panes.dragging {
+                match mouse.kind {
+                    MouseEventKind::Drag(MouseButton::Left) => panes.drag_to(body_area, mouse.column),
+                    _ => panes.dragging = false,
+                }
+                continue;
+            }
             match mouse.kind {
-                MouseEventKind::ScrollDown => {
-                    preview_scroll = scrolled(preview_scroll, WHEEL_STEP, preview_max);
+                // The wheel scrolls the pane under the pointer: the preview
+                // by `WHEEL_STEP` lines, the list by moving the cursor a row,
+                // as `j`/`k` do (not while a prompt or mode owns the list).
+                MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+                    let down = mouse.kind == MouseEventKind::ScrollDown;
+                    match panes.pane_at(body_area, mouse.column, mouse.row) {
+                        Some(Pane::Preview) => {
+                            let delta = if down { WHEEL_STEP } else { -WHEEL_STEP };
+                            preview_scroll = scrolled(preview_scroll, delta, preview_max);
+                        }
+                        Some(Pane::List) if !input_open => {
+                            if down && sel + 1 < visible.len() {
+                                navigate(nodes, &mut state, &visible, sel, real_idx, focus_active, 1);
+                            } else if !down && sel > 0 && sel < visible.len() {
+                                navigate(nodes, &mut state, &visible, sel, real_idx, focus_active, -1);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
-                MouseEventKind::ScrollUp => {
-                    preview_scroll = scrolled(preview_scroll, -WHEEL_STEP, preview_max);
-                }
+                // Grabbing the border starts a drag before any other click
+                // handling. Otherwise the click focuses the pane under it; a
+                // preview click does nothing else, a list click goes on to
+                // the filter strip, the rows and the tag dots.
                 MouseEventKind::Down(MouseButton::Left) => {
+                    if panes.press(body_area, mouse.column, mouse.row) != Press::Pane(Pane::List) {
+                        continue;
+                    }
                     if mouse.row == filter_strip_area.y {
                         if let Some(d) = mouse_x_to_dot(mouse.column, filter_strip_area.x) {
                             search_buffer = filter::toggle_tag_in_buffer(
@@ -4146,6 +4311,20 @@ fn event_loop(
         let selected = state.selected().unwrap_or(0);
         let real_idx = visible.get(selected).copied().unwrap_or(0);
 
+        if panes.focus == Pane::Preview {
+            match preview_focus_key(key.code, preview_page(preview_height)) {
+                PreviewFocusKey::Scroll(delta) => {
+                    preview_scroll = scrolled(preview_scroll, delta, preview_max);
+                    continue;
+                }
+                PreviewFocusKey::Inert => continue,
+                PreviewFocusKey::Pass => {}
+            }
+        }
+        if panes.handle_key(key.code, body_area.width) {
+            continue;
+        }
+
         match key.code {
             KeyCode::Char('q') => break,
             KeyCode::Esc => {
@@ -4516,7 +4695,9 @@ mod tests {
 
     #[test]
     fn normal_and_focus_footers_hint_the_browse_keys() {
-        let expected = vec!["o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "f", "v", "?", "J/K", "q"];
+        let expected = vec![
+            "o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "f", "v", "?", "J/K", "1/2", "tab", "</>", "=", "q",
+        ];
         assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
         assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
     }
@@ -4645,14 +4826,215 @@ mod tests {
         let Slot::Priority(jk_priority) = jk.slot else {
             panic!("J/K must show in the footer, not {:?}", jk.slot);
         };
+        // NZ-4: the pane keys drop before J/K; every other key after it.
         for other in TREE_KEYS.iter().filter(|k| k.key != "J/K") {
             if let Slot::Priority(p) = other.slot {
-                assert!(p < jk_priority, "{} drops before J/K", other.key);
+                if PANE_KEYS.contains(&other.key) && other.modes == BROWSE {
+                    assert!(p > jk_priority, "{} drops after J/K", other.key);
+                } else {
+                    assert!(p < jk_priority, "{} drops before J/K", other.key);
+                }
             }
         }
         let first_width = |key: &str| (0..300).find(|&w| shown_keys(Mode::Normal, &[], w).contains(&key)).unwrap();
         assert!(first_width("J/K") > first_width("space"), "J/K drops before space");
-        assert!(first_width("J/K") > first_width("S"), "J/K drops first");
+        assert!(first_width("J/K") > first_width("S"), "J/K drops first of the list keys");
+        for pane_key in PANE_KEYS {
+            assert!(first_width(pane_key) > first_width("J/K"), "{pane_key} drops after J/K");
+        }
+    }
+
+    // --- Panes: split, focus and fold (NZ-4) ---
+
+    /// The footer keys of the pane rows, in table order.
+    const PANE_KEYS: [&str; 4] = ["1/2", "tab", "</>", "="];
+
+    #[test]
+    fn the_pane_keys_are_browse_rows_in_the_view_group_listed_once() {
+        for key in PANE_KEYS {
+            let rows: Vec<_> = TREE_KEYS.iter().filter(|k| k.key == key && k.modes == BROWSE).collect();
+            assert_eq!(rows.len(), 1, "{key}");
+            assert_eq!(rows[0].group, Group::View, "{key}");
+            assert!(matches!(rows[0].slot, Slot::Priority(_)), "{key}");
+        }
+        // The keys were free: no other browse row names `<`, `>`, `=`, `1`
+        // or `2`, and `tab` is otherwise only a prompt key.
+        for hint in TREE_KEYS.iter().filter(|k| !PANE_KEYS.contains(&k.key)) {
+            let parts: Vec<&str> = hint.key.split('/').collect();
+            let browse = hint.modes.iter().any(|m| BROWSE.contains(m));
+            for key in ["<", ">", "=", "1", "2", "tab"] {
+                assert!(!(browse && parts.contains(&key)), "{} ({}) also binds {key}", hint.key, hint.help);
+            }
+        }
+        for prompt in [NEW_NOTE, MOVING, SETTING_SCOPE] {
+            assert!(TREE_KEYS.iter().any(|k| k.key == "tab" && k.modes == prompt));
+        }
+    }
+
+    #[test]
+    fn the_pane_keys_drop_first_and_in_reverse_table_order() {
+        let first_width = |key: &str| (0..300).find(|&w| shown_keys(Mode::Normal, &[], w).contains(&key)).unwrap();
+        let widths: Vec<usize> = PANE_KEYS.iter().map(|key| first_width(key)).collect();
+        assert!(widths.windows(2).all(|w| w[0] < w[1]), "{widths:?}");
+        // Above the pane keys' widths the footer still fills the line.
+        for width in 0..160 {
+            let line = footer::line(TREE_KEYS, Mode::Normal, &[], width);
+            let cols: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+            if width >= 12 {
+                assert_eq!(cols, width, "width {width}");
+            }
+        }
+    }
+
+    fn pane_footer(focus: Pane, toggle: Option<PreviewMode>, width: usize) -> Vec<String> {
+        let keys = pane_keys(tree_keys(toggle), focus);
+        let sel = footer::select(&keys, Mode::Normal, &[], width);
+        sel.left
+            .iter()
+            .chain(sel.quit.iter())
+            .map(|&(i, _)| format!("{} {}", keys[i].key, keys[i].desc))
+            .collect()
+    }
+
+    #[test]
+    fn the_list_focused_footer_is_the_browse_footer() {
+        let keys = pane_keys(tree_keys(None), Pane::List);
+        let shown: Vec<&str> = footer::select(&keys, Mode::Normal, &[], 200).left.iter().map(|&(i, _)| keys[i].key).collect();
+        assert_eq!(shown, shown_keys(Mode::Normal, &[], 200)[..shown.len()]);
+    }
+
+    #[test]
+    fn the_preview_focused_footer_shows_the_preview_set() {
+        assert_eq!(
+            pane_footer(Pane::Preview, None, 200),
+            vec!["j/k scroll", "? help", "PgDn/PgUp page", "2 fold", "1/tab list", "q quit"]
+        );
+        assert_eq!(
+            pane_footer(Pane::Preview, Some(PreviewMode::Rendered), 200),
+            vec!["j/k scroll", "p raw", "? help", "PgDn/PgUp page", "2 fold", "1/tab list", "q quit"]
+        );
+        assert_eq!(
+            pane_footer(Pane::Preview, Some(PreviewMode::Raw), 200),
+            vec!["j/k scroll", "p rendered", "? help", "PgDn/PgUp page", "2 fold", "1/tab list", "q quit"]
+        );
+        // Narrow, the scroll hints are the last to go before help and quit.
+        assert_eq!(pane_footer(Pane::Preview, Some(PreviewMode::Raw), 30), vec!["j/k scroll", "? help", "q quit"]);
+    }
+
+    #[test]
+    fn the_preview_footer_keeps_the_same_rows_so_help_lists_each_key_once() {
+        for toggle in [None, Some(PreviewMode::Rendered)] {
+            let keys = pane_keys(tree_keys(toggle), Pane::Preview);
+            assert_eq!(keys.len(), TREE_KEYS.len());
+            for (shown, row) in keys.iter().zip(TREE_KEYS) {
+                assert_eq!(shown.help, row.help);
+                assert_eq!(shown.modes, row.modes);
+            }
+        }
+        // The prompt `tab` rows keep their own footer slots.
+        let keys = pane_keys(tree_keys(None), Pane::Preview);
+        let prompt_tab = keys.iter().find(|k| k.key == "tab" && k.modes == NEW_NOTE).unwrap();
+        assert_eq!(prompt_tab.slot, Slot::Priority(3));
+    }
+
+    #[test]
+    fn with_the_preview_focused_j_k_arrows_and_pages_scroll_it() {
+        assert_eq!(preview_focus_key(KeyCode::Char('j'), 9), PreviewFocusKey::Scroll(1));
+        assert_eq!(preview_focus_key(KeyCode::Down, 9), PreviewFocusKey::Scroll(1));
+        assert_eq!(preview_focus_key(KeyCode::Char('k'), 9), PreviewFocusKey::Scroll(-1));
+        assert_eq!(preview_focus_key(KeyCode::Up, 9), PreviewFocusKey::Scroll(-1));
+        assert_eq!(preview_focus_key(KeyCode::PageDown, 9), PreviewFocusKey::Scroll(9));
+        assert_eq!(preview_focus_key(KeyCode::PageUp, 9), PreviewFocusKey::Scroll(-9));
+    }
+
+    #[test]
+    fn with_the_preview_focused_the_list_cursor_keys_are_inert() {
+        for code in [
+            KeyCode::Char('h'),
+            KeyCode::Char('l'),
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Enter,
+            KeyCode::Char('o'),
+            KeyCode::Char(' '),
+        ] {
+            assert_eq!(preview_focus_key(code, 9), PreviewFocusKey::Inert, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn with_the_preview_focused_every_other_key_passes_to_the_list() {
+        for c in ['J', 'K', 'p', 'q', '?', '/', 't', 'n', 'N', 'r', 'm', 'S', 'd', 'f', 'v', ':', '1', '2', '<', '>', '='] {
+            assert_eq!(preview_focus_key(KeyCode::Char(c), 9), PreviewFocusKey::Pass, "{c}");
+        }
+        for code in [KeyCode::Tab, KeyCode::Esc] {
+            assert_eq!(preview_focus_key(code, 9), PreviewFocusKey::Pass, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn the_focused_pane_has_the_highlighted_border_and_both_titles_carry_their_number() {
+        assert_eq!(pane_border(Pane::List, Pane::List), theme::border_focused());
+        assert_eq!(pane_border(Pane::Preview, Pane::List), theme::border());
+        assert_eq!(pane_border(Pane::Preview, Pane::Preview), theme::border_focused());
+        assert_ne!(theme::border_focused(), theme::border());
+        let list = pane_title(Pane::List, Pane::List, vec![Span::raw("notes ")]);
+        assert_eq!(text_of(&list), " 1 notes ");
+        assert_eq!(list.spans[0].style, theme::pane_number(true));
+        let preview = pane_title(Pane::Preview, Pane::List, vec![Span::raw("preview ")]);
+        assert_eq!(text_of(&preview), " 2 preview ");
+        assert_eq!(preview.spans[0].style, theme::pane_number(false));
+    }
+
+    #[test]
+    fn the_list_text_width_follows_the_split() {
+        let total = Rect::new(2, 1, 120, 30);
+        let mut panes = Panes::default();
+        let (list, _, _) = panes.layout(total);
+        assert_eq!(list_text_width(list.width), 60 - 8);
+        panes.handle_key(KeyCode::Char('<'), total.width);
+        let (narrower, _, _) = panes.layout(total);
+        assert_eq!(list_text_width(narrower.width), 54 - 8);
+        panes.handle_key(KeyCode::Char('2'), total.width);
+        panes.handle_key(KeyCode::Char('2'), total.width);
+        let (folded, _, preview) = panes.layout(total);
+        assert!(preview.is_none());
+        assert_eq!(list_text_width(folded.width), 120 - 8);
+    }
+
+    #[test]
+    fn the_filter_strip_rows_and_tag_dots_take_clicks_at_a_30_and_a_70_split() {
+        let total = Rect::new(2, 1, 120, 30);
+        for split in [30u16, 70] {
+            let mut panes = Panes { split, focus: Pane::Preview, ..Panes::default() };
+            panes.clamp(total.width);
+            let (list, _, _) = panes.layout(total);
+            let chunks = list_chunks(list);
+            let (strip, rows) = (chunks[0], chunks[2]);
+            assert!(rows.height > 0 && strip.y < rows.y, "split {split}");
+            // Every cell of the strip and the rows reaches the list's click
+            // handling: none starts a drag, and each focuses the list.
+            for (area, y) in [(strip, strip.y), (rows, rows.y), (rows, rows.y + rows.height - 1)] {
+                for x in area.x..area.x + area.width {
+                    let mut clicked = panes;
+                    assert_eq!(clicked.press(total, x, y), Press::Pane(Pane::List), "split {split} ({x}, {y})");
+                    assert_eq!(clicked.focus, Pane::List);
+                    assert!(!clicked.dragging);
+                }
+                // The five dots map to their tags, as at 50/50.
+                for dot in 0..5u8 {
+                    assert_eq!(mouse_x_to_dot(area.x + 5 + u16::from(dot), area.x), Some(dot), "split {split}");
+                }
+            }
+            // A row fits its dots and the text width the split gives it.
+            assert_eq!(usize::from(rows.width), list_text_width(list.width) + 4, "split {split}");
+        }
+    }
+
+    #[test]
+    fn the_grip_is_furniture_at_rest_and_lit_while_dragging() {
+        assert_eq!(theme::grip(false), theme::border());
+        assert_eq!(theme::grip(true), theme::border_focused());
     }
 
     // --- Preview rendering (NZ-25) ---

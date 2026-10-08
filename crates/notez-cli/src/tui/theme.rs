@@ -54,6 +54,28 @@ pub fn border() -> Style {
     Style::default().fg(SURFACE)
 }
 
+/// The border of the focused pane in a split view.
+pub fn border_focused() -> Style {
+    Style::default().fg(LAVENDER)
+}
+
+/// The grip on the border between two panes: furniture at rest, lit like a
+/// focused border while it is being dragged.
+pub fn grip(dragging: bool) -> Style {
+    if dragging { border_focused() } else { border() }
+}
+
+/// A pane's number in its title (the key that focuses it): lavender and
+/// bold on the focused pane, otherwise in the readable overlay grey, since
+/// an unfocused pane is exactly when its number is needed.
+pub fn pane_number(focused: bool) -> Style {
+    if focused {
+        Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(OVERLAY)
+    }
+}
+
 pub fn checked() -> Style {
     Style::default()
         .fg(OVERLAY)

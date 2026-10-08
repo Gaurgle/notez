@@ -219,8 +219,9 @@ left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
 it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. While browsing the tree,
 `Esc` clears the marks if there are any (and does nothing else), otherwise
 clears the filter, otherwise quits. In the tree, `J`/`K` (or
-Shift+Down/Up) scroll the preview pane a line, PgDn/PgUp a page, and the
-mouse wheel three lines; plain `j`/`k` and Down/Up move the cursor.
+Shift+Down/Up) scroll the preview pane a line and PgDn/PgUp a page; plain
+`j`/`k` and Down/Up move the cursor. The mouse wheel scrolls the pane under
+the pointer: three lines of the preview, or the list's cursor a row.
 Shift+Down/Up need a terminal that sends them as distinct keys: Ghostty,
 kitty, iTerm2
 and tmux (with its default `xterm-keys`) do; macOS Terminal.app has no
@@ -228,6 +229,23 @@ default mapping for them, so use `J`/`K` there or add the mappings
 `\033[1;2B` and `\033[1;2A` in its keyboard settings. `?` opens a help overlay
 listing every key of that view; `?` or `Esc` closes it, and `j`/`k` scroll
 it on a short terminal.
+
+**Panes.** The tree's list and preview are two panes with a split you can
+move: `<` and `>` narrow and widen the list by 5 points, `=` resets it to
+50/50, and dragging the `⠿` grip on the border between them resizes it
+directly (the grip lights while you drag). Neither pane gets narrower than
+it can use. `1` focuses the list and `2` the preview, `Tab` switches between
+them, and clicking a pane focuses it; the focused pane has the lit border
+and its number lit in its title. With the preview focused, `j`/`k` (or
+Down/Up) scroll it a line and PgDn/PgUp a page, the keys that act on the
+list's cursor row do nothing, and the footer shows the preview's keys. `2`
+on the focused preview folds it and the list takes the full width; `2`
+again unfolds and focuses it. Opening a prompt, the filter, tag mode or the
+`:` line moves focus back to the list. On a terminal too narrow for both
+panes the preview folds on its own and comes back when there is room again;
+meanwhile `2` and `Tab` do nothing, and a preview you folded yourself stays
+folded. The split, focus and fold are not saved between runs, and a folded
+preview reads nothing from disk.
 
 **notez add** writes a public note to the repo's `notez/` (`-p` for a
 private one under `~/notez/personal/<project>/`). **notez quick** (or
