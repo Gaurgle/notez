@@ -474,8 +474,17 @@ comment; lone `\r` normalised with one new assertion in the CRLF test
 146 passed. New diff against `706e169`: 7 files, 1506 insertions, 82
 deletions, hashing to
 `476413e3f2b87610d5153dd6e10521a411c8cc332848fa7625d01de68a1bb89d`.
-RE-REVIEW sent to the same reviewer at 20:28 CEST, RUNNING; then branch
-push, CI, merge, `main` run, cleanup. The dependency
+RE-REVIEW sent to the same reviewer at 20:28 CEST; ACCEPTED at 20:45
+CEST on `476413e3...` (it reconstructed the previously accepted hash by
+undoing the two edits, proving nothing else changed; the replace order
+`\r\n` then `\r` is correct). Lead checks: build clean, 375 + 146
+passed. Committed as `f8d77ba`, branch pushed at 20:48 CEST; the
+integration chain (branch run, merge `--no-ff`, checks on `main`, push,
+`main` run, remote branch deletion, worktree removal) is running as one
+background command and stops at the first failure. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_Y3S8` In flight until the chain reports.
+Next after it: NZ-27 brief (grammar versions compatible with
+`tree-sitter 0.27.0`), then dispatch. The dependency
 change is approved for this ticket (Authorized by the owner, 17:20
 CEST), so the safe-merge rule's dependency condition is met. Board
 item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` In flight. Disk: 11 GB free.
