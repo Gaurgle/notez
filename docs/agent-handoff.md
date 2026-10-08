@@ -455,8 +455,20 @@ visible slice; `preview_lines.len() as u16` wraparound fixed. Lead
 decisions on the report (accepted): `p` dropped before `J/K` while
 markdown is selected; toggle clamps the scroll without resetting it;
 `p` inert on non-markdown rows. REVIEW dispatched at 20:05 CEST
-(`nz-reviewer`, opus) on that hash, RUNNING. Then branch push, CI,
-merge, `main` run, cleanup. The dependency
+(`nz-reviewer`, opus) on that hash; ACCEPTED at 20:15 CEST first time
+(about 86k tokens; it fuzzed the renderer in a scratch crate: 2 MB
+adversarial inputs in 18 to 177 ms, no panics; `cargo tree` confirms
+no `html` feature). Follow-ups (not blocking): (1) code lines wider
+than the pane lose their leading indentation and inner whitespace runs
+when wrapped (NZ-27 territory); (2) a table inside a quote or list
+repeats the container prefix; (3) lone `\r` endings are not normalised;
+(4) two doc comments overstate or sit on the wrong item; (5) the 2 MB
+perf test has only 2x headroom; (6) control characters in a note reach
+the terminal through the preview, pre-existing. Lead ordered one
+pre-merge change at 20:18 CEST to avoid CI flakes: loosen the perf
+bound to 5 s and, if a one-liner, normalise lone `\r`; sent to the
+pass 1 worker, RUNNING; re-review on the new hash follows, then branch
+push, CI, merge, `main` run, cleanup. The dependency
 change is approved for this ticket (Authorized by the owner, 17:20
 CEST), so the safe-merge rule's dependency condition is met. Board
 item `PVTI_lAHOCU842c4BmE5Zzg_Y3S8` In flight. Disk: 11 GB free.
