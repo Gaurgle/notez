@@ -3441,6 +3441,112 @@ files: `crates/notez-cli/src/tui/outline.rs` (new), `tui/mod.rs`,
 `tui/tree.rs`, `tui/footer.rs`, `tui/help.rs`, `README.md`. One worker
 pass, one review.
 
+#### NZ-31: tighten the tree's left margin
+
+Status: Ready, runs right after NZ-4 (small, and it changes the row
+prefix that NZ-21's alignment math and the mouse hit tests depend on).
+Requested by Andreas on 2026-10-08 at 21:50 CEST: "we are wasting a lot
+of space on the TUI, the left side is almost all padding? except for
+the small right pointing arrow. this could be tightened up alot? dont
+waste any space there." Board item `PVTI_lAHOCU842c4BmE5Zzg_fBhY`.
+
+Problem (code facts at `1edfbce`): every list row starts with the
+`List` highlight symbol `"  ▸ "` (4 columns, blank on unselected rows),
+then `flags_slots` (7 columns: a space, five tag-dot slots, a space;
+`MARK_COL = 4` is the first of them, used for NZ-16's mark glyph), then
+the one-column gutter (`BADGE_COL = 4 + 7`), then the indent. That is
+12 columns before a section's expand triangle, plus the block's one
+column of padding and border. Tag dots are clickable
+(`mouse_x_to_dot(mouse_col, area_x)`, dots at `area_x + 5`); the
+filter strip above has its own five dots (`mouse_x_to_filter_dot`).
+
+Outcome and decisions (lead, working rule):
+
+1. Drop the `List` highlight symbol: the selected row is shown by its
+   row style (the existing selection style on the whole line), not by a
+   4-column arrow. Saves 4 columns. The mark glyph (NZ-16) moves into
+   the gutter column.
+2. Compact the tag dots: the five fixed slots become one 2-column
+   field: a space plus the count of set tags drawn as that many dots
+   is not readable, so instead draw the set dots only, left-aligned,
+   in a field as wide as the maximum number of set tags on any visible
+   row (0 to 5 columns, recomputed per draw), with no trailing space
+   when the field is empty. A row with no tags uses no dot columns at
+   all when no visible row has tags. Mouse: clicking a dot still
+   toggles that tag (the hit test maps the column to the n-th set dot
+   of that row, and a click on the empty field opens tag mode as a
+   click on the row does today; verify what a click does today and
+   keep it).
+3. Keep one gutter column (badge placeholder on section rows, mark
+   glyph on marked rows, NZ-28's `▲` later). Keep the indent of two
+   columns per depth.
+4. Redraw the branch lines (Andreas, 21:55 CEST: "the actual tree
+   graphics should be worked on, theyr not optimal"). Today every
+   nested folder draws `├─▼ ` or `├─▶ ` and every nested file `│   `,
+   regardless of position, so a last child still shows `├─`, a file
+   shows a bar even when nothing follows, and the folder's own
+   expand mark sits inside the branch. New rule, the classic `tree`
+   drawing: for each ancestor level, `│ ` if that ancestor has a later
+   sibling, else two spaces; then `├─` for a row with a later sibling
+   and `└─` for the last child; then for a folder the expand mark `▾ `
+   (open) or `▸ ` (closed), for a file one space; then the badge and
+   the name. Section rows (depth 0) keep `▼ `/`▶ `. Glyphs come from
+   one small table in `theme.rs` so they can be swapped. Compute "has a
+   later sibling" from `parent_idx` on the flattened rows (a pure
+   function with tests), including with a filter active (siblings
+   hidden by the filter do not count).
+5. Net: a top-level section row starts at column 1 of the pane text
+   instead of column 12 in the common no-tags case; nested rows read
+   as a real tree; the leader and count math (`list_text_width`,
+   NZ-21) is updated to the new prefix and stays exact (branch glyph
+   widths vary per row now, measure with `Span::width`).
+
+Acceptance: render tests pin the new prefix for a section row, a
+nested folder and a nested file with and without tags and marks; the
+count column still ends at the text width at every depth; tag-dot
+click tests updated to the compact field (clicking the first set dot
+toggles that tag; clicking empty space does what it did before); the
+filter strip is unchanged; NZ-16 mark and NZ-21 alignment tests
+updated and listed; README's layout description if any. Allowed files:
+`crates/notez-cli/src/tui/tree.rs`, `tui/text.rs` (the filter dot
+helper if shared), `tui/theme.rs`, `README.md`. One worker pass, one
+review. Reviewer probes: hit tests at every tag count; selection
+visibility without the arrow on both themes; a wide-glyph badge; the
+todo board is untouched (it has its own list).
+
+#### NZ-32: filter by document type
+
+Status: Ready, runs after NZ-5 (it extends the filter NZ-5 reworks).
+Requested by Andreas on 2026-10-08 at 21:50 CEST: "should be able to
+sort or filter by document type: pinz, todo, private, public, global,
+etc". Board item `PVTI_lAHOCU842c4BmE5Zzg_fBig`.
+
+Lead decisions (working rule): filter, not sort. The tree already
+groups by section (project, then scope, then docs), so a sort by type
+would reorder what the sections already express; a filter answers the
+request directly. Types: `todo` (the `_todos` store and `TODO.md`
+rows, NZ-20/NZ-24), `private` (personal sections), `public`, `global`,
+`docs`, `scratch` (local), and `pinz` reserved for NZ-18 (accepted by
+the parser, matches nothing until Pinz rows exist, so the help can list
+it). Two ways in: typed tokens in the `/` filter (`@todo`, `@public`,
+`@private`, ..., combinable with text and `#tag` tokens under the
+existing AND rule; several `@` tokens OR together like `#tag` tokens
+do), and the `s` scope cycle from NZ-5 extended to cycle through these
+types (all, private, public, scratch, global, docs, todo) so one key
+walks them without typing. The footer or header names the active type
+filter. Sections with no matching rows are hidden while a type filter
+is active; the "no matches" row from NZ-5 covers an empty result.
+
+Acceptance: parser tests for `@type` tokens (valid, unknown token is
+plain text, combination with `#tag` and text); matching tests per type
+on a temp tree with every section kind; `s` cycle order and footer
+label; help lists the tokens; README. Allowed files:
+`crates/notez-cli/src/tui/tree.rs`, `tui/text.rs`, `tui/footer.rs`,
+`tui/help.rs`, `README.md`; the `@` token parsing lives in notez-cli
+(no `notez_core::filter` change, so epoz is untouched: the cli strips
+`@` tokens before handing the rest to `notez_core::filter::parse`).
+One worker pass, one review.
+
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
 Drafted by the lead on 2026-10-06 from Andreas's direction below, and
