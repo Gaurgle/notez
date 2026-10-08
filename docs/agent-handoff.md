@@ -365,9 +365,26 @@ visibility confirm, tag carry) REPORTED at 12:12 CEST: `tui/tree.rs`,
 `157e72d9312ede0b35ee2f4ae75219b3c77f781d6abe2ecca767d3444683e95e`;
 worker checks: build clean, notez-cli 274 passed, notez-core 146
 passed; about 184k agent tokens. Pass 2 (folders, `S`, README)
-DISPATCHED at 12:15 CEST on the same worktree, RUNNING. Then one
-review of the whole diff. Board: In flight. No second worker slot is in
-use.
+REPORTED at 12:40 CEST: touched `tui/tree.rs`, `tui/footer.rs`
+(`Mode::SetScope`) and `README.md`; whole diff against `1074141` now 5
+files, 1799 insertions, 4 deletions, hashing to
+`5dd46366d0f422bfe1096548def638665a2346f2f6c5f9e6f10817ad8c7fcbc2`;
+worker checks: build clean, notez-cli 284 passed, notez-core 146
+passed; about 133k agent tokens. Workers stopped. REVIEW dispatched at
+12:45 CEST (`nz-reviewer`, opus) on that hash, RUNNING. Next: on
+acceptance, lead checks, commit exactly the reviewed diff on
+`feat/NZ-15-move`, merge `--no-ff` into `main`, checks on `main`, push,
+board Done, cleanup. Board: In flight. No second worker slot is in use.
+
+Lead decisions on the pass 2 report (accepted as built): `S` has its
+own footer mode; `m`/`S` refuse a folder that holds another section
+(delete's guard); the folder confirm counts notes like delete without
+"and other files"; tagged notes in hidden folders under a moved folder
+have their keys carried (`carry_unlisted_keys`). Two pass 1 tests
+changed inside this same diff (footer key list gains `S`; the folder
+refusal test flipped to allowed, as pass 2 intended). Cosmetic risk
+noted: a failed folder move still expands the folder in the rebuilt
+list.
 
 Lead decisions on the pass 1 report:
 
