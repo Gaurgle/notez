@@ -509,9 +509,25 @@ status --short` before dispatch: clean. Base `1edfbce` (= `main` =
 `feat/NZ-4-panes`, worktree `.claude/worktrees/NZ-4`, model `opus` via
 `nz-worker`. Pass 1 (`tui/panes.rs` model with tests, keys `<` `>` `=`
 `1` `2` `Tab`, focus semantics, fold on `2`, list and preview widths
-following the split, footer hint sets) RUNNING; pass 2 (mouse drag with
-the grip, wheel per pane, click to focus, auto-fold, README) follows on
-the same worktree; one review of the whole diff. Board item
+following the split, footer hint sets) REPORTED at 21:46 CEST: 4 files
+(`tui/mod.rs`, new `tui/panes.rs` registered with `git add -N`,
+`tui/theme.rs`, `tui/tree.rs`), 889 insertions, 100 deletions,
+uncommitted diff against `1edfbce` hashing to
+`5b41ead623b77655a211c01a9afbc5af706157e45ced694e82b98b48cabc11ab`;
+worker checks: build clean, notez-cli 445 passed (29 new), notez-core
+146 passed; about 162k agent tokens. As built: `Panes` model
+(minimums 24 list, 20 preview, list wins), keys `< > =` and `1 2 Tab`
+at priorities 13 to 16 before `q`, focused border LAVENDER, pane
+numbers in both titles, preview-focused `j k Up Down PgUp PgDn` scroll
+and `h l Left Right Enter o Space` inert, any input mode returns focus
+to the list, a folded preview does no I/O, the preview loses one
+column to the new border strip, the list rect is unchanged at 50/50.
+Lead decisions on the report (accepted): `Esc` keeps its browse
+behaviour with the preview focused; `Tab` stays on the list while
+folded; the NZ-22 priority test rule relaxed for the pane rows only.
+Pass 2 (grip drawing, drag, wheel and click routing, auto-fold,
+README) DISPATCHED at 21:50 CEST on the same worktree, RUNNING; one
+review of the whole diff after it. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_KW1E` In flight. Then NZ-3, NZ-5, NZ-28a,
 NZ-28b, NZ-29a.
 
