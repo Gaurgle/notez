@@ -384,7 +384,19 @@ at 15:20 CEST by lead `4ffb11e2` on Andreas's "you may go ahead with
 NZ-20". `git status --short` before dispatch: clean. Base `e84e90d`
 (= `main` = `origin/main`; code at the NZ-19 merge `3941481`), branch
 `feat/NZ-20-refuse-altered-names`, worktree `.claude/worktrees/NZ-20`,
-model `opus` via `nz-worker`, one pass. RUNNING. Then one review, then
+model `opus` via `nz-worker`, one pass. Worker REPORTED at 15:30 CEST:
+`tui/tree.rs` and `README.md`, 429 insertions, 31 deletions,
+uncommitted diff against `e84e90d` hashing to
+`ade3c2bb3012a12bbca986cdd9d1bcdfea7ceeda2b37d2a36f53822136facb26`;
+worker checks: build clean, notez-cli 312 passed, notez-core 146
+passed; about 132k agent tokens; no pre-existing test edited. Lead
+decisions on the report (accepted as built): the prompt stays open on a
+refusal with the typed text; `n` with a title that sanitizes to nothing
+is refused with `new note: the name is empty` (before it created
+`<date>-.md`); `_todos` matched by exact component or same directory
+entry (dev and inode) under the global root only; a dedicated message
+for `_todos` as a move destination. REVIEW dispatched at 15:33 CEST
+(`nz-reviewer`, opus) on that hash, RUNNING. Then
 (new under the standing branch-push permission) push the branch, wait
 for a green run, merge `--no-ff`, checks on `main`, push `main`, wait
 for the `main` run, board Done, delete the remote branch, cleanup.
