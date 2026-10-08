@@ -411,6 +411,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
     NZ-25 is AUTHORIZED to run after NZ-24; NZ-27 after NZ-25 once its
     brief names the grammars; NZ-28 and NZ-29 after their designs.
   - He installs the current `main` now.
+- 2026-10-08 20:50 CEST, Andreas, in the lead session (`4ffb11e2`):
+  "why are you stopping so often to ask me things? cant we find a way
+  that lets you keep going?" The lead's reading, stated back to him and
+  applied unless he objects: WORKING RULE for decisions. The lead
+  decides every open design point with its own recommendation, records
+  the decision on the ticket, and reports it in one line afterwards;
+  Andreas overrules when he tries the build. The lead still stops and
+  asks only for: anything irreversible or costing money; deleting or
+  moving his files; `notez-core` public API or file format changes;
+  dependencies outside an already approved family; CI or infrastructure
+  changes; tags and releases; a ticket outside the recorded scope. The
+  queue (NZ-27, the NZ-28 and NZ-29 design notes, NZ-4, NZ-5, NZ-3)
+  runs on that basis. Status lines at hand-offs are not questions.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -2995,19 +3008,82 @@ pass, one review.
 
 #### NZ-27: syntax highlighting in the preview (tree-sitter)
 
-Status: Draft, authorized in principle after NZ-25 (Andreas 17:20 CEST:
-"add linting and LSP and syntax highlighting too. approved to add
-dependencies, tree-sitter ive used before"). Board item
-`PVTI_lAHOCU842c4BmE5Zzg_ZIHA`. Brief to finalize once NZ-25 is on
-`main`: highlight fenced code blocks inside rendered markdown and whole
-non-markdown files the tree can open, with `tree-sitter` plus grammar
-crates for an initial language set (proposal: rust, python, kotlin,
-java, c, toml, json, bash, markdown inline), a theme mapping capture
-names to `tui/theme.rs` colours, and the footer language name from the
-grammar that matched. Open: the grammar crates' versions must be
-compatible with one `tree-sitter` version (the lead checks before the
-brief); build time and binary size; `tree-sitter-highlight` versus a
-small own walker.
+Status: Ready, authorized to run after NZ-25 (Andreas 17:20 CEST: "add
+linting and LSP and syntax highlighting too. approved to add
+dependencies, tree-sitter ive used before"; working rule of 20:50
+CEST: the lead decides the open points). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIHA`. Brief finalized by the lead at 20:55
+CEST on 2026-10-08. Touches `tui/tree.rs`, `tui/markdown.rs`, a new
+module, `Cargo.toml`, `Cargo.lock`.
+
+Dependencies (approved family; versions are the current crates.io
+releases checked with `cargo search` at 20:50 CEST): `tree-sitter =
+"0.27.0"`, `tree-sitter-highlight = "0.27.0"`, and the grammars
+`tree-sitter-rust = "0.24.2"`, `tree-sitter-python = "0.25.0"`,
+`tree-sitter-kotlin = "0.3.8"`, `tree-sitter-java = "0.23.5"`,
+`tree-sitter-c = "0.24.2"`, `tree-sitter-toml-ng = "0.7.0"`,
+`tree-sitter-json = "0.24.8"`, `tree-sitter-bash = "0.25.1"`,
+`tree-sitter-md = "0.5.3"`. Grammar crates link against the
+`tree-sitter-language` ABI crate, so they do not have to share the
+runtime's version; the worker verifies each compiles and loads with
+`tree-sitter 0.27.0` and drops any that does not (report which; the
+lead records it). All grammars compile C code at build time: the
+worker records the clean build time before and after and the release
+binary size delta.
+
+Outcome and decisions:
+
+1. A new module `crates/notez-cli/src/tui/highlight.rs` with `pub fn
+   highlight(source: &str, language: Language) -> Vec<Vec<(Range<usize>,
+   Capture)>>` (or an equivalent that yields styled spans per line) built
+   on `tree-sitter-highlight` with each grammar's bundled
+   `HIGHLIGHTS_QUERY` (and injections where the crate ships them), and a
+   fixed capture list (`keyword`, `function`, `type`, `string`,
+   `number`, `comment`, `constant`, `variable`, `operator`,
+   `punctuation`, `attribute`, `property`) mapped to `tui/theme.rs`
+   styles that reuse palette colours and never the scope badge colours.
+   Unknown captures fall back to plain text.
+2. Language detection: `Language::from_extension` for `rs`, `py`, `kt`
+   and `kts`, `java`, `c` and `h`, `toml`, `json`, `sh` and `bash`, `md`
+   (markdown inline only where NZ-25 renders code); and
+   `Language::from_fence_tag` for fenced code blocks (`rust`, `rs`,
+   `python`, `py`, `kotlin`, `java`, `c`, `toml`, `json`, `bash`, `sh`,
+   `shell`). Unknown tags and extensions render as today.
+3. Integration: in rendered markdown (NZ-25), a fenced block with a
+   known tag is highlighted line by line inside the existing two-space
+   code indent, keeping the wrapping rule (NZ-25 follow-up 1 is fixed
+   here: code lines keep their leading indentation and inner whitespace
+   when wrapped; wrap code by character, not by word); in the raw view
+   and for non-markdown files with a known extension, the whole file is
+   highlighted; the footer file type (NZ-25) shows the language name
+   the grammar matched (`rust`, `python`, ...) instead of the bare
+   extension. Highlighting is cached with the NZ-25 preview cache key.
+   Files over 1 MB skip highlighting (plain text) to keep selection
+   fast; the footer says `rust (not highlighted, large)`.
+4. Performance: parsing is synchronous on selection; the worker
+   measures a 200 KB Rust file and a 2 MB markdown file with many code
+   blocks in a debug build and reports; the guard test bound is loose
+   (5 s) like NZ-25's.
+5. Not in this ticket: linting (NZ-28), LSP (NZ-29), themes per
+   language, injection of markdown into other languages.
+
+Acceptance: a test per language that a small snippet yields at least a
+keyword and a string capture; unknown tag and extension unchanged;
+fence highlighting inside rendered markdown keeps the NZ-25 line count
+and the code indentation when wrapping (the regression from NZ-25
+follow-up 1); whole-file highlighting for a `.rs` file; the footer
+language name; the 1 MB skip; the guard test; existing NZ-25 tests pass
+unchanged except where they pinned unhighlighted code spans (list
+each). README: a sentence on highlighting and the languages. Allowed
+files: `crates/notez-cli/src/tui/highlight.rs` (new), `tui/markdown.rs`,
+`tui/tree.rs`, `tui/theme.rs`, `tui/mod.rs`, `crates/notez-cli/
+Cargo.toml`, `Cargo.lock`, `README.md`. Two worker passes (module with
+tests and dependencies; integration and README), one review. Reviewer
+probes: query compile errors at runtime (must not panic: a grammar
+whose query fails to compile is disabled with a logged footer note);
+build time; a fence tag with trailing attributes (`rust,ignore`);
+highlighting a file with invalid syntax (tree-sitter is error
+tolerant, confirm no panic); the cache key including the language.
 
 #### NZ-28: linting in the preview (design)
 
