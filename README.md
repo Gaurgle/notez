@@ -144,13 +144,38 @@ deletes the original; if that fails partway, both copies stay and the footer
 names where. `m` and `S` on a section row or in a `docs` section change
 nothing; `docs` is never a destination.
 
+**Marking several notes.** `Space` marks the note or folder under the
+cursor (again to unmark) and steps down one row; section rows cannot be
+marked. Marked rows show a bar in the
+gutter and are drawn bold, and the footer leads with `<n> marked`. With
+marks present, `d`, `m` and `S` act on the marked set with one prompt and
+one confirm: `d` asks `delete 2 notes and 1 folder (3 notes inside) from
+personal, public? y/n` (with `and other files` and `(not recoverable)` as
+for a single delete), `m` asks `move 3 items to <scope>/<folder>_` and puts
+every item in that folder under its own name, and `S` (`set scope of 3
+items: ...`) keeps each item's own folder under the new scope. A move that
+changes any item's scope asks first, naming each warning once. A marked
+folder together with notes inside it acts once, on the folder. A set that
+cannot work as a whole is refused before anything happens, naming the first
+problem: a section, a `docs` row or a folder holding another section, items
+from different projects for `m` and `S`, two items with the same name, or a
+name already taken at the destination. Once a confirmed set runs, an item
+that fails stays where it was and the rest go on; the footer reports
+`deleted 2, failed 1: ideas/ (...)` or `moved 2, failed 1: ...`. The marks
+clear after the action runs, and `n`, `Esc` or any other key at the confirm
+keeps them. `n`, `N` and `r` ignore marks and act on the cursor row. Marks
+live only for the session and are never saved; a marked row that is renamed,
+moved or deleted loses its mark.
+
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a
 new note or a new todo, a delete confirmation, `:` command) and lights the ones whose mode is on, such as `f`
 while a section is focused. In tag, text-entry and `:` command modes the
 tag legend, prompt or command comes first and the keys follow in the space
 left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
-it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. `?` opens a help overlay
+it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. While browsing the tree,
+`Esc` clears the marks if there are any (and does nothing else), otherwise
+clears the filter, otherwise quits. `?` opens a help overlay
 listing every key of that view; `?` or `Esc` closes it, and `j`/`k` scroll
 it on a short terminal.
 
