@@ -385,10 +385,18 @@ store; an intermediate symlink component also passes. B2 (medium): a
 hidden tagged note under a folder moved twice in one session loses its
 tag (`carry_unlisted_keys` scans only `forest.initial`, so the carried
 entry is never rewritten and ends up keyed to a missing file). FIX
-CYCLE 1 sent to the pass 2 worker at 12:58 CEST, RUNNING: component by
-component exact-spelling, no-symlink resolution of the typed folder;
-carried entries under a moved folder rewritten; tests for both.
-Re-review follows on the new hash.
+CYCLE 1 sent to the pass 2 worker at 12:58 CEST, DONE at 13:05 CEST:
+`resolve_move` walks the typed folder step by step (exact spelling via
+`has_entry_named`, no symlink, must be a directory; `dst` still from
+the typed steps, `personal/` guard after the walk); `apply_move`
+rewrites `carried` entries under the source after a successful move;
+two new tests (both red with the fixes off). Only `tui/tree.rs`
+changed. Worker checks: build clean, notez-cli 286 passed, notez-core
+146 passed. New diff against `1074141`: 5 files, 1904 insertions, 4
+deletions, hashing to
+`d5d6485329221d1adf55015941117eaab458a051277f58a8a95a805fad34a704`.
+Worker stopped. RE-REVIEW sent to the same reviewer at 13:08 CEST on
+that hash, RUNNING.
 
 Reviewer follow-ups, not blocking, for Andreas and the leftovers list:
 F1 the check-then-rename window (macOS `rename` replaces an existing
