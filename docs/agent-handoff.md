@@ -3961,6 +3961,58 @@ adjacent flag colours in one cell; a terminal without half-block
 glyphs (fallback is the owner's font problem, note it); the preview
 title unchanged.
 
+#### NZ-39: bold coloured language suffix in the preview footer, `p` toggles highlighting too
+
+Status: Ready, runs after NZ-38 (same files). Requested by Andreas on
+2026-10-08 at 22:40 CEST: "i want the language suffix of previewed doc
+in the preview footer (.ts, .rs, .md etc) in bold and its correlated
+color scheme. the togglable syntax highlighter and formatter should
+toggle this color on or off on the syntax indicator". Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ftc0`.
+
+Facts (code at `5ff3745`): `file_type(path, is_dir)` (tree.rs about
+line 3020) yields `markdown`, the `Language::name` or the bare
+extension, with the `(not highlighted, large)` and `(highlighter
+unavailable)` suffixes (NZ-25, NZ-27); `browse_footer` leads with it;
+`PreviewMode { Rendered, Raw }` is toggled by `p` for markdown only;
+code files are always highlighted (NZ-27).
+
+Decisions (lead, working rule):
+
+1. The footer segment shows the file's SUFFIX with its dot, lowercase
+   (`.rs`, `.md`, `.kt`, `.ts`, `.toml`), bold; `file` for no extension
+   stays as a word, not bold. Folder and section rows show nothing, as
+   today. The two parenthetical notes stay after the suffix, dim.
+2. A colour per language in `theme.rs` (`language_color(Language) ->
+   Color`), reusing palette colours and avoiding the scope badge
+   colours: one per shipped grammar (rust, python, kotlin, java, c,
+   toml, json, bash, markdown); unknown suffixes (`.ts` today) use a
+   neutral palette colour. Colours are decorative; the icon and colour
+   of scope stay the scope's.
+3. `p` becomes the one toggle for both: for markdown it switches
+   rendered and raw (as today); for a highlighted code file it switches
+   highlighted and plain (new; both share `PreviewMode`, rename its
+   variants to `Styled` and `Plain` if that reads better, keep the hint
+   `p raw` / `p rendered` wording for markdown and `p plain` / `p
+   highlighted` for code). The mode is still session state and still
+   one value for the session.
+4. The suffix is coloured when the renderer or highlighter is ON for
+   the current file (Rendered mode and the file has a language), and
+   plain bold (no colour) when it is off or the file has no language,
+   so the indicator shows the state at a glance. The large-file and
+   unavailable cases show plain bold with their note.
+
+Acceptance: `file_type` (or its successor) tested for `.md`, `.RS`,
+`.ts`, no extension, folder; the footer segment's style tested for on
+and off, markdown and code, unknown suffix; `p` on a `.rs` file
+toggles plain and highlighted and the cache key follows (reuse the
+NZ-25 toggle tests); the hint wording per file kind; the colour table
+has an entry per `Language` and none equals a scope badge colour
+(test); README: the preview footer sentence and the `p` description.
+Allowed files: `crates/notez-cli/src/tui/tree.rs`, `tui/theme.rs`,
+`tui/footer.rs`, `tui/highlight.rs` (only if the language list needs
+exposing), `README.md`. One worker pass, one review.
+
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
 Drafted by the lead on 2026-10-06 from Andreas's direction below, and
