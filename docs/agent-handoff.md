@@ -385,10 +385,22 @@ B1 (blocker): `r` on a folder then Enter on the UNCHANGED name renames
 it whenever `sanitize::name` alters the name (it lowercases and strips
 `_`): `00_quick-notes` to `00quick-notes`, `_todos` to `todos` (breaks
 the todo board), `_todos/IDEAS` to `ideas`. FIX CYCLE 1 sent to the
-pass 2 worker at 11:25 CEST, RUNNING: an unchanged typed name is a
-no-op, regression test on `00_quick-notes`, `_todos`, `IDEAS`; also
-asked whether the note rename path has the same problem (report only).
-Re-review follows on the new hash.
+pass 2 worker at 11:25 CEST, DONE at 11:32 CEST: early return in
+`rename_folder` when the trimmed typed name equals the folder name, new
+test `folder_rename_with_the_shown_name_unchanged_changes_nothing` (red
+on the old code); only `tui/tree.rs` changed. Worker checks: build
+clean, notez-cli 254 passed, notez-core 146 passed. New uncommitted
+diff against `4a239e3`: 4 files, 1447 insertions, 66 deletions, hashing
+to `766e8c757994e3df8822099d6ebc31914dbabc73e9a076f5b0111c566c3a3286`.
+Worker stopped. RE-REVIEW sent to the same reviewer at 11:35 CEST on
+that hash, RUNNING.
+
+Follow-up found by the worker, pre-existing, NOT in NZ-14: `r` on a
+NOTE has the same Enter-on-unchanged-name problem when the shown title
+is not already in sanitized form (`2026-10-06-My_Note.md` would become
+`2026-10-06-mynote.md` with its heading rewritten; `x.MD` would become
+`xmd.md`; a capitals-only name fails harmlessly on APFS). Candidate
+ticket together with the sanitize question below.
 
 Reviewer follow-ups, not blocking, for Andreas: (1) a mouse click while
 a prompt is open moves the selection, so Enter then acts on the clicked
