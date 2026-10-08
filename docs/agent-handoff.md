@@ -461,9 +461,26 @@ decisions (working rule): keep the local injections query; accept the
 build-dep bumps; ship Kotlin through `tree-sitter-kotlin-ng = "1.1.0"`
 (same grammar family as approved). Pass 2 (Kotlin, integration into
 rendered markdown and the raw view, character wrapping for code,
-footer language name, cache, measurements, README) DISPATCHED at 21:40
-CEST on the same worktree, RUNNING; one review of the whole diff after
-it. Board item
+footer language name, cache, measurements, README) REPORTED at 22:00
+CEST: Kotlin builds through `tree-sitter-kotlin-ng 1.1.0` but that
+crate ships no queries, so the module carries a local
+`KOTLIN_HIGHLIGHTS` query (narrower than upstream grammars, needs
+review); fences highlighted per block with character wrapping that
+keeps indentation (NZ-25 follow-up 1 fixed); raw view and other files
+highlighted whole via `highlight_lines`, cache key gained `language`;
+footer shows the language name, `(not highlighted, large)` over 1 MiB,
+`(highlighter unavailable)` when a grammar failed; measurements debug:
+200 KB `.rs` first selection 344 to 381 ms, cached redraw 15 µs, 500 KB
+note with 50 rust fences 80 ms; release binary 11,992,256 B (+9.6 MB
+for all ten grammars); worker checks: build clean, notez-cli 415
+passed, notez-core 146 passed; about 133k agent tokens. Three NZ-25
+tests updated to the new contract (highlighted `fn` keyword, bash
+comment style in an unterminated `sh` fence, footer `rust` for
+`main.RS`). Lead decision on the report (working rule): in a
+highlighted fence uncaptured code uses the plain text colour as base
+so PEACH strings stand out; `theme::code()` stays for inline code and
+unknown-tag fences; sent to the worker at 22:05 CEST with the pass 1
+clippy nit, RUNNING. Then one review of the whole diff. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight. Disk: 9.3 GB free; the
 grammars compile C, so the lead watches `target` size.
 
