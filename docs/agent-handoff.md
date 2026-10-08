@@ -11,6 +11,24 @@ keeps it current as tickets move.
 ## Current lead
 
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
+`4ffb11e2-7fc1-4590-92e3-0cbd75ef9142`, took the baton on 2026-10-08 09:49
+CEST on Andreas's "resume from last position, new day, new code! let me
+know if anything is unclear". Reconciled at takeover: `main` =
+`origin/main` = `4a239e3`, working tree clean, `git worktree list` shows
+only the main checkout, no ticket branch exists, no worker or reviewer
+running. `ps` shows exactly one `claude --agent nz-coordinator` process
+(this session); the previous lead (`52bd7aa5`) released the baton at
+19:25 CEST on 2026-10-07 by its own record below and has no process.
+Board matches the handoff: NZ-1, 2, 7, 8, 9, 10, 12, 13 Done; NZ-6,
+NZ-11, NZ-14 Ready; NZ-3, 4, 5, 15, 16, 17 Draft. Only this session
+leads. Reading of "resume from last position": CONTINUE the paused
+standing scope and integration delegation (recorded 2026-10-07 16:25
+under Authorized by the owner), next ticket NZ-14; stated back to
+Andreas at takeover so he can correct it.
+
+Previous lead, for history:
+
+Claude `nz-coordinator` (model `claude-fable-5-1`), session
 `52bd7aa5-2d53-4a8e-bf4e-7bd5ec61a99b`, took the baton on 2026-10-07 16:30
 CEST on Andreas's "you can continue the work, from 2f04539, i believe.
 NZ-8 to NZ-16", followed by his pasted queue list (NZ-8, NZ-12, the UI
@@ -312,13 +330,19 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-Nothing is in flight. STOPPED FOR THE DAY at about 19:25 CEST on
-2026-10-07 on Andreas's instruction ("we start looking for a place to
-stop for the day now. finish all relevant running workers, update docs
-and handovers, then we'll stop"). No worker or reviewer is running: the
-last agent (the NZ-13 reviewer) reported and NZ-13 was merged. NZ-14 was
-about to be dispatched (its brief is Ready) but was NOT: no NZ-14
-branch, worktree or worker exists.
+NZ-14 (folders). Dispatched 2026-10-08 about 09:55 CEST by lead
+`4ffb11e2`. `git status --short` before dispatch: only this file
+modified. Base `4a239e3` (= `main` = `origin/main`), branch
+`feat/NZ-14-folders`, worktree `.claude/worktrees/NZ-14`, model `opus`
+via `nz-worker`. Pass 1 (directory listing, `mkdir::create_in_dir`, the
+`N` prompt) RUNNING; pass 2 (folder rename and delete) and the review
+follow on the same worktree. Board: In flight. No second worker slot is
+in use.
+
+Previous state, for history: nothing was in flight at the 2026-10-07
+19:25 CEST stop. No worker or reviewer was running: the last agent (the
+NZ-13 reviewer) reported and NZ-13 was merged. NZ-14 was about to be
+dispatched (its brief was Ready) but was not.
 
 GitHub returned "Internal Server Error" on `git push origin main` and on
 `gh project item-edit` from 17:14 UTC for a few minutes while its status
