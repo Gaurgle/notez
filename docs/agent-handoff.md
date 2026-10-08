@@ -428,7 +428,25 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-NZ-25 (rendered markdown preview). Dispatched 2026-10-08 at 19:15 CEST
+NZ-27 (syntax highlighting, tree-sitter). Dispatched 2026-10-08 at
+21:05 CEST by lead `4ffb11e2` under the dependency approval of 17:20
+CEST and the working rule of 20:50 CEST. `git status --short` before
+dispatch: clean. Base `9e1bb20` (= `main` = `origin/main`; code at the
+NZ-25 merge `6a1c814`), branch `feat/NZ-27-syntax-highlighting`,
+worktree `.claude/worktrees/NZ-27`, model `opus` via `nz-worker`.
+Pass 1 (`tui/highlight.rs` with tests, theme capture styles, the
+tree-sitter dependencies and grammars, build-time and binary-size
+measurements) RUNNING; pass 2 (integration into rendered markdown and
+the raw view, footer language name, cache, README) follows on the same
+worktree; one review of the whole diff. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIHA` In flight. Disk: 9.3 GB free; the
+grammars compile C, so the lead watches `target` size.
+
+NZ-25 is Done (merge `6a1c814` at 20:55 CEST; branch run and `main`
+run `37785453082` green; remote branch deleted; worktree and local
+branch removed; board Done).
+
+NZ-25 record, for history. Dispatched 2026-10-08 at 19:15 CEST
 by lead `4ffb11e2` on Andreas's "4. go with c, but break it up ...
 approved to add dependencies" (17:20 CEST). `git status --short`
 before dispatch: only this file modified. Base `706e169` (= `main` =
@@ -2889,7 +2907,34 @@ One `nz-worker` pass, one review.
 
 #### NZ-25: markdown rendering in the preview pane, toggleable
 
-Status: Ready, authorized to run after NZ-24 (Andreas, 2026-10-08
+Status: Done. Merged into `main` as `6a1c814` at 20:55 CEST on
+2026-10-08 and pushed; branch run and `main` run `37785453082` green;
+board Done; remote branch deleted. Not yet installed by Andreas; the
+toggle key `p` and the look are his to judge installed.
+
+Record: base `706e169`, branch `feat/NZ-25-markdown-preview`, ticket
+commit `f8d77ba` (7 files: `Cargo.lock`, `README.md`,
+`crates/notez-cli/Cargo.toml`, new `tui/markdown.rs`, `tui/mod.rs`,
+`tui/theme.rs`, `tui/tree.rs`; 1506 insertions, 82 deletions), merge
+`6a1c814` with `git merge --no-ff`; undo with `git revert -m 1
+6a1c814`. Dependency added: `pulldown-cmark = { version = "0.13.4",
+default-features = false }`; `Cargo.lock` gained `pulldown-cmark
+0.13.4` and `unicase 2.10.0` (crates.io). Agents: two `nz-worker`
+(opus) passes plus one small continuation, about 347k tokens; one
+`nz-reviewer` (opus) with one re-review, about 180k tokens; accepted
+first time, re-accepted after the lead's two pre-merge changes (perf
+bound 5 s, lone `\r`). Committed diff hashes to the accepted
+`476413e3f2b87610d5153dd6e10521a411c8cc332848fa7625d01de68a1bb89d`.
+Lead checks: build clean, notez-cli 375 passed, notez-core 146 passed.
+As built: rendered by default, `p` toggles raw for markdown only, mode
+is session state, footer leads with the file type, cache keyed by path,
+width, mode, mtime and length, visible slice drawn. Leftovers: wrapped
+code lines lose leading indentation and inner whitespace (fixed in
+NZ-27); a table inside a quote or list repeats the container prefix;
+two doc comments misplaced or overstated; control characters in a note
+reach the terminal (pre-existing).
+
+Brief as run. Authorized to run after NZ-24 (Andreas, 2026-10-08
 17:20 CEST: "4. go with c, but break it up into multiple
 tasks/tickets. add linting and LSP and syntax highlighting too.
 approved to add dependencies, tree-sitter ive used before"). Requested
@@ -3413,7 +3458,8 @@ Current lead):
    (files moved). NZ-22: DONE 2026-10-08, merge `82fae54`.
 7. Queue, all authorized on 2026-10-08 17:20 CEST, one at a time on
    `tui/tree.rs`: NZ-26 DONE (merge `5442854`), NZ-24 DONE (merge
-   `706e169`), NZ-25 IN FLIGHT (pass 1 running),
+   `706e169`), NZ-25 DONE (merge `6a1c814`), NZ-27 IN FLIGHT (pass 1
+   running),
    NZ-25 (rendered markdown, two passes), then NZ-27 (highlighting,
    brief to finalize), then the UI tickets NZ-4, NZ-5, NZ-3. NZ-11 and
    NZ-6 in the second slot when their files are free. NZ-28 and NZ-29
