@@ -542,10 +542,17 @@ Rule set by the lead: refresh only right after a successful relist.
 FIX CYCLE 2 sent at 23:05 CEST (rename relists via `reload_view` on
 success; folder refresh only in the success branch; fallbacks skip the
 refresh; tests for untouched readings on no-op, refused and cancelled
-actions), RUNNING. Then re-review, branch push, CI, merge, `main` run,
-cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30. This is
-the second fix cycle on NZ-34; a third on the same blocker stops the
-ticket and asks Andreas (stop condition).
+actions), DONE at 23:12 CEST: `relisted: bool` on the folder, delete
+and move outcomes, every loop call site guarded; rename relists through
+`relist_after_rename` and `reload_view_at` only when the path changed
+and refreshes only on a successful reload; two new tests; checks 500 +
+146 passed; new diff against `5ff3745` 2 files, 573 insertions, 12
+deletions, hashing to
+`028c1312d6b075f1ddb061d760ff70e2a391b98762542d32516ab25a3f66ce5a`.
+RE-REVIEW (third look) sent at 23:14 CEST, RUNNING. Then branch push,
+CI, merge, `main` run, cleanup; then NZ-38, NZ-39, NZ-3, NZ-5, NZ-32,
+NZ-28, NZ-30. This was the second fix cycle on NZ-34; a third on the
+same blocker stops the ticket and asks Andreas (stop condition).
 
 NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
