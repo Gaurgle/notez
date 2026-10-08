@@ -507,10 +507,24 @@ NZ-38 (fixed tag field, two tags per cell). Dispatched 2026-10-08 at
 status --short` before dispatch: only this file modified. Base
 `12521d3` (= `main` = `origin/main`, the NZ-34 merge), branch
 `fix/NZ-38-fixed-tag-field`, worktree `.claude/worktrees/NZ-38`, model
-`opus` via `nz-worker`, one pass. RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_fr30` In flight. Then review, branch push,
-CI, merge, `main` run, cleanup; then NZ-39, NZ-3, NZ-5, NZ-32, NZ-28,
-NZ-30.
+`opus` via `nz-worker`, one pass. Worker REPORTED at 22:58 CEST:
+`tui/tree.rs` and `README.md`, 218 insertions, 131 deletions,
+uncommitted diff against `12521d3` hashing to
+`5d7ca1ef653e990bc0994fa0acab955d9d55e12cb4c63aeb722c4423c4dc849a`;
+worker checks: build clean, notez-cli 501 passed, notez-core 146
+passed; about 88k agent tokens. As built: `TAG_FIELD_WIDTH = 3`, each
+tag in a fixed half-cell (`tag_cell`, `tag_field`), `▌`/`▐`
+half-blocks with fg and bg tag colours, the cursor row styled per
+`ListItem` (`list_items(lines, selected)`) so the selection bg sits
+under the spans and the `List` has no highlight style; `mouse_x_in_tag_
+field` opens tag mode on a file row; folder row click still toggles
+expand; NZ-31 tests updated to the new contract (listed in the report);
+new test const `TREE_COL`. Lead decisions (accepted): fixed slot per
+tag rather than packed set tags (a tag always sits in the same place);
+folder-row field click keeps toggling expand. REVIEW dispatched at
+23:00 CEST (`nz-reviewer`, opus) on that hash, RUNNING. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fr30` In flight. Then branch push, CI, merge,
+`main` run, cleanup; then NZ-39, NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
 
 NZ-34 is Done (merge `12521d3` at 22:50 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
@@ -4083,6 +4097,18 @@ Decisions (lead, working rule):
    on that lead are updated and listed). Folder and section rows show
    neither on the preview border (the folder listing keeps its title as
    today).
+6. Path form (Andreas 22:58 CEST: "the right footer, it should show
+   only relative path! since its a tree structure, we 'know' what dir
+   we are in. and, the inspector header can still show the root?"; lead
+   decision): the bottom-right path is the file's path RELATIVE to its
+   section root (`ideas/plan.md`, no leading slash, the bare file name
+   at the root); the preview pane's TOP title shows, after the pane
+   number and the file name, the section root with `~` for the home
+   directory (`~/notez/personal/notez`, `~/Repos/notez/notez`,
+   `~/Repos/notez/docs`), dim, truncated from the left with `…` when the
+   pane is narrow; the file name in the title stays. Tests on the
+   relative path for a root-level note, a nested note and a docs file,
+   and on the `~` shortening.
 
 Acceptance: `file_type` (or its successor) tested for `.md`, `.RS`,
 `.ts`, no extension, folder; the footer segment's style tested for on
