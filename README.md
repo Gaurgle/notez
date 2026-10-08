@@ -120,6 +120,30 @@ entry goes on exit, and the exit sync commits the deletion like any other
 change. There is no trash and no undo. `d` on a folder is covered under
 **Folders in the tree** above.
 
+**Moving notes in the tree.** `m` on a note or folder moves it: the footer
+asks `move <name> to <scope>/<folder>_`, prefilled with the folder it is in
+now, where the typed path is relative to the scope's root (empty means the
+root) and `Tab` cycles the scope (the row's project's personal, public and
+local scratch, then global). `S` sets the scope only: `set scope of <name>:
+<scope> (Tab cycles, Enter applies)` keeps the same folder under the scope
+`Tab` picks, and `Enter` on the scope it is already in does nothing. The
+destination folder must already exist (`N` creates one; `move: no folder
+...` otherwise), a name that is taken there is refused, a folder cannot go
+inside itself, and nothing is ever overwritten. Every note inside a moved
+folder goes with it, and the `.tags` entries follow to the new paths on
+exit, into the destination's `.tags` when the scope changes. A move to
+another scope asks first, `y` to go ahead, naming the folder's notes the way
+a delete does and adding a warning per change: into public `(it will be in
+the <repo> repository, public, not yet committed)`, out of public `(it stays
+in the repository's git history)`, into local scratch `(scratch is not
+synced and not recoverable)`, and out of the vault (personal or global) into
+a repository `(it leaves the vault; the deletion syncs on exit)`. notez never
+commits or pushes in a project repository: a note moved into public is
+yours to commit. A move between volumes copies, checks the copy, then
+deletes the original; if that fails partway, both copies stay and the footer
+names where. `m` and `S` on a section row or in a `docs` section change
+nothing; `docs` is never a destination.
+
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a
 new note or a new todo, a delete confirmation, `:` command) and lights the ones whose mode is on, such as `f`
