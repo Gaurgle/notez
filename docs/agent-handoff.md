@@ -375,9 +375,31 @@ uncommitted diff against `4a239e3`: 4 files, 1415 insertions, 66
 deletions, hashing to
 `250880a5174b139f54079c3e3ef5300098f5f3902a5ef7a5f1b878130bf157b0`.
 Worker stopped. REVIEW dispatched at 11:15 CEST (`nz-reviewer`, opus)
-on that hash, RUNNING. Next: on acceptance, lead checks, commit exactly
-the reviewed diff on `feat/NZ-14-folders`, merge `--no-ff` into `main`,
-checks on `main`, push, board Done, cleanup.
+on that hash; REPORTED at 11:22 CEST: changes requested, one blocker,
+about 105k agent tokens. The reviewer confirmed the hash, ran the checks
+(build clean, 253 + 146 passed), and answered all eight probes (guards
+hold, dispatch order safe, tag keys follow a rename, retired keys exact
+after a failed delete, `notez mkdir` parity).
+
+B1 (blocker): `r` on a folder then Enter on the UNCHANGED name renames
+it whenever `sanitize::name` alters the name (it lowercases and strips
+`_`): `00_quick-notes` to `00quick-notes`, `_todos` to `todos` (breaks
+the todo board), `_todos/IDEAS` to `ideas`. FIX CYCLE 1 sent to the
+pass 2 worker at 11:25 CEST, RUNNING: an unchanged typed name is a
+no-op, regression test on `00_quick-notes`, `_todos`, `IDEAS`; also
+asked whether the note rename path has the same problem (report only).
+Re-review follows on the new hash.
+
+Reviewer follow-ups, not blocking, for Andreas: (1) a mouse click while
+a prompt is open moves the selection, so Enter then acts on the clicked
+row (pre-existing for notes, now reaches folders); (2) a scope with only
+empty folders has no section, so `N` into it via `Tab` creates the
+folder but shows no row (footer reports the path); (3) `d` and `r` work
+on `_todos` in the global section (asks first, vault is git-tracked);
+should `_todos` be protected like a docs folder? (4) `sanitize::name`
+strips `_` and lowercases, so typing `00_quick` as a new name yields
+`00quick`; whether typed names that sanitizing would alter should be
+refused instead is a product call.
 
 Lead decisions on the pass 2 report:
 
