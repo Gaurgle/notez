@@ -507,9 +507,24 @@ CEST by lead `4ffb11e2` on Andreas's request of about 22:00 CEST. `git
 status --short` before dispatch: only this file modified. Base
 `5ff3745` (= `main` = `origin/main`, the NZ-37 merge), branch
 `feat/NZ-34-reload`, worktree `.claude/worktrees/NZ-34`, model `opus`
-via `nz-worker`, one pass. RUNNING. Board item
-`PVTI_lAHOCU842c4BmE5Zzg_fMvo` In flight. Then review, branch push,
-CI, merge, `main` run, cleanup; then NZ-3, NZ-5, NZ-32, NZ-28, NZ-30.
+via `nz-worker`, one pass. Worker REPORTED at 22:40 CEST, one lead
+correction (probe with `metadata`, following symlinks, plus a unix
+test) DONE at 22:44 CEST: `tui/tree.rs` and `README.md`, 329
+insertions, 1 deletion, uncommitted diff against `5ff3745` hashing to
+`e73ad6593be2dfd3b91f9c2ebff8f46cfe018b2940b2093b78369f20054d16f5`;
+worker checks: build clean, notez-cli 496 passed, notez-core 146
+passed; about 124k agent tokens; no existing test changed. As built:
+`R` reloads via `rebuild_after_delete` semantics (keeps state, expands
+nothing, cursor falls back if its note vanished), help-only key in the
+View group; `event::poll(2 s)` loop, probe over section roots and
+expanded folders with `Option<SystemTime>` readings, one-sided paths
+not a change, gated off during input modes, help and drags, baseline
+on first run, message not overwriting an existing one; todo board
+unchanged (unsaved edits in memory; README says so). Lead decisions
+(accepted): all of the above deviations from the brief. REVIEW
+dispatched at 22:46 CEST (`nz-reviewer`, opus) on that hash, RUNNING.
+Then branch push, CI, merge, `main` run, cleanup; then NZ-3, NZ-5,
+NZ-32, NZ-28, NZ-30.
 
 NZ-37 is Done (merge `5ff3745` at 22:27 CEST; branch run and `main` run
 green; remote branch deleted; worktree and local branch removed; board
