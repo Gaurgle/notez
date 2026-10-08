@@ -526,8 +526,25 @@ Lead decisions on the report (accepted): `Esc` keeps its browse
 behaviour with the preview focused; `Tab` stays on the list while
 folded; the NZ-22 priority test rule relaxed for the pane rows only.
 Pass 2 (grip drawing, drag, wheel and click routing, auto-fold,
-README) DISPATCHED at 21:50 CEST on the same worktree, RUNNING; one
-review of the whole diff after it. Board item
+README) REPORTED at 21:54 CEST: `README.md`, `tui/panes.rs`,
+`tui/theme.rs`, `tui/tree.rs`; whole diff against `1edfbce` 5 files,
+1357 insertions, 121 deletions, hashing to
+`db90a8f0b47aca0095e59541a503f90c34dcc91b615bede3333c9bd9bcdb8db3`;
+worker checks: build clean, notez-cli 460 passed, notez-core 146
+passed; about 108k agent tokens; no existing test changed in pass 2.
+As built: 3-row `⠿` grip, LAVENDER while dragging; `grab_hit` with one
+column of slop; drag rounds to the nearest percent and clamps; any
+non-drag mouse event ends a drag; wheel routes by pane (over the list
+it moves the cursor, which is a change: before, the wheel always
+scrolled the preview); a left click focuses the pane under it; a
+filter-strip click now counts only inside the list (before, a click on
+that row inside the preview opened the filter, a latent bug); auto-fold
+via `fit(width)` with a separate `auto_folded` flag, `2`/`Tab`/focus
+refused while auto-folded, the user's own fold never overwritten.
+Lead decisions (accepted): wheel over a folded preview's space reaches
+the list. Workers stopped. REVIEW dispatched at 21:57 CEST
+(`nz-reviewer`, opus) on that hash, RUNNING. Then branch push, CI,
+merge, `main` run, cleanup; then NZ-31. Board item
 `PVTI_lAHOCU842c4BmE5Zzg_KW1E` In flight. Then NZ-3, NZ-5, NZ-28a,
 NZ-28b, NZ-29a.
 
@@ -3562,6 +3579,52 @@ label; help lists the tokens; README. Allowed files:
 (no `notez_core::filter` change, so epoz is untouched: the cli strips
 `@` tokens before handing the rest to `notez_core::filter::parse`).
 One worker pass, one review.
+
+#### NZ-34: reload the tree on demand and when files change
+
+Status: Ready, runs after NZ-31. Requested by Andreas on 2026-10-08 at
+22:00 CEST ("should we have some kind of update or reload function? if
+stuff are added while in the tui?"). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_fMvo`.
+
+Problem (code facts at `1edfbce`): the tree is built once at start and
+rebuilt only by the browser's own actions through the `rebuild`
+closure (`commands/tree.rs::run`, `build_view`); the event loop blocks
+in `event::read()` (`tui/tree.rs` about line 3736) with no timeout, so
+nothing can happen while idle. A note written by the editor, by `notez
+add` in another shell, or by another session's sync is invisible until
+the browser is reopened.
+
+Decisions (lead, working rule):
+
+1. `R` reloads on demand: calls the `rebuild` closure and
+   `Forest::rebuild` keeping the cursor row (by path), expanded
+   folders, filter, marks (NZ-16 pruning applies) and unsaved tag flags,
+   exactly as the post-create rebuild does; footer `reloaded` for one
+   draw; `R` is browse-mode only (verify it is unbound; NZ-25 took `p`,
+   not `R`).
+2. Automatic check: the event loop polls with `event::poll(Duration)`
+   using a 2 second timeout; on timeout with no input, a cheap probe
+   compares the mtimes of every section root and every expanded folder
+   (`symlink_metadata`, no recursion into collapsed folders, no git
+   call) against the last probe; any difference triggers the same
+   reload as `R`. The probe is skipped while an input mode or a drag is
+   open and while the help overlay is up. Cost: a few dozen stats every
+   2 seconds idle, nothing while typing. No file-watcher dependency
+   (`notify` is outside the approved families).
+3. The todo board gets the same `R` and probe only if its loop shares
+   the mechanism cheaply; otherwise tree only, and say so.
+
+Acceptance: a test that `R` after an external file creation lists the
+new note with cursor, expanded set, filter and marks kept; a test of
+the probe's change detection (changed mtime on a root, on an expanded
+folder, no change, collapsed folder change ignored); the poll timeout
+does not alter key handling (existing event tests pass); key table and
+help; README sentence. Allowed files: `crates/notez-cli/src/tui/tree.rs`,
+`tui/footer.rs`, `tui/help.rs`, `tui/todo.rs` (only for decision 3),
+`README.md`. One worker pass, one review. Reviewer probes: the probe
+never reads file contents; mtime granularity on APFS and ext4; a reload
+during a prompt must not happen; CPU when idle for an hour.
 
 ### UI tickets NZ-2 to NZ-5 (drafts)
 
