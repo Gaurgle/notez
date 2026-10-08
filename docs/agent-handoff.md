@@ -3376,7 +3376,24 @@ and deciding on it as its own ticket once NZ-1 is in use.
 
 #### NZ-4: resizable split, preview fold and pane focus (tree only)
 
-Status: Draft.
+Status: Ready, in the standing scope since 2026-10-06 (NZ-2 to NZ-5 and
+the integration delegation), confirmed in the 2026-10-07 queue. Runs
+after NZ-27. The two open points below were decided by the lead on
+2026-10-08 at 22:25 CEST under the working rule: (a) the split and fold
+are NOT remembered between runs (no state file; the standing scope
+forbids a new persisted format), (b) the todo board is left alone.
+Current code facts for the worker to verify: the preview is cached per
+path, width, mode and language (NZ-25, NZ-27) so a width change
+re-renders through the cache and a folded preview costs nothing;
+`preview_scroll`, `preview_max`, `preview_height` and `scrolled` exist
+(NZ-22), `J`/`K`, Shift+Up/Down and PgUp/PgDn already scroll the
+preview from the list; `p` toggles rendered/raw (NZ-25); `Tab` is used
+only inside prompts (scope cycling), so it is free in browse mode; `1`
+and `2` are unbound; `<`, `>`, `=` are unbound; the list text width is
+`list_text_width(pane)` (NZ-21) and must follow the split; the footer
+has a Hints slot with the file type and mark count leading (NZ-16,
+NZ-25). The fleetz reference for grips is `~/Repos/fleetz/src/ui/
+grips.rs` (read-only). Board item `PVTI_lAHOCU842c4BmE5Zzg_KW1E`.
 
 Outcome: the tree browser's list and preview behave like fleetz panes.
 
