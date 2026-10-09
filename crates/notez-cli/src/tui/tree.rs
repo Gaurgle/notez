@@ -571,11 +571,11 @@ fn find_top_dir(nodes: &[TreeNode], idx: usize) -> Option<usize> {
     None
 }
 
-/// The filter strip's contiguous 5-dot geometry, shared with the todoz
-/// board: dot 0 sits at `area_x + 5`. List rows draw their dots elsewhere
-/// (see [`tag_field`]).
+/// The filter strip's contiguous 5-dot geometry: dot 0 sits at
+/// `area_x + 1`, after a one-column lead, so each strip dot stands over
+/// the same tag's slot in the rows' field (see [`tag_field`]).
 fn mouse_x_to_dot(mouse_col: u16, area_x: u16) -> Option<u8> {
-    let dot_start = area_x.saturating_add(5);
+    let dot_start = area_x.saturating_add(1);
     let dot_end = dot_start + 4;
     if mouse_col >= dot_start && mouse_col <= dot_end {
         Some((mouse_col - dot_start) as u8)
@@ -584,58 +584,60 @@ fn mouse_x_to_dot(mouse_col: u16, area_x: u16) -> Option<u8> {
     }
 }
 
-/// The columns of every list row's tag field, tagged or not, so the tree
-/// after it never moves. Each cell holds two of the five tags.
-const TAG_FIELD_WIDTH: usize = 3;
+/// The columns of every list row's tag field, one slot per tag in
+/// [`FLAG_DEFS`] order, tagged or not, so the tree after it never moves.
+const TAG_FIELD_WIDTH: usize = FLAG_DEFS.len();
 
-/// One cell of a row's tag field: the tags at `left` and `left + 1` in
-/// [`FLAG_DEFS`]. Both set: `▌` in the left colour on the right colour.
-/// One set: a half block on its side in its colour. Neither: a space. A
-/// half without a tag sets no background, so the row's own (the cursor
-/// row's selection) shows through it.
-fn tag_cell(flags: u8, left: usize) -> Span<'static> {
-    let is_set = |i: usize| FLAG_DEFS.get(i).is_some_and(|def| flags & def.bit != 0);
-    let colour = |i: usize| theme::FLAG_COLORS[i];
-    match (is_set(left), is_set(left + 1)) {
-        (true, true) => Span::styled("▌", Style::default().fg(colour(left)).bg(colour(left + 1))),
-        (true, false) => Span::styled("▌", Style::default().fg(colour(left))),
-        (false, true) => Span::styled("▐", Style::default().fg(colour(left + 1))),
-        (false, false) => Span::raw(" "),
+/// Slot `slot` of a row's tag field: a `●` in the tag's colour when it is
+/// set in `flags`, a dim `·` otherwise, as todoz draws its dots. Neither
+/// sets a background, so the cursor row's selection shows through.
+fn tag_cell(flags: u8, slot: usize) -> Span<'static> {
+    if flags & FLAG_DEFS[slot].bit != 0 {
+        Span::styled("●", Style::default().fg(theme::FLAG_COLORS[slot]))
+    } else {
+        Span::styled("·", Style::default().fg(theme::OVERLAY))
     }
 }
 
-/// A list row's tag field: [`TAG_FIELD_WIDTH`] cells of [`tag_cell`], tags
-/// 0 and 1 in the first, 2 and 3 in the second, 4 in the third, then one
-/// space before the tree.
-fn tag_field(flags: u8) -> Vec<Span<'static>> {
-    let mut spans: Vec<Span<'static>> =
-        (0..TAG_FIELD_WIDTH).map(|k| tag_cell(flags, 2 * k)).collect();
+/// A list row's tag field: the [`TAG_FIELD_WIDTH`] slots of [`tag_cell`],
+/// then one space before the tree. A note row always draws its slots. A
+/// folder or section row (`is_dir`) shows the tags its notes carry (see
+/// [`derive_dir_flags`]) and stays blank when they carry none. Only a
+/// note's slots take clicks (see [`field_click_tag`]).
+fn tag_field(flags: u8, is_dir: bool) -> Vec<Span<'static>> {
+    let is_blank = is_dir && flags == 0;
+    let mut spans: Vec<Span<'static>> = (0..TAG_FIELD_WIDTH)
+        .map(|slot| if is_blank { Span::raw(" ") } else { tag_cell(flags, slot) })
+        .collect();
     spans.push(Span::raw(" "));
     spans
 }
 
-/// Whether `mouse_col` falls in the tag field of a list row whose text
-/// starts at `area_x`: the [`TAG_FIELD_WIDTH`] columns after the
-/// one-column gutter. A click there opens tag mode, as `t` does.
-fn mouse_x_in_tag_field(mouse_col: u16, area_x: u16) -> bool {
-    let Some(first) = area_x.checked_add(1) else {
-        return false;
-    };
-    mouse_col >= first && mouse_col - first < TAG_FIELD_WIDTH as u16
+/// The tag field slot under `mouse_col` on a list row whose text starts at
+/// `area_x`: slot n is the n-th column after the one-column gutter and
+/// stands for tag n of [`FLAG_DEFS`]. `None` off the field.
+fn mouse_x_to_field_slot(mouse_col: u16, area_x: u16) -> Option<usize> {
+    let first = area_x.checked_add(1)?;
+    let slot = usize::from(mouse_col.checked_sub(first)?);
+    (slot < TAG_FIELD_WIDTH).then_some(slot)
 }
 
-/// Whether a click at `mouse_col` on a row opens tag mode: on a note row
-/// (`is_dir` false) inside its tag field (see [`mouse_x_in_tag_field`]),
-/// and only while no prompt, confirm, filter, tag mode or `:` line is
-/// open (`input_open`). Otherwise the click is a plain row click.
-fn field_click_opens_tag_mode(mouse_col: u16, area_x: u16, is_dir: bool, input_open: bool) -> bool {
-    !is_dir && !input_open && mouse_x_in_tag_field(mouse_col, area_x)
+/// The tag, as an index into [`FLAG_DEFS`], that a click at `mouse_col`
+/// toggles: the slot under it (see [`mouse_x_to_field_slot`]) on a note
+/// row (`is_dir` false), and only while no prompt, confirm, filter, tag
+/// mode or `:` line is open (`input_open`). `None` makes the click a plain
+/// row click.
+fn field_click_tag(mouse_col: u16, area_x: u16, is_dir: bool, input_open: bool) -> Option<usize> {
+    if is_dir || input_open {
+        return None;
+    }
+    mouse_x_to_field_slot(mouse_col, area_x)
 }
 
 /// The list's rows as items, the `selected` one (clamped to the last row,
 /// as the list clamps it) in [`theme::selected_row`]. The style goes on
-/// the item, under the row's spans, so a tag cell's own background stays
-/// visible on the cursor row; a list highlight style would paint over it.
+/// the item, under the row's spans, so the tag dots keep their colours on
+/// the cursor row; a list highlight style would paint over them.
 fn list_items(lines: Vec<Line<'static>>, selected: Option<usize>) -> Vec<ListItem<'static>> {
     let selected = selected.map(|s| s.min(lines.len().saturating_sub(1)));
     lines
@@ -805,7 +807,7 @@ fn row_line(
 ) -> Line<'static> {
     let header_color = spec.map_or(theme::OVERLAY, section_color);
     let mut spans = vec![Span::raw(" ")];
-    spans.extend(tag_field(node.flags));
+    spans.extend(tag_field(node.flags, node.is_dir));
     spans.push(Span::styled(branch.to_string(), Style::default().fg(theme::SURFACE)));
     if node.depth > 0 {
         spans.push(row_badge(node, spec));
@@ -1637,7 +1639,7 @@ fn current_sections_without(forest: &mut Forest, gone: &dyn Fn(&Path) -> bool) -
 const SECTION_MARK: &str = "mark: a section cannot be marked";
 
 /// Drawn in the gutter of a marked row, the column before its tag field.
-/// A thin bar, so it never reads as a tag cell's `▌` half block next to it.
+/// A thin bar, so it reads as a mark rather than as one of the tag dots.
 const MARK_GLYPH: &str = "▎";
 
 /// Toggle the mark on `row`: `Ok(true)` when a note or folder row was
@@ -3529,7 +3531,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key("r", "rename", "rename note or folder", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(6), None),
     key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the note", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(1), None),
     key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
-    key("click tags", "tag", "click a note's tag field to open tag mode",theme::PEACH, Group::Edit, BROWSE, Slot::HelpOnly, None),
+    key("click tags", "tag", "click a note's tag dot to toggle that tag",theme::PEACH, Group::Edit, BROWSE, Slot::HelpOnly, None),
     key("enter", "confirm", "rename: confirm", theme::GREEN, Group::Edit, RENAMING, Slot::Priority(1), None),
     key("esc", "cancel", "rename: cancel", theme::PEACH, Group::Edit, RENAMING, Slot::Priority(2), None),
     key("bksp", "delete", "rename: delete the last char", theme::TEXT, Group::Edit, RENAMING, Slot::Priority(3), None),
@@ -3779,7 +3781,8 @@ fn event_loop(
                     .tag_sets
                     .iter()
                     .fold(0u8, |a, s| a | s);
-                let mut filter_spans: Vec<Span> = vec![Span::raw("     ")];
+                // One column of lead, as the rows' gutter: see `mouse_x_to_dot`.
+                let mut filter_spans: Vec<Span> = vec![Span::raw(" ")];
                 for (i, def) in FLAG_DEFS.iter().enumerate() {
                     let style = if active_tags & def.bit != 0 {
                         Style::default()
@@ -4235,13 +4238,13 @@ fn event_loop(
                         let vis_idx = state.offset() + list_row;
                         if let Some(&real) = visible_for_mouse.get(vis_idx) {
                             state.select(Some(vis_idx));
-                            if field_click_opens_tag_mode(
+                            if let Some(tag) = field_click_tag(
                                 mouse.column,
                                 list_inner_area.x,
                                 nodes[real].is_dir,
                                 input_open,
                             ) {
-                                flag_mode = true;
+                                nodes[real].flags ^= FLAG_DEFS[tag].bit;
                                 continue;
                             }
                             if nodes[real].is_dir {
@@ -5367,14 +5370,17 @@ mod tests {
                     assert!(!clicked.dragging);
                 }
             }
-            // The strip's five dots map to their tags, as at 50/50, and a
-            // row's three tag cells right after its gutter are its field.
+            // The strip's five dots map to their tags, as at 50/50, in the
+            // same columns as a row's five slots right after its gutter.
+            assert_eq!(strip.x, rows.x, "split {split}");
             for dot in 0..5u8 {
-                assert_eq!(mouse_x_to_dot(strip.x + 5 + u16::from(dot), strip.x), Some(dot), "split {split}");
+                let col = strip.x + 1 + u16::from(dot);
+                assert_eq!(mouse_x_to_dot(col, strip.x), Some(dot), "split {split}");
+                assert_eq!(mouse_x_to_field_slot(col, rows.x), Some(usize::from(dot)), "split {split}");
             }
-            for col in rows.x..rows.x + 6 {
-                let in_field = (rows.x + 1..=rows.x + 3).contains(&col);
-                assert_eq!(mouse_x_in_tag_field(col, rows.x), in_field, "split {split} column {col}");
+            for col in [rows.x, rows.x + 6, rows.x + 7] {
+                assert_eq!(mouse_x_to_dot(col, strip.x), None, "split {split} column {col}");
+                assert_eq!(mouse_x_to_field_slot(col, rows.x), None, "split {split} column {col}");
             }
             // A row fills exactly the text width the split gives it.
             assert_eq!(usize::from(rows.width), list_text_width(list.width), "split {split}");
@@ -6532,7 +6538,7 @@ mod tests {
     /// The first column of a row: blank, or the mark of a marked row.
     const GUTTER_COL: usize = 0;
 
-    /// The column after the gutter, the three-cell tag field and its space:
+    /// The column after the gutter, the five-slot tag field and its space:
     /// where the tree drawing starts on every row.
     const TREE_COL: usize = GUTTER_COL + 1 + TAG_FIELD_WIDTH + 1;
 
@@ -6598,15 +6604,16 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_a_tag_cell_hits_the_field_and_the_badge_does_not() {
+    fn a_click_on_a_set_dot_hits_its_slot_and_the_badge_does_not() {
         let (sections, mut nodes) = badged_forest();
         let idx = row(&nodes, "/p/.notez/d.md");
         nodes[idx].flags = FLAG_PRIO;
         let cells = render_row(line_of(&sections, &nodes, idx));
-        let lit = cells.iter().position(|c| c.0 == "▐").expect("a lit half");
-        assert!(mouse_x_in_tag_field(lit as u16, 0));
+        let lit = cells.iter().position(|c| c.0 == "●").expect("a set dot");
+        let prio = FLAG_DEFS.iter().position(|def| def.bit == FLAG_PRIO).unwrap();
+        assert_eq!(mouse_x_to_field_slot(lit as u16, 0), Some(prio));
         let badge = cells.iter().position(|c| c.0 == Scope::Local.icon()).expect("the badge");
-        assert!(!mouse_x_in_tag_field(badge as u16, 0), "the badge is outside the field");
+        assert_eq!(mouse_x_to_field_slot(badge as u16, 0), None, "the badge is outside the field");
     }
 
     // --- Todo icon (NZ-24) ---
@@ -6863,20 +6870,21 @@ mod tests {
         assert_eq!(file_name, folder_badge + 2);
     }
 
-    /// A section row: the gutter, the blank three-cell tag field and its
-    /// space, the expand mark at [`TREE_COL`], then the scope icon, the
-    /// label and the leader to the count at the text width; no scope word.
+    /// A section row: the gutter, the blank five-slot tag field of an
+    /// untagged section and its space, the expand mark at [`TREE_COL`], then
+    /// the scope icon, the label and the leader to the count at the text
+    /// width; no scope word.
     #[test]
     fn a_section_row_keeps_its_spans() {
         let (sections, nodes) = aligned_forest();
         let line = line_of(&sections, &nodes, 0);
         let dots = |n: usize| format!(" {} ", "·".repeat(n));
-        let base = [" ", " ", " ", " ", " ", "▼ ", "\u{f007} ", "/n/personal/proj"];
+        let base = [" ", " ", " ", " ", " ", " ", " ", "▼ ", "\u{f007} ", "/n/personal/proj"];
         let mut expected: Vec<String> = base.iter().map(|s| s.to_string()).collect();
         expected.push(dots(32 + 2 + 7 + 9 - TAG_FIELD_WIDTH - 1));
         expected.push("4".to_string());
         assert_eq!(span_texts(&line), expected);
-        assert_eq!(column_of(&line, 5), TREE_COL, "the expand mark starts after the tag field");
+        assert_eq!(column_of(&line, 7), TREE_COL, "the expand mark starts after the tag field");
     }
 
     #[test]
@@ -6945,39 +6953,29 @@ mod tests {
     }
 
     #[test]
-    fn the_tag_field_is_three_cells_with_two_tags_per_cell_and_the_tree_never_moves() {
+    fn the_tag_field_is_five_dot_slots_in_tag_order_and_the_tree_never_moves() {
         let (sections, mut nodes) = aligned_forest();
         let c = row(&nodes, "/n/personal/proj/日本語/c.md");
-        let colour = |i: usize| Some(theme::FLAG_COLORS[i]);
-        // Per tag set: the expected (glyph, fg, bg) of the three cells,
-        // where a `None` bg means the row's own background.
-        type Cell = (&'static str, Option<Color>, Option<Color>);
-        let blank: Cell = (" ", None, None);
-        let cases: Vec<(Vec<usize>, [Cell; 3])> = vec![
-            (vec![], [blank, blank, blank]),
-            (vec![0], [("▌", colour(0), None), blank, blank]),
-            (vec![1], [("▐", colour(1), None), blank, blank]),
-            (vec![3], [blank, ("▐", colour(3), None), blank]),
-            (vec![4], [blank, blank, ("▌", colour(4), None)]),
-            (vec![0, 1], [("▌", colour(0), colour(1)), blank, blank]),
-            (vec![0, 2, 4], [("▌", colour(0), None), ("▌", colour(2), None), ("▌", colour(4), None)]),
-            (vec![0, 1, 2, 3, 4], [("▌", colour(0), colour(1)), ("▌", colour(2), colour(3)), ("▌", colour(4), None)]),
-        ];
+        let cases: Vec<Vec<usize>> =
+            vec![vec![], vec![0], vec![1], vec![3], vec![4], vec![0, 1], vec![0, 2, 4], vec![0, 1, 2, 3, 4]];
         let untagged_tail: Vec<String> =
             render_cells(line_of(&sections, &nodes, c), false)[TREE_COL - 1..].iter().map(|c| c.0.clone()).collect();
-        for (tags, expected) in cases {
+        for tags in cases {
             nodes[c].flags = flags_of(&tags);
             for selected in [false, true] {
                 let row_bg = if selected { theme::selected_row().bg.unwrap() } else { Color::Reset };
                 let cells = render_cells(line_of(&sections, &nodes, c), selected);
-                for (k, (glyph, fg, bg)) in expected.iter().enumerate() {
-                    let (symbol, style) = &cells[GUTTER_COL + 1 + k];
-                    let label = format!("tags {tags:?}, selected {selected}, cell {k}");
+                for slot in 0..TAG_FIELD_WIDTH {
+                    let (symbol, style) = &cells[GUTTER_COL + 1 + slot];
+                    let label = format!("tags {tags:?}, selected {selected}, slot {slot}");
+                    let (glyph, fg) = if tags.contains(&slot) {
+                        ("●", theme::FLAG_COLORS[slot])
+                    } else {
+                        ("·", theme::OVERLAY)
+                    };
                     assert_eq!(symbol, glyph, "{label}");
-                    if let Some(fg) = fg {
-                        assert_eq!(style.fg, Some(*fg), "{label}");
-                    }
-                    assert_eq!(style.bg, Some(bg.unwrap_or(row_bg)), "{label}");
+                    assert_eq!(style.fg, Some(fg), "{label}");
+                    assert_eq!(style.bg, Some(row_bg), "{label}: the row's own background");
                 }
                 assert_eq!(cells[GUTTER_COL].1.bg, Some(row_bg), "tags {tags:?}: the gutter");
                 let tail: Vec<String> = cells[TREE_COL - 1..].iter().map(|c| c.0.clone()).collect();
@@ -6987,13 +6985,19 @@ mod tests {
                 }
             }
         }
-        // A section row and a folder row start their tree at the same column,
-        // tagged rows elsewhere or not, and the folder's count still ends at
-        // the text width.
+        // A section row and a folder row start their tree at the same column
+        // and show the tags derived from their notes as dots, and the
+        // folder's count still ends at the text width.
         nodes[c].flags = flags_of(&[0, 1, 2, 3, 4]);
+        derive_dir_flags(&mut nodes);
         let section = render_row(line_of(&sections, &nodes, 0));
         assert_eq!(section[TREE_COL].0, "▼");
-        assert!(section[GUTTER_COL..TREE_COL].iter().all(|c| c.0 == " "), "{section:?}");
+        assert_eq!(section[GUTTER_COL].0, " ", "{section:?}");
+        assert_eq!(section[TREE_COL - 1].0, " ", "{section:?}");
+        for slot in 0..TAG_FIELD_WIDTH {
+            let cell = &section[GUTTER_COL + 1 + slot];
+            assert_eq!(cell, &("●".to_string(), Some(theme::FLAG_COLORS[slot])), "section slot {slot}");
+        }
         for idx in (0..nodes.len()).filter(|&i| nodes[i].is_dir) {
             let line = line_of(&sections, &nodes, idx);
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{:?}", span_texts(&line));
@@ -7001,35 +7005,49 @@ mod tests {
     }
 
     #[test]
-    fn the_tag_field_keeps_its_three_cells_when_tagged_rows_fold_away() {
+    fn the_tag_field_keeps_its_five_slots_when_tagged_rows_fold_away() {
         let (sections, mut nodes) = tagged_forest();
-        let left = |i: usize| ("▌".to_string(), Some(theme::FLAG_COLORS[i]));
-        let right = |i: usize| ("▐".to_string(), Some(theme::FLAG_COLORS[i]));
+        // Folders carry their notes' tags, as the event loop derives them,
+        // and draw them as dots in the same field.
+        derive_dir_flags(&mut nodes);
+        let set = |i: usize| ("●".to_string(), Some(theme::FLAG_COLORS[i]));
+        let unset = || ("·".to_string(), Some(theme::OVERLAY));
         let blank = || (" ".to_string(), None);
-        let untagged = vec![blank(), blank(), blank(), blank()];
+        let untagged = vec![unset(), unset(), unset(), unset(), unset(), blank()];
         assert_eq!(
             field_of(&sections, &nodes, "/n/personal/proj/ideas/a.md"),
-            vec![left(0), left(2), left(4), blank()],
-            "three tags, one per pair"
+            vec![set(0), unset(), set(2), unset(), set(4), blank()],
+            "three tags, each in its own slot"
         );
         assert_eq!(
             field_of(&sections, &nodes, "/n/personal/proj/åäö/b.md"),
-            vec![blank(), right(3), blank(), blank()],
-            "one tag, the right half of its pair"
+            vec![unset(), unset(), unset(), set(3), unset(), blank()],
+            "one tag in its slot"
         );
         assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語/c.md"), untagged, "no tag");
-        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj"), untagged, "the section row");
+        let all_three = vec![set(0), unset(), set(2), set(3), set(4), blank()];
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj"), all_three, "the section row: both notes' tags");
+        let ideas = vec![set(0), unset(), set(2), unset(), set(4), blank()];
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/ideas"), ideas, "a folder row: a.md's tags");
+        let only_b = vec![unset(), unset(), unset(), set(3), unset(), blank()];
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/åäö"), only_b, "a folder row: b.md's tag");
+        let blank_field = vec![blank(), blank(), blank(), blank(), blank(), blank()];
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語"), blank_field, "a folder of untagged notes");
         for idx in (0..nodes.len()).filter(|&i| nodes[i].is_dir) {
             let line = line_of(&sections, &nodes, idx);
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{:?}", span_texts(&line));
         }
 
-        // Folding both tagged rows away leaves every field as it was.
+        // Folding both tagged rows away leaves every field as it was, and
+        // a folded folder still shows the tags inside it.
         for folder in ["/n/personal/proj/ideas", "/n/personal/proj/åäö"] {
             let idx = row(&nodes, folder);
             nodes[idx].expanded = false;
             assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/日本語/c.md"), untagged, "{folder} folded");
         }
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/ideas"), ideas, "ideas folded");
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj/åäö"), only_b, "åäö folded");
+        assert_eq!(field_of(&sections, &nodes, "/n/personal/proj"), all_three, "the section, both folded");
         for idx in (0..nodes.len()).filter(|&i| nodes[i].is_dir && compute_visible(&nodes, "").contains(&i)) {
             let line = line_of(&sections, &nodes, idx);
             assert_eq!(line.width(), LIST_TEXT_WIDTH, "{:?}", span_texts(&line));
@@ -7037,47 +7055,89 @@ mod tests {
     }
 
     #[test]
-    fn a_tagless_forest_draws_a_blank_field_and_the_section_mark_follows_it() {
-        let (sections, nodes) = aligned_forest();
+    fn a_tagless_forest_draws_unset_dots_on_notes_a_blank_field_on_folders_and_the_section_mark_follows() {
+        let (sections, mut nodes) = aligned_forest();
+        derive_dir_flags(&mut nodes);
         assert!(nodes.iter().all(|n| n.flags == 0));
         for idx in 0..nodes.len() {
             let line = line_of(&sections, &nodes, idx);
             assert_eq!(line.spans[0].content, " ", "the gutter");
-            let field: Vec<&str> = line.spans[1..5].iter().map(|s| s.content.as_ref()).collect();
-            assert_eq!(field, [" "; 4], "a blank field and its space: {:?}", span_texts(&line));
+            let slot = if nodes[idx].is_dir { " " } else { "·" };
+            let field: Vec<&str> = line.spans[1..7].iter().map(|s| s.content.as_ref()).collect();
+            assert_eq!(field, [slot, slot, slot, slot, slot, " "], "the field and its space: {:?}", span_texts(&line));
             // Below depth 1 a blank ancestor level may lead the tree drawing.
             if nodes[idx].depth <= 1 {
-                let first = &line.spans[5];
+                let first = &line.spans[7];
                 assert!(!first.content.starts_with(' '), "nothing between field and tree: {:?}", span_texts(&line));
             }
-            let before_name: String =
-                line.spans[..name_index(&line, &nodes[idx])].iter().map(|s| s.content.as_ref()).collect();
-            assert!(!before_name.contains(['·', '●', '▌', '▐']), "{before_name:?}");
+            let after_field: String =
+                line.spans[7..name_index(&line, &nodes[idx])].iter().map(|s| s.content.as_ref()).collect();
+            assert!(!after_field.contains(['·', '●']), "{after_field:?}");
         }
-        assert_eq!(line_of(&sections, &nodes, 0).spans[5].content, "▼ ");
+        assert_eq!(line_of(&sections, &nodes, 0).spans[7].content, "▼ ");
     }
 
     #[test]
-    fn a_click_anywhere_in_the_tag_field_hits_it_and_nowhere_else() {
+    fn a_click_maps_each_field_column_to_its_slot_and_nowhere_else() {
         for area_x in [0u16, 10] {
-            assert!(!mouse_x_in_tag_field(area_x, area_x), "the gutter at {area_x}");
-            for col in area_x + 1..=area_x + 3 {
-                assert!(mouse_x_in_tag_field(col, area_x), "column {col} of a list at {area_x}");
+            assert_eq!(mouse_x_to_field_slot(area_x, area_x), None, "the gutter at {area_x}");
+            for slot in 0..TAG_FIELD_WIDTH {
+                let col = area_x + 1 + slot as u16;
+                assert_eq!(mouse_x_to_field_slot(col, area_x), Some(slot), "column {col} of a list at {area_x}");
             }
-            for col in area_x + 4..area_x + 8 {
-                assert!(!mouse_x_in_tag_field(col, area_x), "column {col}: past the field");
+            for col in area_x + 6..area_x + 10 {
+                assert_eq!(mouse_x_to_field_slot(col, area_x), None, "column {col}: past the field");
             }
         }
-        assert!(!mouse_x_in_tag_field(9, 10), "left of the list");
-        assert!(!mouse_x_in_tag_field(u16::MAX, u16::MAX), "no overflow at the edge");
+        assert_eq!(mouse_x_to_field_slot(9, 10), None, "left of the list");
+        assert_eq!(mouse_x_to_field_slot(u16::MAX, u16::MAX), None, "no overflow at the edge");
     }
 
     #[test]
-    fn a_field_click_opens_tag_mode_only_on_a_note_row_with_no_input_open() {
-        assert!(field_click_opens_tag_mode(2, 0, false, false), "a note row, nothing open");
-        assert!(!field_click_opens_tag_mode(2, 0, false, true), "an input is open: a plain row click");
-        assert!(!field_click_opens_tag_mode(2, 0, true, false), "a folder row toggles as before");
-        assert!(!field_click_opens_tag_mode(5, 0, false, false), "outside the field");
+    fn a_field_click_picks_its_slots_tag_only_on_a_note_row_with_no_input_open() {
+        for slot in 0..TAG_FIELD_WIDTH {
+            let col = 1 + slot as u16;
+            assert_eq!(field_click_tag(col, 0, false, false), Some(slot), "slot {slot} on a note row");
+            assert_eq!(field_click_tag(col, 0, false, true), None, "slot {slot}: an input is open");
+            assert_eq!(field_click_tag(col, 0, true, false), None, "slot {slot}: a folder row");
+        }
+        assert_eq!(field_click_tag(0, 0, false, false), None, "the gutter");
+        assert_eq!(field_click_tag(6, 0, false, false), None, "the space after the field");
+    }
+
+    /// Clicks at a row's drawn columns, applied as the event loop applies
+    /// them: each one toggles exactly the tag whose slot is under it.
+    #[test]
+    fn a_click_on_a_drawn_slot_toggles_exactly_that_tag_and_nothing_on_a_folder() {
+        let (sections, mut nodes) = tagged_forest();
+        let a = row(&nodes, "/n/personal/proj/ideas/a.md");
+        let before = nodes[a].flags;
+        for slot in 0..TAG_FIELD_WIDTH {
+            let cells = render_row(line_of(&sections, &nodes, a));
+            let col = (GUTTER_COL + 1 + slot) as u16;
+            assert!(["●", "·"].contains(&cells[col as usize].0.as_str()), "slot {slot}: {:?}", cells[col as usize]);
+            let tag = field_click_tag(col, 0, nodes[a].is_dir, false).expect("a note's slot");
+            nodes[a].flags ^= FLAG_DEFS[tag].bit;
+            assert_eq!(nodes[a].flags ^ before, flags_of(&(0..=slot).collect::<Vec<_>>()), "slot {slot}");
+            let after = render_row(line_of(&sections, &nodes, a));
+            for other in (0..TAG_FIELD_WIDTH).filter(|&k| k != slot) {
+                let x = GUTTER_COL + 1 + other;
+                assert_eq!(after[x], cells[x], "slot {slot} left slot {other} alone");
+            }
+            assert_ne!(after[col as usize].0, cells[col as usize].0, "slot {slot} flipped");
+        }
+        // A folder's derived dots are drawn but take no click: every column
+        // of its field is a plain row click and its tags stay as they were.
+        derive_dir_flags(&mut nodes);
+        let folder = row(&nodes, "/n/personal/proj/ideas");
+        let derived = nodes[folder].flags;
+        assert_ne!(derived, 0);
+        let cells = render_row(line_of(&sections, &nodes, folder));
+        assert!(cells[GUTTER_COL + 1..TREE_COL - 1].iter().any(|c| c.0 == "●"), "{cells:?}");
+        for col in 0..10u16 {
+            assert_eq!(field_click_tag(col, 0, nodes[folder].is_dir, false), None, "folder column {col}");
+        }
+        assert_eq!(nodes[folder].flags, derived);
     }
 
     #[test]
@@ -7085,9 +7145,9 @@ mod tests {
         let (sections, nodes) = tagged_forest();
         let a = row(&nodes, "/n/personal/proj/ideas/a.md");
         let marked = render_row(mark_row(line_of(&sections, &nodes, a)));
-        let texts: Vec<&str> = marked[..6].iter().map(|c| c.0.as_str()).collect();
-        assert_eq!(texts, ["▎", "▌", "▌", "▌", " ", "│"], "the thin mark bar is no tag half block");
-        for (col, tag) in [(1, 0), (2, 2), (3, 4)] {
+        let texts: Vec<&str> = marked[..8].iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(texts, ["▎", "●", "·", "●", "·", "●", " ", "│"], "the mark sits before the dots");
+        for (col, tag) in [(1, 0), (3, 2), (5, 4)] {
             assert_eq!(marked[col].1, Some(theme::FLAG_COLORS[tag]), "column {col}");
         }
     }
@@ -9544,7 +9604,7 @@ mod tests {
             }
             assert!(line.spans.iter().all(|s| s.style.add_modifier.contains(Modifier::BOLD)), "{path}");
         }
-        assert!(!mouse_x_in_tag_field(MARK_COL as u16, 0), "the mark is outside the tag field");
+        assert_eq!(mouse_x_to_field_slot(MARK_COL as u16, 0), None, "the mark is outside the tag field");
     }
 
     // --- Marks: bulk move and set scope ---
