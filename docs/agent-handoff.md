@@ -10,6 +10,23 @@ keeps it current as tickets move.
 
 ## Current lead
 
+Claude `nz-coordinator` role, run by a plain session on `claude-sonnet-5-5`
+(not the recorded `fable` lead model; Andreas chose this substitution
+explicitly: "I take the baton here"), took the baton on 2026-10-09
+20:10 CEST on Andreas's "lets do this with relay" and "lets this relay
+lead work on todoz". Reconciled at takeover: `main` = `origin/main` =
+`14c0c14`, working tree clean, `git worktree list` shows only the main
+checkout, no ticket branch, no worker or reviewer running. The only
+`--agent` process on the machine is `fz-coordinator`, another project's
+lead. Previous lead released the baton on 2026-10-08 (record below).
+Scope this lead runs: NZ-40 to NZ-42 below (importance dots back in the
+tree browser, then the todoz visual pass and navigation). NZ-43 (todoz
+preview pane) is a Draft that needs a brainstorm with Andreas first.
+Integration: "Merge as you go" (Andreas, 2026-10-09, see Authorized by
+the owner).
+
+Previous lead record follows.
+
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
 `4ffb11e2-7fc1-4590-92e3-0cbd75ef9142`, took the baton on 2026-10-08 09:49
 CEST on Andreas's "resume from last position, new day, new code! let me
@@ -221,6 +238,16 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   NZ-6 and NZ-11. The Done tickets are history.
 
 ## Authorized by the owner
+
+- 2026-10-09 20:08 CEST, Andreas, in the lead session: "lets do this with
+  relay" (the importance-glyph change and the todoz port), "I take the
+  baton here" (lead on `claude-sonnet-5-5`, model substitution accepted),
+  "Merge as you go" (the 2026-10-08 integration delegation applies again,
+  for NZ-40, NZ-41, NZ-42 only: reviewed diff, green branch CI, safe-merge
+  checks, then `git merge --no-ff` into `main` and push), and "lets this
+  relay lead work on todoz". Limits: those three tickets; the tree-sitter
+  and pulldown-cmark dependency approval is not extended to anything new;
+  NZ-43 does not run; installing is Andreas's.
 
 - 2026-10-06, Andreas, in the setup session: set up Relay in this repo with
   prefix `nz`, checks `cargo build --workspace` and `cargo test --workspace`,
@@ -555,6 +582,13 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
+
+2026-10-09 20:15 CEST: NZ-40 (worker, `tui/tree.rs` + README) and NZ-41
+(worker, `tui/todo.rs`) dispatched in parallel on disjoint files, base
+`14c0c14`, worktrees `.claude/worktrees/NZ-40` and `NZ-41`, branches
+`nz-40-dots` and `nz-41-todoz-visual`. NZ-42 and NZ-43 are Drafts.
+Board ids: NZ-40 `PVTI_lAHOCU842c4BmE5Zzg_uHy4`, NZ-41 `..._uH0E`,
+NZ-42 `..._uH0g`, NZ-43 `..._uH10`.
 
 Nothing is in flight. STOPPED FOR THE DAY at about 23:30 CEST on
 2026-10-08 (see Current lead). No worker or reviewer is running. NZ-38
@@ -4538,6 +4572,90 @@ for short queries. Accept, or require a minimum score?
 the tree to one section. Is a separate key wanted, and which one? `s` is
 free in the tree.
 (d) Does the todo board need scope cycling, or the tree only?
+
+### NZ-40: importance dots return to the tree browser (2026-10-09, Ready)
+
+Outcome: the tree browser's tag field shows the five tags as dots again, in
+fixed slots, instead of the half-block bars from NZ-38. Decision (Andreas,
+after the lead showed that overlapping dots cannot be drawn in a terminal
+grid): "I still prefer the dots as they were, even though it means wider
+spacing towards the left border."
+
+Design:
+- The field is five columns, one per tag in `FLAG_DEFS` order: a set tag is
+  a filled dot in its `theme::FLAG_COLORS` colour (the glyph todoz uses,
+  `●`), an unset tag a dim `·` (`theme::OVERLAY`), as in todoz's
+  `flags_slots`. One space follows before the tree. The margin never moves:
+  every row carries the field, tagged or not.
+- Replace `TAG_FIELD_WIDTH`, `tag_cell` and `tag_field` accordingly.
+  The cursor row's style stays under the spans so colours survive.
+- A click on a slot toggles exactly that tag (slot n is tag n), on note rows
+  only and while no prompt, confirm, filter, tag mode or `:` line is open;
+  a click in the field no longer just opens tag mode. Rows that are folders
+  or sections keep drawing the blank field.
+- The mark glyph `▎` stays; it no longer needs to differ from a half block,
+  so the doc comment on `MARK_GLYPH` is corrected, nothing else.
+- The filter strip's dots stay aligned with the field's dots (they share
+  the 5-dot geometry in `text::mouse_x_to_filter_dot` and
+  `mouse_x_to_dot`); verify the alignment test and adjust offsets only
+  as the wider field requires.
+- README: describe the tag dots in the tree browser as they are now.
+
+Allowed files: `crates/notez-cli/src/tui/tree.rs`, `README.md`. Tests:
+update the width constants and expectations that name the field
+(`TREE_COL`, the row-width test), add a test per behaviour above (five
+slots, set and unset glyphs, slot click toggles the right tag, no click
+effect on folders). Locked: none. Criteria: build and test green; the
+rendered rows keep their tree column across tagged and untagged rows.
+Not in scope: `todo.rs`, `theme.rs`, `tags.rs`, any new glyph table.
+
+### NZ-41: todoz visual pass to match the tree browser (2026-10-09, Ready)
+
+Outcome: the todo board looks like the tree browser in the places they
+share, without changing what any key does.
+
+Design (the worker reads `tui/tree.rs` for each item and mirrors it; the
+tree is the reference):
+- Cursor row: the board paints the selected row with bold
+  `theme::selected_row()` as an item style under the spans (see
+  `list_items` in `tree.rs`), not `highlight_style`, so tag colours and
+  check-mark colours survive on the cursor row.
+- Gutter and margin: one fixed gutter column, then the five-dot field
+  (todoz's own `flags_slots`; do not change its glyphs), then the content,
+  so the margin matches the tree's after NZ-40.
+- Hierarchy: subtasks and sections use `theme::TREE_GLYPHS` (branch lines
+  `├─` `└─`, `│` ancestors, `▾`/`▸` fold marks) instead of bare
+  indentation, with the same dim colour the tree uses for them.
+- Pane border, title and focus styling: `theme::border`, `border_focused`,
+  `pane_title` conventions as in the tree where the board draws its frame.
+- Keep every key, mouse action, filter and the footer/help tables as they
+  are. Drag-reorder and click hit-testing must keep working with the new
+  columns; update the hit-test arithmetic and its tests.
+
+Allowed files: `crates/notez-cli/src/tui/todo.rs`. If a shared helper is
+worth moving out of `tree.rs` (for example the glyph-prefix builder), stop
+and report to the lead first rather than editing `tree.rs`; NZ-40 owns it
+while it runs. Tests: existing todo tests pass unchanged except where a
+column offset moved, with the reason stated; add tests for the cursor-row
+style, the branch prefix on a nested subtask, and the click mapping.
+Criteria: build and test green; `todoz` renders the same data and the same
+keys behave identically.
+
+### NZ-42: todoz navigation like the tree browser (2026-10-09, Draft)
+
+Outcome: the navigation mechanics Andreas wants in todoz. Candidates, to be
+narrowed by the lead after NZ-41 and NZ-5 are merged: fuzzy search on `/`
+(reuse NZ-5's matcher rather than a second one), `0` and `s` jumps, the
+reload-on-change behaviour from NZ-34 (a relist must succeed before any
+probe cache is refreshed), pane-focus keys if NZ-43 happens. Not to port:
+`Space` marks (todoz's `Space` checks a task). Not ready: needs NZ-5.
+
+### NZ-43: todoz preview pane (2026-10-09, Draft)
+
+Outcome: possibly a list-plus-preview layout in todoz using `panes.rs`,
+showing a task's source file or notes. Needs a brainstorm with Andreas
+before any brief: what the pane would show, and whether the board's width
+can afford it. Does not run.
 
 ## Decisions and open questions
 
