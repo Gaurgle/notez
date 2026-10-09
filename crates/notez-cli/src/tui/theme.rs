@@ -6,6 +6,8 @@
 use notez_core::core::Scope;
 use ratatui::style::{Color, Modifier, Style};
 
+use super::highlight::Language;
+
 pub const RED: Color = Color::Rgb(243, 139, 168);
 pub const PEACH: Color = Color::Rgb(250, 179, 135);
 pub const GREEN: Color = Color::Rgb(166, 227, 161);
@@ -250,6 +252,29 @@ pub fn scope_color(scope: Scope) -> Color {
     }
 }
 
+/// The colour of a file's suffix (`.rs`, `.md`) on the preview's bottom
+/// border while its renderer or highlighter is on. Decorative only: palette
+/// colours, kept apart from the scope badge colours in [`scope_color`] and
+/// from [`NEUTRAL_SUFFIX`], so the indicator never reads as a scope and on
+/// differs from off at a glance. Colours may repeat between languages.
+pub fn language_color(language: Language) -> Color {
+    match language {
+        Language::Rust => PEACH,
+        Language::Python => YELLOW,
+        Language::Kotlin => MAUVE,
+        Language::Java => RED,
+        Language::C => SAPPHIRE,
+        Language::Toml => PEACH,
+        Language::Json => YELLOW,
+        Language::Bash => RED,
+        Language::Markdown => SAPPHIRE,
+    }
+}
+
+/// The colour of a suffix with no language (`.ts`, `.txt`), and of any
+/// suffix while its renderer or highlighter is off.
+pub const NEUTRAL_SUFFIX: Color = TEXT;
+
 /// The badge on the todo board's rows in the tree browser (the `_todos`
 /// store and every row under it, and every `TODO.md`), in place of the
 /// scope icon: Nerd Font `nf-fa-tasks` (Font Awesome list-check), U+F0AE,
@@ -320,6 +345,17 @@ mod tests {
             assert_ne!(Some(*a), selected().bg, "{a:?} is the selection background");
             assert_ne!(Some(*a), dimmed().fg, "{a:?} is the dimmed colour");
         }
+    }
+
+    #[test]
+    fn every_language_has_a_suffix_colour_apart_from_the_scope_colours_and_the_neutral_one() {
+        let scopes = [Scope::Personal, Scope::Public, Scope::Local, Scope::Global].map(scope_color);
+        for language in Language::ALL {
+            let color = language_color(language);
+            assert!(!scopes.contains(&color), "{language:?} uses a scope colour");
+            assert_ne!(color, NEUTRAL_SUFFIX, "{language:?} would look switched off");
+        }
+        assert!(!scopes.contains(&NEUTRAL_SUFFIX));
     }
 
     #[test]
