@@ -359,11 +359,20 @@ fn compute_filter_keep(items: &[Task], f: &Filter) -> Vec<bool> {
     keep
 }
 
-/// Map a mouse column onto a tag-dot index (0..=4) on a list row. Rows
-/// start with the 4-column highlight symbol plus 1 flag-leading space, so
-/// dot 0 sits at `area_x + 5` and the dots are contiguous.
+/// The column of a list row's first tag dot, relative to the list: rows
+/// start with the one-column gutter drawn by [`flags_slots`], and the list
+/// draws no highlight symbol.
+const FIRST_DOT_COL: u16 = 1;
+
+/// What the filter strip draws before its five dots, as wide as
+/// [`FIRST_DOT_COL`] so the strip's dots sit over the rows' dots.
+const FILTER_STRIP_LEAD: &str = " ";
+
+/// Map a mouse column onto a tag-dot index (0..=4) on a list row or the
+/// filter strip, which share the geometry: dot 0 sits at
+/// `area_x + FIRST_DOT_COL` and the dots are contiguous.
 fn mouse_x_to_dot(mouse_col: u16, area_x: u16) -> Option<u8> {
-    let dot_start = area_x.saturating_add(5);
+    let dot_start = area_x.saturating_add(FIRST_DOT_COL);
     let dot_end = dot_start + 4;
     if mouse_col >= dot_start && mouse_col <= dot_end {
         Some((mouse_col - dot_start) as u8)
@@ -395,8 +404,8 @@ fn mouse_y_to_real_idx(
     None
 }
 
-/// Render the 5 fixed tag-dot slots (leading + trailing space included).
-/// `hover_dot` previews an unset slot in its tag color while the mouse
+/// Render the 5 fixed tag-dot slots: the row's one-column gutter, the dots,
+/// and one space before the tree drawing. `hover_dot` previews an unset slot in its tag color while the mouse
 /// hovers over it.
 fn flags_slots_with_hover(flags: u8, hover_dot: Option<u8>) -> Vec<Span<'static>> {
     let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
@@ -428,6 +437,242 @@ fn flags_slots_with_hover(flags: u8, hover_dot: Option<u8>) -> Vec<Span<'static>
 
 fn flags_slots(flags: u8) -> Vec<Span<'static>> {
     flags_slots_with_hover(flags, None)
+}
+
+/// The row a todo hangs under: the nearest earlier todo one level up, or
+/// for a top-level todo its section header. `None` for a header, or a todo
+/// with nothing above it.
+fn parent_of(items: &[Task], idx: usize) -> Option<usize> {
+    if items[idx].is_header {
+        return None;
+    }
+    let depth = items[idx].depth;
+    (0..idx)
+        .rev()
+        .find(|&j| items[j].is_header || items[j].depth < depth)
+}
+
+/// For each row, whether a later row of `visible` shares its parent: the
+/// row draws `├─` and its descendants a bar at its level. Rows outside
+/// `visible` (collapsed or filtered away) neither get one nor count as a
+/// later sibling. Indexed like `items`. Mirrors the tree browser's.
+fn later_siblings(items: &[Task], visible: &[usize]) -> Vec<bool> {
+    let mut later = vec![false; items.len()];
+    let mut seen: HashSet<Option<usize>> = HashSet::new();
+    for &i in visible.iter().rev() {
+        if !items[i].is_header {
+            later[i] = !seen.insert(parent_of(items, i));
+        }
+    }
+    later
+}
+
+/// The ancestor columns of todo `idx`: for each todo above it, a bar if
+/// that ancestor has a later sibling and a blank otherwise, outermost first.
+fn ancestor_levels(items: &[Task], idx: usize, later: &[bool]) -> String {
+    let g = &theme::TREE_GLYPHS;
+    let mut levels = Vec::new();
+    let mut up = parent_of(items, idx);
+    while let Some(p) = up.filter(|&p| !items[p].is_header) {
+        levels.push(if later[p] { g.ancestor_bar } else { g.ancestor_blank });
+        up = parent_of(items, p);
+    }
+    levels.reverse();
+    levels.concat()
+}
+
+/// The tree drawing before row `idx`'s checkbox, from
+/// [`theme::TREE_GLYPHS`], as the tree browser draws it: a section header
+/// shows its expand mark; a todo shows its ancestor columns, its own branch
+/// (`├─`, or `└─` when it is the last child), then a parent's fold mark or
+/// a blank. `later` comes from [`later_siblings`].
+fn branch_prefix(items: &[Task], idx: usize, later: &[bool]) -> String {
+    let g = &theme::TREE_GLYPHS;
+    let item = &items[idx];
+    if item.is_header {
+        let mark = if item.collapsed { g.section_closed } else { g.section_open };
+        return mark.to_string();
+    }
+    let mut prefix = ancestor_levels(items, idx, later);
+    prefix.push_str(if later[idx] { g.branch } else { g.last_branch });
+    prefix.push_str(match (item.has_subtasks, item.collapsed) {
+        (true, true) => g.folder_closed,
+        (true, false) => g.folder_open,
+        (false, _) => g.file,
+    });
+    prefix
+}
+
+/// The tree drawing on a wrapped todo's continuation lines: the branch
+/// lines that pass the row keep going, its own included when it has a
+/// later sibling, and a bar under the fold mark when its first child
+/// follows it (`has_visible_child`).
+fn continuation_prefix(items: &[Task], idx: usize, later: &[bool], has_visible_child: bool) -> String {
+    let g = &theme::TREE_GLYPHS;
+    let mut prefix = ancestor_levels(items, idx, later);
+    prefix.push_str(if later[idx] { g.ancestor_bar } else { g.ancestor_blank });
+    prefix.push_str(if has_visible_child { g.ancestor_bar } else { g.ancestor_blank });
+    prefix
+}
+
+/// The display columns of every row's dot field: gutter, dots and space.
+fn dot_field_cols() -> usize {
+    flags_slots(0).iter().map(Span::width).sum()
+}
+
+/// Every row of `visible` drawn for a list `list_width` columns wide:
+/// the dot field (with the hover preview of `hover_flag`), the tree
+/// drawing in the tree's dim colour, then the header label, or the
+/// checkbox and text of a todo, wrapping long todos under their text.
+fn board_rows(
+    items: &[Task],
+    visible: &[usize],
+    hover_flag: Option<(usize, u8)>,
+    list_width: u16,
+) -> Vec<Text<'static>> {
+    let later = later_siblings(items, visible);
+    let branch_style = Style::default().fg(theme::SURFACE);
+    visible
+        .iter()
+        .enumerate()
+        .map(|(pos, &idx)| {
+            let item = &items[idx];
+            let branch = branch_prefix(items, idx, &later);
+            if item.is_header {
+                let path_display = item
+                    .source
+                    .canonicalize()
+                    .unwrap_or_else(|_| item.source.clone())
+                    .parent()
+                    .map(tilde::contract)
+                    .unwrap_or_default();
+                let header_color = if item.is_code_todo { theme::YELLOW } else { theme::MAUVE };
+                let mut spans = flags_slots(item.flags);
+                spans.push(Span::styled(branch, branch_style));
+                spans.push(Span::styled(
+                    format!("{} ", item.text),
+                    Style::default().fg(header_color).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(path_display, Style::default().fg(theme::OVERLAY)));
+                return Text::from(Line::from(spans));
+            }
+            if item.is_code_todo {
+                let mut spans = flags_slots(0);
+                spans.push(Span::styled(branch, branch_style));
+                spans.push(Span::styled(item.text.clone(), Style::default().fg(theme::OVERLAY)));
+                return Text::from(Line::from(spans));
+            }
+            let (mark, mark_color, bracket_color, style) = match item.state {
+                CheckState::Checked => (
+                    "x",
+                    theme::SAPPHIRE,
+                    theme::OVERLAY,
+                    Style::default().fg(theme::OVERLAY),
+                ),
+                CheckState::Half => (
+                    "/",
+                    theme::YELLOW,
+                    theme::OVERLAY,
+                    Style::default().fg(theme::SUBTEXT),
+                ),
+                CheckState::Unchecked => (
+                    " ",
+                    theme::SURFACE,
+                    match item.depth {
+                        0 => theme::SAPPHIRE,
+                        1 => Color::Rgb(86, 169, 206),
+                        _ => Color::Rgb(56, 139, 176),
+                    },
+                    Style::default().fg(theme::TEXT),
+                ),
+            };
+            const CHECKBOX_COLS: usize = 4;
+            let prefix_len = dot_field_cols() + Span::raw(branch.as_str()).width() + CHECKBOX_COLS;
+            let text_width = (list_width as usize).saturating_sub(prefix_len + 4);
+            let hover_dot = hover_flag.and_then(|(hi, d)| (hi == idx).then_some(d));
+            let mut first_line = flags_slots_with_hover(item.flags, hover_dot);
+            first_line.push(Span::styled(branch, branch_style));
+            first_line.push(Span::styled("[", Style::default().fg(bracket_color)));
+            first_line.push(Span::styled(mark, Style::default().fg(mark_color)));
+            first_line.push(Span::styled("] ", Style::default().fg(bracket_color)));
+
+            if text_width == 0 || item.text.chars().count() <= text_width {
+                first_line.push(Span::styled(item.text.clone(), style));
+                return Text::from(Line::from(first_line));
+            }
+            let has_visible_child = visible
+                .get(pos + 1)
+                .is_some_and(|&next| parent_of(items, next) == Some(idx));
+            let cont = continuation_prefix(items, idx, &later, has_visible_child);
+            let field_blank = " ".repeat(dot_field_cols());
+            let checkbox_blank = " ".repeat(CHECKBOX_COLS);
+            // Wrap on char boundaries; slicing mid-char (å, ö, icons) would
+            // panic on tiny widths.
+            let mut lines = vec![];
+            let mut remaining = item.text.as_str();
+            let mut first = Some(first_line);
+            while !remaining.is_empty() {
+                let split_at = remaining
+                    .char_indices()
+                    .nth(text_width)
+                    .map(|(i, _)| i)
+                    .unwrap_or(remaining.len());
+                let split_at = if split_at < remaining.len() {
+                    remaining[..split_at].rfind(' ').map(|i| i + 1).unwrap_or(split_at)
+                } else {
+                    split_at
+                };
+                let (chunk, rest) = remaining.split_at(split_at);
+                let chunk = Span::styled(chunk.to_string(), style);
+                match first.take() {
+                    Some(mut spans) => {
+                        spans.push(chunk);
+                        lines.push(Line::from(spans));
+                    }
+                    None => lines.push(Line::from(vec![
+                        Span::raw(field_blank.clone()),
+                        Span::styled(cont.clone(), branch_style),
+                        Span::raw(checkbox_blank.clone()),
+                        chunk,
+                    ])),
+                }
+                remaining = rest.trim_start();
+            }
+            Text::from(lines)
+        })
+        .collect()
+}
+
+/// The board's rows as list items. The `selected` row (clamped to the last
+/// row, as the list clamps it) gets [`theme::selected_row`] as its item
+/// style, under the spans, so tag and check-mark colours survive on the
+/// cursor row, as in the tree browser. While dragging, the dragged row
+/// (`drag_start`) is dimmed and the drop target (`drag_target`) brighter;
+/// the cursor row's style goes over either, as the list highlight did.
+fn board_items(
+    rows: Vec<Text<'static>>,
+    visible: &[usize],
+    selected: Option<usize>,
+    drag_start: Option<usize>,
+    drag_target: Option<usize>,
+) -> Vec<ListItem<'static>> {
+    let selected = selected.map(|s| s.min(rows.len().saturating_sub(1)));
+    rows.into_iter()
+        .enumerate()
+        .map(|(pos, row)| {
+            let real_idx = visible.get(pos).copied();
+            let mut style = Style::default();
+            if real_idx.is_some() && real_idx == drag_start {
+                style = style.bg(theme::SURFACE);
+            } else if real_idx.is_some() && real_idx == drag_target {
+                style = style.bg(theme::OVERLAY);
+            }
+            if Some(pos) == selected {
+                style = style.patch(theme::selected_row());
+            }
+            ListItem::new(row).style(style)
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -514,183 +759,11 @@ fn event_loop(
                 let visible: Vec<usize> = compute_visible(&items, &search_buffer);
                 visible_for_mouse = visible.clone();
 
-                let mut list_items: Vec<ListItem> = visible
-                    .iter()
-                    .map(|&idx| {
-                        let item = &items[idx];
-                        if item.is_header {
-                            let path_display = item
-                                .source
-                                .canonicalize()
-                                .unwrap_or_else(|_| item.source.clone())
-                                .parent()
-                                .map(|p| tilde::contract(p))
-                                .unwrap_or_default();
-                            let header_color = if item.is_code_todo {
-                                theme::YELLOW
-                            } else {
-                                theme::MAUVE
-                            };
-                            let collapse_icon = if item.collapsed { "▶ " } else { "▼ " };
-                            let mut spans = Vec::new();
-                            spans.extend(flags_slots(item.flags));
-                            spans.push(Span::styled(
-                                collapse_icon,
-                                Style::default().fg(theme::SURFACE),
-                            ));
-                            spans.push(Span::styled(
-                                format!("{} ", item.text),
-                                Style::default()
-                                    .fg(header_color)
-                                    .add_modifier(Modifier::BOLD),
-                            ));
-                            spans.push(Span::styled(
-                                path_display,
-                                Style::default().fg(theme::OVERLAY),
-                            ));
-                            ListItem::new(Line::from(spans))
-                        } else if item.is_code_todo {
-                            let mut spans = Vec::new();
-                            spans.extend(flags_slots(0));
-                            spans.push(Span::styled("   ", Style::default()));
-                            spans.push(Span::styled(
-                                item.text.clone(),
-                                Style::default().fg(theme::OVERLAY),
-                            ));
-                            ListItem::new(Line::from(spans))
-                        } else {
-                            let (indent, collapse_icon) = if item.has_subtasks {
-                                let pad = format!(" {}", "  ".repeat(item.depth as usize));
-                                let icon = if item.collapsed { "▶ " } else { "▼ " };
-                                (pad, icon)
-                            } else {
-                                let pad =
-                                    format!(" {}", "  ".repeat(item.depth as usize + 1));
-                                (pad, "")
-                            };
-                            let (mark, mark_color, bracket_color, style) = match item.state {
-                                CheckState::Checked => (
-                                    "x",
-                                    theme::SAPPHIRE,
-                                    theme::OVERLAY,
-                                    Style::default().fg(theme::OVERLAY),
-                                ),
-                                CheckState::Half => (
-                                    "/",
-                                    theme::YELLOW,
-                                    theme::OVERLAY,
-                                    Style::default().fg(theme::SUBTEXT),
-                                ),
-                                CheckState::Unchecked => (
-                                    " ",
-                                    theme::SURFACE,
-                                    match item.depth {
-                                        0 => theme::SAPPHIRE,
-                                        1 => Color::Rgb(86, 169, 206),
-                                        _ => Color::Rgb(56, 139, 176),
-                                    },
-                                    Style::default().fg(theme::TEXT),
-                                ),
-                            };
-                            let checkbox_spans = vec![
-                                Span::styled("[", Style::default().fg(bracket_color)),
-                                Span::styled(mark, Style::default().fg(mark_color)),
-                                Span::styled("] ", Style::default().fg(bracket_color)),
-                            ];
-                            let prefix_len = indent.len() + collapse_icon.len() + 7 + 4;
-                            let text_width =
-                                (area.width as usize).saturating_sub(prefix_len + 8);
-
-                            let hover_dot = hover_flag
-                                .and_then(|(hi, d)| if hi == idx { Some(d) } else { None });
-
-                            if text_width > 0 && item.text.chars().count() > text_width {
-                                // Wrap on char boundaries; slicing mid-char
-                                // (å, ö, icons) would panic on tiny widths.
-                                let mut lines = vec![];
-                                let mut remaining = item.text.as_str();
-                                let mut first = true;
-                                while !remaining.is_empty() {
-                                    let split_at = remaining
-                                        .char_indices()
-                                        .nth(text_width)
-                                        .map(|(i, _)| i)
-                                        .unwrap_or(remaining.len());
-                                    let split_at = if split_at < remaining.len() {
-                                        remaining[..split_at]
-                                            .rfind(' ')
-                                            .map(|i| i + 1)
-                                            .unwrap_or(split_at)
-                                    } else {
-                                        split_at
-                                    };
-                                    let (chunk, rest) = remaining.split_at(split_at);
-                                    let rest = rest.trim_start();
-
-                                    if first {
-                                        let mut spans = Vec::new();
-                                        spans.extend(flags_slots_with_hover(
-                                            item.flags, hover_dot,
-                                        ));
-                                        spans.push(Span::styled(
-                                            indent.clone(),
-                                            Style::default(),
-                                        ));
-                                        spans.push(Span::styled(
-                                            collapse_icon,
-                                            Style::default().fg(theme::SURFACE),
-                                        ));
-                                        spans.extend(checkbox_spans.clone());
-                                        spans.push(Span::styled(chunk.to_string(), style));
-                                        lines.push(Line::from(spans));
-                                        first = false;
-                                    } else {
-                                        let wrap_indent = " ".repeat(prefix_len);
-                                        lines.push(Line::from(vec![
-                                            Span::styled(wrap_indent, Style::default()),
-                                            Span::styled(chunk.to_string(), style),
-                                        ]));
-                                    }
-                                    remaining = rest;
-                                }
-                                ListItem::new(lines)
-                            } else {
-                                let mut spans = Vec::new();
-                                spans.extend(flags_slots_with_hover(item.flags, hover_dot));
-                                spans.push(Span::styled(indent, Style::default()));
-                                spans.push(Span::styled(
-                                    collapse_icon,
-                                    Style::default().fg(theme::SURFACE),
-                                ));
-                                spans.extend(checkbox_spans);
-                                spans.push(Span::styled(item.text.clone(), style));
-                                ListItem::new(Line::from(spans))
-                            }
-                        }
-                    })
-                    .collect();
-
-                row_counts_for_mouse =
-                    list_items.iter().map(|li| li.height() as u16).collect();
-
-                // Drag visualization: dragged row dim, drop target brighter.
-                let style_at =
-                    |list_items: &mut Vec<ListItem>, real_idx: usize, style: Style| {
-                        if let Some(pos) = visible.iter().position(|&i| i == real_idx) {
-                            let placeholder = ListItem::new("");
-                            let original =
-                                std::mem::replace(&mut list_items[pos], placeholder);
-                            list_items[pos] = original.style(style);
-                        }
-                    };
-                if let Some(start) = drag_start {
-                    style_at(&mut list_items, start, Style::default().bg(theme::SURFACE));
-                }
-                if let Some(target) = drag_target {
-                    if drag_start != Some(target) {
-                        style_at(&mut list_items, target, Style::default().bg(theme::OVERLAY));
-                    }
-                }
+                // The list sits inside the frame's borders and padding.
+                let rows = board_rows(&items, &visible, hover_flag, area.width.saturating_sub(4));
+                row_counts_for_mouse = rows.iter().map(|r| r.height() as u16).collect();
+                let list_items =
+                    board_items(rows, &visible, state.selected(), drag_start, drag_target);
 
                 let todo_count = items
                     .iter()
@@ -740,7 +813,7 @@ fn event_loop(
                 // the dot column on todo rows.
                 let active_tags = filter::active_tag_bits(&search_buffer);
                 let mut filter_spans: Vec<Span> = Vec::new();
-                filter_spans.push(Span::raw("     "));
+                filter_spans.push(Span::raw(FILTER_STRIP_LEAD));
                 for (i, def) in FLAG_DEFS.iter().enumerate() {
                     let style = if active_tags & def.bit != 0 {
                         Style::default()
@@ -822,7 +895,9 @@ fn event_loop(
                 let block = Block::default()
                     .title(title)
                     .borders(Borders::ALL)
-                    .border_style(theme::border())
+                    // The board is the only pane and always has focus, so
+                    // it takes the focused border, as the tree's list does.
+                    .border_style(theme::border_focused())
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .padding(Padding::new(1, 1, 1, 0));
 
@@ -851,10 +926,7 @@ fn event_loop(
                 ));
                 frame.render_widget(Paragraph::new(divider_line), divider_rect);
 
-                let list = List::new(list_items)
-                    .highlight_style(theme::selected())
-                    .highlight_symbol("  ▸ ");
-                frame.render_stateful_widget(list, list_area, &mut state);
+                frame.render_stateful_widget(List::new(list_items), list_area, &mut state);
 
                 // Status bar.
                 let width = chunks[1].width as usize;
@@ -1721,6 +1793,7 @@ fn navigate(
 mod tests {
     use super::*;
     use notez_core::tags::{FLAG_BLOCKED, FLAG_IMPORTANT, FLAG_PRIO};
+    use ratatui::widgets::StatefulWidget;
     use std::path::PathBuf;
 
     #[test]
@@ -1823,11 +1896,186 @@ mod tests {
 
     #[test]
     fn dot_mapping_covers_five_contiguous_columns() {
-        // Dots start at area_x + 5 and are contiguous.
-        assert_eq!(mouse_x_to_dot(5, 0), Some(0));
-        assert_eq!(mouse_x_to_dot(9, 0), Some(4));
-        assert_eq!(mouse_x_to_dot(4, 0), None);
-        assert_eq!(mouse_x_to_dot(10, 0), None);
+        // Dots start at area_x + 1, after the gutter, and are contiguous.
+        // They moved from area_x + 5 when the 4-column highlight symbol
+        // went away (NZ-41).
+        assert_eq!(mouse_x_to_dot(1, 0), Some(0));
+        assert_eq!(mouse_x_to_dot(5, 0), Some(4));
+        assert_eq!(mouse_x_to_dot(0, 0), None);
+        assert_eq!(mouse_x_to_dot(6, 0), None);
+        assert_eq!(mouse_x_to_dot(13, 10), Some(2));
+    }
+
+    /// A small board: a section, a parent with two subtasks (the first
+    /// checked and tagged), a grandchild under the second, and a last
+    /// top-level todo.
+    fn nested_board() -> Vec<Task> {
+        let mut items = vec![
+            header("WORK"),
+            task("parent", 0, 0),
+            task("first child", 1, FLAG_IMPORTANT),
+            task("second child", 1, 0),
+            task("grandchild", 2, 0),
+            task("last", 0, 0),
+        ];
+        items[1].has_subtasks = true;
+        items[3].has_subtasks = true;
+        items[2].state = CheckState::Checked;
+        items
+    }
+
+    /// `rows` drawn as a list `width` columns wide with the cursor on
+    /// `selected`, as the event loop draws them: each cell's symbol and
+    /// style, row by row.
+    fn render_board(rows: Vec<Text<'static>>, visible: &[usize], selected: Option<usize>, width: u16) -> Vec<Vec<(String, Style)>> {
+        use ratatui::buffer::Buffer;
+        let height: u16 = rows.iter().map(|r| r.height() as u16).sum();
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        let list = List::new(board_items(rows, visible, selected, None, None));
+        let mut state = ListState::default();
+        state.select(selected);
+        StatefulWidget::render(list, area, &mut buf, &mut state);
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| {
+                        let cell = &buf[(x, y)];
+                        (cell.symbol().to_string(), cell.style())
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn row_text(cells: &[(String, Style)]) -> String {
+        cells.iter().map(|c| c.0.as_str()).collect::<String>().trim_end().to_string()
+    }
+
+    #[test]
+    fn the_cursor_row_is_bold_on_the_selection_background_and_keeps_its_colours() {
+        let items = nested_board();
+        let visible = compute_visible(&items, "");
+        let rows = board_rows(&items, &visible, None, 80);
+        // Cursor on "first child" (visible position 2).
+        let cells = render_board(rows, &visible, Some(2), 80);
+        let cursor = &cells[2];
+        for (x, (_, style)) in cursor.iter().enumerate() {
+            assert_eq!(style.bg, theme::selected_row().bg, "column {x}");
+            assert!(style.add_modifier.contains(Modifier::BOLD), "column {x}");
+        }
+        assert_eq!(cursor[0].0, " ", "the gutter is blank: no highlight symbol");
+        assert_eq!(cursor[1].0, "●");
+        assert_eq!(cursor[1].1.fg, Some(theme::FLAG_COLORS[0]), "the tag dot keeps its colour");
+        let check = row_text(cursor).find('x').map(|b| row_text(cursor)[..b].chars().count()).unwrap();
+        assert_eq!(cursor[check].1.fg, Some(theme::SAPPHIRE), "the check mark keeps its colour");
+        // Other rows carry no selection style.
+        for (y, row) in cells.iter().enumerate().filter(|&(y, _)| y != 2) {
+            assert!(row.iter().all(|(_, s)| s.bg != theme::selected_row().bg), "row {y}");
+            assert!(row.iter().all(|(_, s)| !s.add_modifier.contains(Modifier::BOLD) || y == 0), "row {y}");
+        }
+    }
+
+    #[test]
+    fn a_drag_dims_the_dragged_row_lights_the_target_and_the_cursor_style_stays_on_top() {
+        let items = nested_board();
+        let visible = compute_visible(&items, "");
+        let rows = || board_rows(&items, &visible, None, 40);
+        let bg_of = |items: Vec<ListItem<'static>>, y: u16| {
+            use ratatui::buffer::Buffer;
+            let area = Rect::new(0, 0, 40, 6);
+            let mut buf = Buffer::empty(area);
+            StatefulWidget::render(List::new(items), area, &mut buf, &mut ListState::default());
+            buf[(10, y)].style().bg
+        };
+        let dragging = || board_items(rows(), &visible, None, Some(5), Some(1));
+        assert_eq!(bg_of(dragging(), 5), Some(theme::SURFACE), "dragged row");
+        assert_eq!(bg_of(dragging(), 1), Some(theme::OVERLAY), "drop target");
+        let on_itself = board_items(rows(), &visible, None, Some(5), Some(5));
+        assert_eq!(bg_of(on_itself, 5), Some(theme::SURFACE), "a target on the dragged row stays dim");
+        let selected = board_items(rows(), &visible, Some(5), Some(5), Some(1));
+        assert_eq!(bg_of(selected, 5), theme::selected_row().bg, "the cursor row wins");
+    }
+
+    #[test]
+    fn nested_todos_draw_the_tree_branch_lines() {
+        let items = nested_board();
+        let visible = compute_visible(&items, "");
+        let later = later_siblings(&items, &visible);
+        let g = &theme::TREE_GLYPHS;
+        assert_eq!(branch_prefix(&items, 0, &later), g.section_open);
+        assert_eq!(branch_prefix(&items, 1, &later), format!("{}{}", g.branch, g.folder_open));
+        assert_eq!(branch_prefix(&items, 2, &later), format!("{}{}{}", g.ancestor_bar, g.branch, g.file));
+        assert_eq!(branch_prefix(&items, 3, &later), format!("{}{}{}", g.ancestor_bar, g.last_branch, g.folder_open));
+        assert_eq!(
+            branch_prefix(&items, 4, &later),
+            format!("{}{}{}{}", g.ancestor_bar, g.ancestor_blank, g.last_branch, g.file)
+        );
+        assert_eq!(branch_prefix(&items, 5, &later), format!("{}{}", g.last_branch, g.file));
+
+        let rows = board_rows(&items, &visible, None, 80);
+        let cells = render_board(rows, &visible, None, 80);
+        assert!(row_text(&cells[0]).starts_with(&format!(" ····· {}WORK ", g.section_open)), "{:?}", row_text(&cells[0]));
+        assert_eq!(row_text(&cells[1]), " ····· ├─▾ [ ] parent");
+        assert_eq!(row_text(&cells[4]), " ····· │   └─  [ ] grandchild");
+        assert_eq!(row_text(&cells[5]), " ····· └─  [ ] last");
+        // The branch lines are drawn in the tree's dim colour.
+        assert_eq!(cells[4][TREE_COL].1.fg, Some(theme::SURFACE));
+        assert_eq!(cells[4][TREE_COL + 4].1.fg, Some(theme::SURFACE));
+    }
+
+    #[test]
+    fn a_collapsed_parent_shows_the_closed_fold_mark() {
+        let mut items = nested_board();
+        items[1].collapsed = true;
+        let visible = compute_visible(&items, "");
+        let later = later_siblings(&items, &visible);
+        let g = &theme::TREE_GLYPHS;
+        assert_eq!(branch_prefix(&items, 1, &later), format!("{}{}", g.branch, g.folder_closed));
+        items[0].collapsed = true;
+        assert_eq!(branch_prefix(&items, 0, &later), g.section_closed);
+    }
+
+    /// The column where every row's tree drawing starts: after the
+    /// gutter, the five tag dots and their space.
+    const TREE_COL: usize = 7;
+
+    #[test]
+    fn a_click_on_a_drawn_tag_dot_maps_to_that_tag_and_the_strip_dots_line_up() {
+        let mut items = nested_board();
+        items[5].flags = FLAG_DEFS[3].bit;
+        let visible = compute_visible(&items, "");
+        let rows = board_rows(&items, &visible, None, 80);
+        let cells = render_board(rows, &visible, None, 80);
+        let last = &cells[5];
+        for x in 0..80u16 {
+            let drawn_dot = (1..=5).contains(&x);
+            assert_eq!(mouse_x_to_dot(x, 0).is_some(), drawn_dot, "column {x}");
+            if let Some(d) = mouse_x_to_dot(x, 0) {
+                let glyph = &last[x as usize].0;
+                assert!(glyph == "●" || glyph == "·", "column {x}: {glyph:?}");
+                assert_eq!(glyph == "●", d == 3, "column {x}");
+            }
+        }
+        assert_eq!(last[TREE_COL - 1].0, " ", "one space before the tree");
+        // The filter strip's first dot sits over the rows' first dot.
+        assert_eq!(Span::raw(FILTER_STRIP_LEAD).width(), 1);
+        assert_eq!(mouse_x_to_dot(Span::raw(FILTER_STRIP_LEAD).width() as u16, 0), Some(0));
+    }
+
+    #[test]
+    fn a_wrapped_todo_continues_under_its_text_with_the_branch_line_carried_on() {
+        let mut items = nested_board();
+        items[2].text = "word ".repeat(30).trim_end().to_string();
+        let visible = compute_visible(&items, "");
+        let rows = board_rows(&items, &visible, None, 60);
+        assert!(rows[2].height() > 1, "the long todo wraps");
+        let cells = render_board(rows, &visible, None, 60);
+        let first = row_text(&cells[2]);
+        let second = row_text(&cells[3]);
+        let text_col = |s: &str| s.chars().position(|c| c == 'w').unwrap();
+        assert_eq!(text_col(&first), text_col(&second), "{first:?} / {second:?}");
+        assert!(second.starts_with("       │ │"), "{second:?}");
     }
 
     #[test]
