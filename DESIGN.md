@@ -255,6 +255,33 @@ todoz preview pane, so this is moving from idea to in-progress):
 - [ ] A fuller calendar view aggregating dated todos across sections and scopes.
 - [ ] Date-based sorting and filtering; interplay with `#blocked` / `#longterm`.
 
+### Non-markdown files and a richer reader (idea)
+
+Idea: stop treating `.md` as the only note type. Andreas may start keeping
+code examples in the vault that should get linting and syntax highlighting,
+so notez could grow into a more developed file reader.
+
+First symptom: TUI rename (`commands/rename.rs`, `rename_request` in
+`tui/tree.rs`) is a retitle. It strips the date prefix and `.md`, runs
+`sanitize::name` (which drops dots) and always re-appends `.md`, so typing
+`foo.txt` silently becomes `footxt.md`. Changing a file's extension is
+impossible even though nothing else forbids it.
+
+Options on the table:
+1. Keep `.md` fixed but refuse a typed extension with a clear message
+   instead of mangling the name. Smallest change.
+2. Allow extension changes for non-`.md` files; sync the `# ` heading only
+   for `.md`. The prompt would show the full filename.
+3. Allow it for notes too, limited to an allowlist of recognized types.
+
+Open questions when this is picked up:
+- Which extensions count as notes, and how listing, search and tags treat
+  them.
+- How this relates to the existing preview highlighting and the linting and
+  LSP work (`docs/design-nz28-linting.md`, `docs/design-nz29-lsp.md`).
+- epoz depends on `notez-core` by pinned rev, so any change to what counts
+  as a note must stay compatible with it.
+
 ### Desktop app (moved to epoz)
 
 The Tauri desktop app, its GitHub data layer, dashboard, ticket board, Spaze
