@@ -276,13 +276,18 @@ preview reads nothing from disk.
 private one under `~/notez/personal/<project>/`). **notez quick** (or
 `notez add quick ...`) writes a private quick note to `00_quick-notes/`.
 A scope flag followed by words is the short form: `notez -g call the bank`
-is `notez -g quick call the bank`, and likewise for `-p` and `-l`. A first
+is `notez -g quick call the bank`, and likewise for `-p` and `-l`. Quoting
+the title works too: `notez -g "call the bank"`. With plain words, a quoted
+argument is the body (`notez -g bank "call before noon"`); with no plain
+words, the first quoted argument is the title. A first
 word that names a subcommand runs it (`notez -g tree`); use `quick` to title
 a note with such a word. Words without a scope flag are an error, so a
 mistyped subcommand never becomes a note. Words starting with `-` go after
 `--` (`notez -g -- -x marks`). A new note never overwrites an existing
-file: if today's `YYYY-MM-DD-<title>.md` is taken, it gets `-2`, `-3` and so
-on before the extension.
+file: if `<title>.md` is taken, it gets `-2`, `-3` and so on before the
+extension. Only quick notes carry the date in the name
+(`YYYY-MM-DD-<title>.md`); every other note is named after its title, and its
+`Date:` header records when it was made.
 
 `notez add --in <dir>` targets a subdirectory (global root by default,
 the current scope's root with `--in-local`); bare `--in` opens an fzf
@@ -310,7 +315,7 @@ from the scope model, so it sees exactly the notes the rest of the tool
 considers in scope; a term matching one note skips the picker.
 
 **notez rename [term] [title]** retitles a note found the same way as `edit`.
-The `YYYY-MM-DD-` prefix is kept, the title is slugified into the filename, and
+A `YYYY-MM-DD-` prefix, if the note has one (quick notes), is kept, the title is slugified into the filename, and
 a leading `# heading` is rewritten to match. Omit the title to be prompted. It
 refuses to overwrite an existing note.
 

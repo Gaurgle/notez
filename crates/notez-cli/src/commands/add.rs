@@ -62,15 +62,22 @@ pub fn run(
             }
         }
     };
-    create_in_dir(title_words, &dir, scope)
+    create_in_dir(title_words, &dir, scope, is_quick)
 }
 
 /// Create a note in an explicit directory: the creation path shared by
 /// `notez add` and the tree browser's new-note prompt. The first title word
 /// group is the title ("untitled" when empty), the rest an optional body, as
-/// for `add`. Creates `dir` if missing, gitignores the scratch store for
-/// [`Scope::Local`], and never overwrites an existing file (`-2`, `-3`, ...).
-pub fn create_in_dir(title_words: Vec<String>, dir: &Path, scope: Scope) -> Result<Created> {
+/// for `add`. The file is named after the title, with a `YYYY-MM-DD-` prefix
+/// only when `dated` (quick notes). Creates `dir` if missing, gitignores the
+/// scratch store for [`Scope::Local`], and never overwrites an existing file
+/// (`-2`, `-3`, ...).
+pub fn create_in_dir(
+    title_words: Vec<String>,
+    dir: &Path,
+    scope: Scope,
+    dated: bool,
+) -> Result<Created> {
     let (title, body) = cli::split_title_body(title_words);
     let title = title.unwrap_or_else(|| "untitled".to_string());
     let had_body = body.is_some();
@@ -82,7 +89,7 @@ pub fn create_in_dir(title_words: Vec<String>, dir: &Path, scope: Scope) -> Resu
         project::ensure_scratch_gitignored(dir);
     }
 
-    let path = create_new_note_file(dir, &note.filename(), &note.rendered())?;
+    let path = create_new_note_file(dir, &note.filename(dated), &note.rendered())?;
 
     Ok(Created { path, had_body })
 }
@@ -407,6 +414,43 @@ mod tests {
     }
 
     #[test]
+    fn plain_note_is_named_after_its_title_without_a_date() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let created =
+            run(words("Call the Bank"), None, false, false, Scope::Global, &config).unwrap();
+
+        assert_eq!(file_name(&created.path), "call-the-bank.md");
+        let body = std::fs::read_to_string(&created.path).unwrap();
+        assert!(body.contains("Date: "), "the date lives inside the note");
+    }
+
+    #[test]
+    fn quick_note_name_starts_with_todays_date() {
+        let dir = tempdir().unwrap();
+        let config = config_in(dir.path());
+
+        let created =
+            run(vec!["idea".into()], None, false, true, Scope::Global, &config).unwrap();
+
+        let today = chrono::Local::now().format("%Y-%m-%d");
+        assert_eq!(file_name(&created.path), format!("{today}-idea.md"));
+    }
+
+    #[test]
+    fn note_created_in_a_directory_is_dated_only_when_asked() {
+        let root = tempdir().unwrap();
+
+        let plain = create_in_dir(words("ideas"), root.path(), Scope::Global, false).unwrap();
+        let dated = create_in_dir(words("ideas"), root.path(), Scope::Global, true).unwrap();
+
+        assert_eq!(file_name(&plain.path), "ideas.md");
+        let today = chrono::Local::now().format("%Y-%m-%d");
+        assert_eq!(file_name(&dated.path), format!("{today}-ideas.md"));
+    }
+
+    #[test]
     fn quick_rejects_in_arg() {
         let dir = tempdir().unwrap();
         let config = config_in(dir.path());
@@ -567,12 +611,14 @@ mod tests {
 
         assert_ne!(first, second);
         assert_eq!(first.parent(), second.parent());
-        assert!(file_name(&first).ends_with(&format!("-{expected_stem}.md")));
-        assert!(
-            file_name(&second).ends_with(&format!("-{expected_stem}-2.md")),
-            "got {:?}",
-            second
-        );
+        let (first_name, second_name) = (file_name(&first), file_name(&second));
+        if is_quick {
+            assert!(first_name.ends_with(&format!("-{expected_stem}.md")), "got {first_name}");
+            assert!(second_name.ends_with(&format!("-{expected_stem}-2.md")), "got {second_name}");
+        } else {
+            assert_eq!(first_name, format!("{expected_stem}.md"));
+            assert_eq!(second_name, format!("{expected_stem}-2.md"));
+        }
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "user edits, keep me\n");
         assert_eq!(std::fs::read_to_string(&second).unwrap(), fresh);
     }
@@ -618,13 +664,13 @@ mod tests {
         let third = run(words("call the bank"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(file_name(&third).ends_with("-call-the-bank-3.md"), "got {:?}", third);
+        assert_eq!(file_name(&third), "call-the-bank-3.md");
         assert_eq!(std::fs::read_to_string(&taken).unwrap(), "pre-existing two\n");
 
         let fourth = run(words("call the bank"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(file_name(&fourth).ends_with("-call-the-bank-4.md"), "got {:?}", fourth);
+        assert_eq!(file_name(&fourth), "call-the-bank-4.md");
     }
 
     #[test]
@@ -635,29 +681,25 @@ mod tests {
         let numbered = run(words("plan 2"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(file_name(&numbered).ends_with("-plan-2.md"));
+        assert_eq!(file_name(&numbered), "plan-2.md");
         std::fs::write(&numbered, "plan two edits\n").unwrap();
 
         let plain = run(words("plan"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(file_name(&plain).ends_with("-plan.md"), "got {:?}", plain);
+        assert_eq!(file_name(&plain), "plan.md");
         std::fs::write(&plain, "plan edits\n").unwrap();
 
         let repeat = run(words("plan"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(file_name(&repeat).ends_with("-plan-3.md"), "got {:?}", repeat);
+        assert_eq!(file_name(&repeat), "plan-3.md");
         assert!(std::fs::read_to_string(&repeat).unwrap().starts_with("# plan\n"));
 
         let numbered_again = run(words("plan 2"), None, false, false, Scope::Global, &config)
             .unwrap()
             .path;
-        assert!(
-            file_name(&numbered_again).ends_with("-plan-2-2.md"),
-            "got {:?}",
-            numbered_again
-        );
+        assert_eq!(file_name(&numbered_again), "plan-2-2.md");
 
         assert_eq!(std::fs::read_to_string(&numbered).unwrap(), "plan two edits\n");
         assert_eq!(std::fs::read_to_string(&plain).unwrap(), "plan edits\n");
@@ -683,7 +725,7 @@ mod tests {
             let created = dir
                 .as_ref()
                 .map_err(|e| anyhow::anyhow!("{e}"))
-                .and_then(|d| create_in_dir(words("call the bank"), d, scope));
+                .and_then(|d| create_in_dir(words("call the bank"), d, scope, false));
             results.push((scope, added, dir, created));
         }
         std::env::set_current_dir(saved).unwrap();
@@ -692,8 +734,8 @@ mod tests {
             let (added, dir, created) = (added.unwrap().path, dir.unwrap(), created.unwrap().path);
             assert_eq!(added.parent().unwrap(), dir, "{scope:?}");
             assert_eq!(created.parent().unwrap(), dir, "{scope:?}");
-            assert!(file_name(&added).ends_with("-call-the-bank.md"), "{scope:?}");
-            assert!(file_name(&created).ends_with("-call-the-bank-2.md"), "{scope:?}");
+            assert_eq!(file_name(&added), "call-the-bank.md", "{scope:?}");
+            assert_eq!(file_name(&created), "call-the-bank-2.md", "{scope:?}");
             assert_eq!(
                 std::fs::read_to_string(&added).unwrap(),
                 std::fs::read_to_string(&created).unwrap(),
@@ -709,11 +751,11 @@ mod tests {
         let root = tempdir().unwrap();
         let dir = root.path().join("ideas").join("new");
 
-        let created = create_in_dir(vec![], &dir, Scope::Personal).unwrap();
+        let created = create_in_dir(vec![], &dir, Scope::Personal, false).unwrap();
 
         assert_eq!(created.path.parent().unwrap(), dir);
         assert!(!created.had_body);
-        assert!(file_name(&created.path).ends_with("-untitled.md"));
+        assert_eq!(file_name(&created.path), "untitled.md");
         let body = std::fs::read_to_string(&created.path).unwrap();
         assert!(body.starts_with("# untitled\n"));
     }

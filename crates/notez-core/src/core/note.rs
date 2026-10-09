@@ -22,10 +22,16 @@ impl Note {
         Self { title, body }
     }
 
-    /// Filename for this note: `YYYY-MM-DD-sanitized-title.md`.
-    pub fn filename(&self) -> String {
-        let date = Local::now().format("%Y-%m-%d");
-        format!("{}-{}.md", date, crate::util::sanitize::name(&self.title))
+    /// Filename for this note: `sanitized-title.md`, or
+    /// `YYYY-MM-DD-sanitized-title.md` when `dated`. Only quick notes are
+    /// dated; the creation date of any other note is in its header.
+    pub fn filename(&self, dated: bool) -> String {
+        let slug = crate::util::sanitize::name(&self.title);
+        if dated {
+            format!("{}-{}.md", Local::now().format("%Y-%m-%d"), slug)
+        } else {
+            format!("{slug}.md")
+        }
     }
 
     /// Full file contents to write. Includes a header with title and date,
@@ -80,9 +86,15 @@ mod tests {
     }
 
     #[test]
-    fn filename_has_date_and_sanitized_title() {
+    fn undated_filename_is_only_the_sanitized_title() {
         let n = Note::new("My Idea!", None);
-        let fname = n.filename();
+        assert_eq!(n.filename(false), "my-idea.md");
+    }
+
+    #[test]
+    fn dated_filename_has_date_and_sanitized_title() {
+        let n = Note::new("My Idea!", None);
+        let fname = n.filename(true);
         assert!(fname.ends_with("-my-idea.md"), "got {}", fname);
         // Starts with YYYY-MM-DD
         let prefix = &fname[..10];

@@ -1,6 +1,6 @@
 //! `notez rename [term] [title]`: retitle an existing note.
 //!
-//! The filename keeps its `YYYY-MM-DD-` prefix and gets a freshly sanitized
+//! The filename keeps its `YYYY-MM-DD-` prefix, if it has one, and gets a freshly sanitized
 //! slug, and a leading `# ` heading in the body is rewritten to match. An
 //! existing file is never overwritten.
 

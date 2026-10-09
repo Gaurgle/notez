@@ -1125,6 +1125,12 @@ fn name_would_change(input: &str) -> Option<String> {
     (!cleaned.is_empty() && cleaned != soft_name(input)).then_some(cleaned)
 }
 
+/// Whether `dir` is a quick-notes folder, where new notes get a date prefix.
+fn is_quick_notes_dir(dir: &Path, config: &Config) -> bool {
+    dir.file_name()
+        .is_some_and(|name| name.to_string_lossy() == config.paths.quick_notes_dir)
+}
+
 /// The footer message for a typed name [`name_would_change`] refuses.
 fn altered_name_message(cleaned: &str) -> String {
     format!("name would become {cleaned}; use letters, digits and -")
@@ -4461,7 +4467,9 @@ fn event_loop(
                     let NewNotePrompt { target, buffer, .. } =
                         new_note.take().expect("the prompt is open");
                     let words = buffer.split_whitespace().map(String::from).collect();
-                    let created = match add::create_in_dir(words, &target.dir, target.scope) {
+                    let dated = is_quick_notes_dir(&target.dir, config);
+                    let created = match add::create_in_dir(words, &target.dir, target.scope, dated)
+                    {
                         Ok(created) => created,
                         Err(e) => {
                             status_message = Some(format!("new note failed: {e:#}"));
@@ -9864,6 +9872,20 @@ mod tests {
         }
     }
 
+    /// New notes are dated only in the quick-notes folder, found by its
+    /// configured name rather than a hard-coded one.
+    #[test]
+    fn only_the_quick_notes_folder_gets_dated_notes() {
+        let mut config = Config::defaults();
+        assert!(is_quick_notes_dir(Path::new("/v/00_quick-notes"), &config));
+        assert!(!is_quick_notes_dir(Path::new("/v/personal/notez"), &config));
+        assert!(!is_quick_notes_dir(Path::new("/"), &config));
+
+        config.paths.quick_notes_dir = "jots".to_string();
+        assert!(is_quick_notes_dir(Path::new("/v/jots"), &config));
+        assert!(!is_quick_notes_dir(Path::new("/v/00_quick-notes"), &config));
+    }
+
     /// NZ-26: `n` takes `My Note` as `notez add` does (file `my-note`,
     /// heading as typed), `N` takes `Big Plans` as the folder `big-plans`;
     /// `00_quick` stays refused in both.
@@ -9877,9 +9899,8 @@ mod tests {
         note.buffer = "My Note".to_string();
         assert_eq!(new_item_refusal(&note), None);
         let words = note.buffer.split_whitespace().map(String::from).collect();
-        let created = add::create_in_dir(words, &target.dir, target.scope).unwrap();
-        let file = file_name_of(&created.path);
-        assert!(file.ends_with("my-note.md"), "{file}");
+        let created = add::create_in_dir(words, &target.dir, target.scope, false).unwrap();
+        assert_eq!(file_name_of(&created.path), "my-note.md");
         let content = std::fs::read_to_string(&created.path).unwrap();
         assert!(content.starts_with("# My Note\n"), "{content}");
 

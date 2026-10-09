@@ -225,30 +225,19 @@ pub enum Commands {
 /// notez-cli's trick: any arg that contains a space must have been quoted by
 /// the shell, so it is the body. All spaceless args concatenated with spaces
 /// form the title. Lets users write `notez add my idea "this is the body"`
-/// without needing a `--body` flag.
+/// without needing a `--body` flag. With no spaceless args at all, the first
+/// quoted arg is the title instead (`notez -g "call the bank"`), and the last
+/// of any others is the body.
 pub fn split_title_body(args: Vec<String>) -> (Option<String>, Option<String>) {
-    if args.is_empty() {
-        return (None, None);
+    let (quoted, plain): (Vec<String>, Vec<String>) =
+        args.into_iter().partition(|arg| arg.contains(' '));
+    let mut quoted = quoted.into_iter();
+
+    if plain.is_empty() {
+        let title = quoted.next();
+        return (title, quoted.last());
     }
-
-    let mut title_parts: Vec<String> = Vec::new();
-    let mut body: Option<String> = None;
-
-    for arg in args {
-        if arg.contains(' ') {
-            body = Some(arg);
-        } else {
-            title_parts.push(arg);
-        }
-    }
-
-    let title = if title_parts.is_empty() {
-        None
-    } else {
-        Some(title_parts.join(" "))
-    };
-
-    (title, body)
+    (Some(plain.join(" ")), quoted.last())
 }
 
 #[cfg(test)]
@@ -281,9 +270,23 @@ mod tests {
     }
 
     #[test]
-    fn only_body_no_title() {
-        let (t, b) = split_title_body(vec!["body only".into()]);
-        assert!(t.is_none());
-        assert_eq!(b, Some("body only".to_string()));
+    fn lone_quoted_arg_becomes_title() {
+        let (t, b) = split_title_body(vec!["call the bank".into()]);
+        assert_eq!(t, Some("call the bank".to_string()));
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn without_plain_words_first_quoted_arg_is_title_and_last_is_body() {
+        let (t, b) = split_title_body(vec!["call the bank".into(), "before noon".into()]);
+        assert_eq!(t, Some("call the bank".to_string()));
+        assert_eq!(b, Some("before noon".to_string()));
+    }
+
+    #[test]
+    fn plain_words_still_take_the_title_from_quoted_args() {
+        let (t, b) = split_title_body(vec!["bank".into(), "call them before noon".into()]);
+        assert_eq!(t, Some("bank".to_string()));
+        assert_eq!(b, Some("call them before noon".to_string()));
     }
 }
