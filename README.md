@@ -216,10 +216,12 @@ and wraps their cells, and one that cannot fit even then is cut off with
 the footnotes follow the note under a short rule. Raw HTML shows as its
 source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
 width; code block lines wrap by character and keep their indentation. `p`
-switches between rendered and raw; the footer hint names the view
-`p` switches to (`p raw` or `p rendered`) and shows only while a markdown
-note is selected. The choice holds for every note until the browser closes
-and is never saved. Other files always show raw.
+is the one preview toggle: it switches a markdown note between rendered and
+raw, and a code file between highlighted and plain. The footer hint names
+the view `p` switches to (`p raw` or `p rendered` on a note, `p plain` or
+`p highlighted` on code) and shows only while a file with a language is
+selected. The choice holds for every file until the browser closes and is
+never saved. Other files always show raw.
 
 **Syntax highlighting.** The preview highlights code with tree-sitter
 grammars built into the binary: Rust, Python, Kotlin, Java, C, TOML, JSON,
@@ -229,14 +231,21 @@ when its tag is one of `rust`/`rs`, `python`/`py`, `kotlin`/`kt`, `java`, `c`,
 a comma or space, as in `rust,ignore`, is ignored); other tags show plain. A
 raw note and any file with a matching extension (`.rs`, `.py`, `.kt`, `.kts`,
 `.java`, `.c`, `.h`, `.toml`, `.json`, `.sh`, `.bash`, `.md`) is highlighted
-whole. Files over 1 MB are shown plain to keep selection fast.
+whole, unless `p` switched it to plain. Files over 1 MB are shown plain to
+keep selection fast.
 
-While a file is selected, the footer leads with its type: the language name
-when the extension has a grammar (`rust`, `kotlin`, `markdown`), otherwise
-the lowercase extension (`txt`, `yaml`), or `file` when it has none; folder
-and section rows show none. A file over the limit reads `rust (not
-highlighted, large)`, and a grammar that failed to load reads `rust
-(highlighter unavailable)`.
+While a file is selected, the preview pane's bottom border shows its suffix
+at the left, lowercase and bold (`.rs`, `.md`, `.ts`), or `file` when it has
+none, and its path relative to its section root at the right, dim
+(`ideas/plan.md`, or just the name at the root). The suffix takes its
+language's colour while the renderer or highlighter is on for the file, and
+stays plain bold while `p` has it off or the suffix has no grammar. A file
+over the limit reads `.rs (not highlighted, large)`, and a grammar that
+failed to load reads `.rs (highlighter unavailable)`. On a narrow pane the
+path is cut from the left with `…` so the file name stays, and gives way
+before the suffix. The pane's title shows the file name and then the
+section root, with `~` for the home directory (`~/notez/personal/notez`).
+Folder and section rows show neither.
 
 **Keys.** In both the board and the tree, the footer shows the keys for the
 current mode (browsing, filter, tags, focus, text entry such as rename, a

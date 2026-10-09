@@ -3153,8 +3153,11 @@ fn preview_page(height: u16) -> i32 {
 
 // --- Preview rendering ---
 
-/// How the preview shows a markdown note. Session state of one browser run:
-/// remembered across selections, never saved. Other files ignore it.
+/// How the preview shows a file with a language. `Rendered` renders a
+/// markdown note and highlights a code file; `Raw` shows a markdown note's
+/// source (still highlighted as markdown) and a code file plain. Session
+/// state of one browser run, one value for every file: remembered across
+/// selections, never saved. Files without a language ignore it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum PreviewMode {
     #[default]
@@ -3162,12 +3165,36 @@ enum PreviewMode {
     Raw,
 }
 
-impl PreviewMode {
-    /// The footer word of the toggle hint: the mode `p` switches to.
-    fn toggle_desc(self) -> &'static str {
-        match self {
-            PreviewMode::Rendered => "raw",
-            PreviewMode::Raw => "rendered",
+/// The `p` hint for the selected file: the session's mode and whether the
+/// file is a markdown note, which picks the hint's wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreviewToggle {
+    mode: PreviewMode,
+    markdown: bool,
+}
+
+impl PreviewToggle {
+    /// The toggle on a markdown note.
+    #[cfg(test)]
+    fn markdown(mode: PreviewMode) -> Self {
+        PreviewToggle { mode, markdown: true }
+    }
+
+    /// The toggle for the file at `path`; `None` when its extension maps to
+    /// no language, since `p` then changes nothing.
+    fn for_file(path: &Path, mode: PreviewMode) -> Option<Self> {
+        file_language(path)?;
+        Some(PreviewToggle { mode, markdown: is_markdown(path) })
+    }
+
+    /// The footer word of the toggle hint: the view `p` switches to,
+    /// `raw` / `rendered` for markdown, `plain` / `highlighted` for code.
+    fn desc(self) -> &'static str {
+        match (self.markdown, self.mode) {
+            (true, PreviewMode::Rendered) => "raw",
+            (true, PreviewMode::Raw) => "rendered",
+            (false, PreviewMode::Rendered) => "plain",
+            (false, PreviewMode::Raw) => "highlighted",
         }
     }
 }
@@ -3189,29 +3216,140 @@ fn is_too_large_to_highlight(len: u64) -> bool {
     len > highlight::MAX_HIGHLIGHT_BYTES
 }
 
-/// The file type the footer names for a row: the highlighting language's
-/// name when the extension maps to one (`rust`, `kotlin`, `markdown`),
-/// otherwise the lowercase extension, `file` when there is none. A language
-/// whose grammar failed to load reads `<name> (highlighter unavailable)`, a
-/// file over the highlighting limit `<name> (not highlighted, large)`.
-/// Folder and section rows have none.
-fn file_type(path: &Path, is_dir: bool) -> Option<String> {
+/// A file row's suffix indicator on the preview's bottom border.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileSuffix {
+    /// The lowercase suffix with its dot (`.rs`, `.md`, `.ts`), or `file`
+    /// when the name has no extension.
+    text: String,
+    /// The highlighting language the extension maps to.
+    language: Option<Language>,
+    /// Why a file with a language is shown plain anyway: `highlighter
+    /// unavailable` when its grammar failed to load, `not highlighted,
+    /// large` when it is over the highlighting limit.
+    note: Option<&'static str>,
+}
+
+/// The suffix indicator for a row; folder and section rows have none.
+fn file_suffix(path: &Path, is_dir: bool) -> Option<FileSuffix> {
     if is_dir {
         return None;
     }
-    if let Some(language) = file_language(path) {
-        let name = language.name();
+    let ext = path.extension().map(|ext| ext.to_string_lossy().to_lowercase());
+    let text = match ext.filter(|ext| !ext.is_empty()) {
+        Some(ext) => format!(".{ext}"),
+        None => "file".to_string(),
+    };
+    let language = file_language(path);
+    let note = language.and_then(|language| {
         if !highlight::language_available(language) {
-            return Some(format!("{name} (highlighter unavailable)"));
+            return Some("highlighter unavailable");
         }
         let len = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-        if is_too_large_to_highlight(len) {
-            return Some(format!("{name} (not highlighted, large)"));
-        }
-        return Some(name.to_string());
+        is_too_large_to_highlight(len).then_some("not highlighted, large")
+    });
+    Some(FileSuffix { text, language, note })
+}
+
+/// The style of the suffix text. Bold in the language's colour while the
+/// renderer or highlighter is on for the file (`Rendered` and a language,
+/// no note); plain bold in [`theme::NEUTRAL_SUFFIX`] while it is off, for a
+/// suffix without a language and for a large or unavailable file. `file`
+/// is a word, not a suffix, so it is not bold.
+fn suffix_style(suffix: &FileSuffix, mode: PreviewMode) -> Style {
+    let neutral = Style::default().fg(theme::NEUTRAL_SUFFIX);
+    if !suffix.text.starts_with('.') {
+        return neutral;
     }
-    let ext = path.extension().map(|ext| ext.to_string_lossy().to_lowercase());
-    Some(ext.filter(|ext| !ext.is_empty()).unwrap_or_else(|| "file".to_string()))
+    let on = mode == PreviewMode::Rendered && suffix.note.is_none();
+    match suffix.language {
+        Some(language) if on => neutral.fg(theme::language_color(language)).add_modifier(Modifier::BOLD),
+        _ => neutral.add_modifier(Modifier::BOLD),
+    }
+}
+
+/// The suffix indicator as drawn, padded by a space on each side: the
+/// suffix in [`suffix_style`], then its note in parentheses, dim.
+fn suffix_spans(suffix: &FileSuffix, mode: PreviewMode) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::raw(" "), Span::styled(suffix.text.clone(), suffix_style(suffix, mode))];
+    if let Some(note) = suffix.note {
+        spans.push(Span::styled(format!(" ({note})"), theme::dimmed()));
+    }
+    spans.push(Span::raw(" "));
+    spans
+}
+
+/// The path of `path` relative to its section `root`, as the preview's
+/// bottom border shows it (`ideas/plan.md`); the bare file name for a
+/// note at the root, or for a path outside the root.
+fn section_relative_path(path: &Path, root: &Path) -> String {
+    match path.strip_prefix(root) {
+        Ok(rel) if !rel.as_os_str().is_empty() => rel.to_string_lossy().into_owned(),
+        _ => path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+    }
+}
+
+/// `path` with the home directory shortened to `~`.
+fn tilde_path(path: &Path) -> String {
+    notez_core::util::tilde::contract(path)
+}
+
+/// The display width of `text` in terminal columns.
+fn text_width(text: &str) -> usize {
+    Span::raw(text).width()
+}
+
+/// `text` cut from the LEFT to at most `max` columns, starting with `…`
+/// when cut, so its end (a file name) stays visible. `None` when it does
+/// not fit and there is no room for `…` and at least one column of text.
+fn clip_left(text: &str, max: usize) -> Option<String> {
+    if text_width(text) <= max {
+        return Some(text.to_string());
+    }
+    if max < 2 {
+        return None;
+    }
+    let mut tail = Vec::new();
+    let mut width = 1;
+    for ch in text.chars().rev() {
+        let ch_width = text_width(ch.encode_utf8(&mut [0u8; 4]));
+        if width + ch_width > max {
+            break;
+        }
+        width += ch_width;
+        tail.push(ch);
+    }
+    Some(std::iter::once('…').chain(tail.into_iter().rev()).collect())
+}
+
+/// The preview pane's bottom border titles for a file row, between the
+/// corners of a border `width` columns wide: `suffix` left-aligned, then
+/// the section-relative `path` right-aligned and dim, padded by a space.
+/// At least one space separates them; when the pane is narrow the path is
+/// cut from the left first, and dropped when even that does not fit.
+fn preview_bottom_titles(
+    suffix: Vec<Span<'static>>,
+    path: &str,
+    width: usize,
+) -> (Line<'static>, Option<Line<'static>>) {
+    let left = Line::from(suffix).left_aligned();
+    let room = width.saturating_sub(left.width() + 1).saturating_sub(2);
+    let right = clip_left(path, room)
+        .map(|path| Line::from(Span::styled(format!(" {path} "), theme::dimmed())).right_aligned());
+    (left, right)
+}
+
+/// The preview title after the pane number: `spans` (the dots and the file
+/// name, ending in a space), then the section `root`, dim, cut from the
+/// left to fit the `width` columns the title has; left out when not even
+/// `…` and one column fit.
+fn with_section_root(mut spans: Vec<Span<'static>>, root: &str, width: usize) -> Vec<Span<'static>> {
+    let used: usize = spans.iter().map(Span::width).sum();
+    let room = width.saturating_sub(used).saturating_sub(1);
+    if let Some(root) = clip_left(root, room) {
+        spans.push(Span::styled(format!("{root} "), theme::dimmed()));
+    }
+    spans
 }
 
 /// What a cached file preview was built from. Any difference rebuilds it:
@@ -3278,10 +3416,11 @@ struct Preview {
 }
 
 impl Preview {
-    /// `p`: switch between rendered and raw, only while a markdown note is
-    /// selected (`path`), since nothing else shows a difference.
+    /// `p`: switch between rendered and raw (markdown) or highlighted and
+    /// plain (code), only while a file with a language is selected
+    /// (`path`), since nothing else shows a difference.
     fn toggle(&mut self, path: Option<&Path>) {
-        if path.is_some_and(is_markdown) {
+        if path.is_some_and(|path| file_language(path).is_some()) {
             self.mode = match self.mode {
                 PreviewMode::Rendered => PreviewMode::Raw,
                 PreviewMode::Raw => PreviewMode::Rendered,
@@ -3292,10 +3431,13 @@ impl Preview {
     /// The preview lines of the file at `path` for a pane `width` columns
     /// wide inside its borders and padding: rendered markdown, already
     /// wrapped to `width`, or the raw lines unwrapped, highlighted when the
-    /// extension maps to a language and the file is within the limit.
+    /// extension maps to a language, the file is within the limit, and a
+    /// code file is not toggled to plain.
     fn file_lines(&mut self, path: &Path, width: u16) -> &[Line<'static>] {
         let rendered = self.mode == PreviewMode::Rendered && is_markdown(path);
-        let key = PreviewKey::of(path, width, rendered);
+        let plain = self.mode == PreviewMode::Raw && !is_markdown(path);
+        let key = PreviewKey::of(path, width, rendered)
+            .map(|key| if plain { PreviewKey { language: None, ..key } } else { key });
         let language = key.as_ref().and_then(|key| key.language);
         self.cache.get(key, || file_preview_lines(path, rendered, width, language))
     }
@@ -3375,16 +3517,16 @@ fn raw_line_style(line: &str) -> Style {
 const PREVIEW_TOGGLE_KEY: &str = "p";
 
 /// `TREE_KEYS` with the preview toggle's footer hint filled in. `toggle` is
-/// the preview mode while a markdown note is selected: the hint then shows
-/// the mode `p` switches to and drops first when space runs out. Otherwise
-/// the toggle stays in the help overlay only. Same rows in the same order as
+/// set while a file with a language is selected: the hint then shows the
+/// view `p` switches to and drops first when space runs out. Otherwise the
+/// toggle stays in the help overlay only. Same rows in the same order as
 /// `TREE_KEYS`, so the footer and the help overlay still agree.
-fn tree_keys(toggle: Option<PreviewMode>) -> Vec<KeyHint> {
+fn tree_keys(toggle: Option<PreviewToggle>) -> Vec<KeyHint> {
     TREE_KEYS
         .iter()
         .map(|hint| match toggle {
-            Some(mode) if hint.key == PREVIEW_TOGGLE_KEY => KeyHint {
-                desc: mode.toggle_desc(),
+            Some(toggle) if hint.key == PREVIEW_TOGGLE_KEY => KeyHint {
+                desc: toggle.desc(),
                 slot: Slot::Priority(12),
                 ..*hint
             },
@@ -3470,20 +3612,11 @@ fn pane_border(pane: Pane, focus: Pane) -> Style {
     if pane == focus { theme::border_focused() } else { theme::border() }
 }
 
-/// The browsing footer: the selected file's type and the mark count, each
-/// when there is one, then the `table` hints for `mode` that fit after them.
-fn browse_footer(
-    table: &[KeyHint],
-    file_type: Option<&str>,
-    marks: usize,
-    mode: Mode,
-    on: &[Toggle],
-    width: usize,
-) -> Line<'static> {
+/// The browsing footer: the mark count when rows are marked, then the
+/// `table` hints for `mode` that fit after it. The selected file's suffix
+/// and path are on the preview's bottom border instead.
+fn browse_footer(table: &[KeyHint], marks: usize, mode: Mode, on: &[Toggle], width: usize) -> Line<'static> {
     let mut lead = Vec::new();
-    if let Some(file_type) = file_type {
-        lead.push(Span::styled(format!(" {file_type} "), Style::default().fg(theme::SAPPHIRE)));
-    }
     if marks > 0 {
         lead.extend(marked_lead(marks));
     }
@@ -3567,7 +3700,7 @@ const TREE_KEYS: &[KeyHint] = &[
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
-    key(PREVIEW_TOGGLE_KEY, "raw", "toggle rendered / raw preview", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
+    key(PREVIEW_TOGGLE_KEY, "raw", "toggle the preview: rendered / raw markdown, highlighted / plain code", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -3914,20 +4047,32 @@ fn event_loop(
                         },
                         Style::default().fg(theme::OVERLAY),
                     ));
-                    let real_path_display = if real_idx < nodes.len() {
-                        format!(
-                            " {} ",
-                            notez_core::util::tilde::contract(&nodes[real_idx].path)
-                        )
-                    } else {
-                        String::new()
-                    };
-                    let preview_block = Block::default()
-                        .title(pane_title(Pane::Preview, panes.focus, preview_title_spans))
-                        .title_bottom(Line::from(Span::styled(
-                            real_path_display,
-                            Style::default().fg(theme::OVERLAY),
-                        )))
+                    // A file row adds its section root to the title and its
+                    // suffix and section-relative path to the bottom border;
+                    // folder and section rows keep the title alone.
+                    let border_width = usize::from(preview_area.width.saturating_sub(2));
+                    let preview_file = nodes.get(real_idx).filter(|n| !n.is_dir);
+                    let mut bottom_titles = Vec::new();
+                    if let Some(node) = preview_file {
+                        let root = &sections[node.section].root;
+                        let title_width = border_width.saturating_sub(text_width(&format!(" {} ", Pane::Preview.number())));
+                        preview_title_spans = with_section_root(preview_title_spans, &tilde_path(root), title_width);
+                        if let Some(suffix) = file_suffix(&node.path, false) {
+                            let (left, right) = preview_bottom_titles(
+                                suffix_spans(&suffix, preview.mode),
+                                &section_relative_path(&node.path, root),
+                                border_width,
+                            );
+                            bottom_titles.push(left);
+                            bottom_titles.extend(right);
+                        }
+                    }
+                    let mut preview_block = Block::default()
+                        .title(pane_title(Pane::Preview, panes.focus, preview_title_spans));
+                    for title in bottom_titles {
+                        preview_block = preview_block.title_bottom(title);
+                    }
+                    let preview_block = preview_block
                         .borders(Borders::ALL)
                         .border_style(pane_border(Pane::Preview, panes.focus))
                         .border_type(ratatui::widgets::BorderType::Rounded)
@@ -4022,13 +4167,12 @@ fn event_loop(
                     view_all_lit(nodes),
                     help.open,
                 );
-                // The selected file's type and, for a markdown note, the
-                // preview toggle lead and join the browsing hints.
+                // For a file with a language, the preview toggle joins the
+                // browsing hints.
                 let selected_file =
                     nodes.get(real_idx).filter(|n| !n.is_dir).map(|n| n.path.as_path());
-                let row_type = selected_file.and_then(|path| file_type(path, false));
                 let keys = pane_keys(
-                    tree_keys(selected_file.filter(|p| is_markdown(p)).map(|_| preview.mode)),
+                    tree_keys(selected_file.and_then(|path| PreviewToggle::for_file(path, preview.mode))),
                     panes.focus,
                 );
                 let status = match slot {
@@ -4100,7 +4244,7 @@ fn event_loop(
                             flag_mode,
                             focus_active,
                         );
-                        browse_footer(&keys, row_type.as_deref(), marks.len(), mode, &toggles, width)
+                        browse_footer(&keys, marks.len(), mode, &toggles, width)
                     }
                     StatusSlot::Warning(warning) => {
                         let (text, padding) = warning_layout(warning, area.width as usize);
@@ -4126,7 +4270,7 @@ fn event_loop(
                             flag_mode,
                             focus_active,
                         );
-                        browse_footer(&keys, row_type.as_deref(), 0, mode, &toggles, width)
+                        browse_footer(&keys, 0, mode, &toggles, width)
                     }
                 };
                 frame.render_widget(Paragraph::new(status), rows[1]);
@@ -5235,7 +5379,7 @@ mod tests {
     }
 
     fn pane_footer(focus: Pane, toggle: Option<PreviewMode>, width: usize) -> Vec<String> {
-        let keys = pane_keys(tree_keys(toggle), focus);
+        let keys = pane_keys(tree_keys(toggle.map(PreviewToggle::markdown)), focus);
         let sel = footer::select(&keys, Mode::Normal, &[], width);
         sel.left
             .iter()
@@ -5271,7 +5415,7 @@ mod tests {
 
     #[test]
     fn the_preview_footer_keeps_the_same_rows_so_help_lists_each_key_once() {
-        for toggle in [None, Some(PreviewMode::Rendered)] {
+        for toggle in [None, Some(PreviewToggle::markdown(PreviewMode::Rendered))] {
             let keys = pane_keys(tree_keys(toggle), Pane::Preview);
             assert_eq!(keys.len(), TREE_KEYS.len());
             for (shown, row) in keys.iter().zip(TREE_KEYS) {
@@ -5412,14 +5556,36 @@ mod tests {
     }
 
     #[test]
-    fn p_does_nothing_on_a_non_markdown_file_a_folder_or_no_row() {
+    fn p_does_nothing_on_a_file_without_a_language_a_folder_or_no_row() {
         let dir = tempfile::tempdir().unwrap();
         let mut preview = Preview::default();
-        preview.toggle(Some(&dir.path().join("Cargo.toml")));
+        preview.toggle(Some(&dir.path().join("notes.txt")));
+        preview.toggle(Some(&dir.path().join("Makefile")));
         preview.toggle(None);
         assert_eq!(preview.mode, PreviewMode::Rendered);
         preview.toggle(Some(&dir.path().join("notes.MD")));
         assert_eq!(preview.mode, PreviewMode::Raw, ".MD is markdown too");
+    }
+
+    #[test]
+    fn p_on_a_code_file_toggles_highlighted_and_plain_and_the_cache_key_follows() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        let mut preview = Preview::default();
+        let highlighted = preview.file_lines(&file, 40).to_vec();
+        assert_eq!(style_of(&highlighted[0], "fn"), theme::syntax_keyword());
+        assert_eq!(preview.cache.key.as_ref().unwrap().language, Some(Language::Rust));
+
+        preview.toggle(Some(&file));
+        assert_eq!(preview.mode, PreviewMode::Raw);
+        assert_eq!(preview.file_lines(&file, 40).to_vec(), vec![raw_preview_line("fn main() {}")], "plain");
+        assert_eq!(preview.cache.key.as_ref().unwrap().language, None, "the key drops the language");
+
+        preview.toggle(Some(&dir.path().join("Cargo.TOML")));
+        assert_eq!(preview.mode, PreviewMode::Rendered, "any file with a language toggles");
+        assert_eq!(preview.file_lines(&file, 40).to_vec(), highlighted, "highlighted again");
+        assert_eq!(preview.cache.key.as_ref().unwrap().language, Some(Language::Rust));
     }
 
     #[test]
@@ -5512,29 +5678,40 @@ mod tests {
         assert_eq!(plain(preview.file_lines(&note, 40)), vec!["Longer title"]);
     }
 
-    #[test]
-    fn file_type_names_markdown_the_lowercase_extension_or_file() {
-        assert_eq!(file_type(Path::new("/n/a.md"), false).as_deref(), Some("markdown"));
-        assert_eq!(file_type(Path::new("/n/A.MD"), false).as_deref(), Some("markdown"));
-        assert_eq!(file_type(Path::new("/n/Cargo.toml"), false).as_deref(), Some("toml"));
-        assert_eq!(file_type(Path::new("/n/main.RS"), false).as_deref(), Some("rust"));
-        assert_eq!(file_type(Path::new("/n/notes.txt"), false).as_deref(), Some("txt"));
-        assert_eq!(file_type(Path::new("/n/Makefile"), false).as_deref(), Some("file"));
-        assert_eq!(file_type(Path::new("/n/.gitignore"), false).as_deref(), Some("file"));
-        assert_eq!(file_type(Path::new("/n/trailing."), false).as_deref(), Some("file"));
-        assert_eq!(file_type(Path::new("/n/ideas.md"), true), None, "a folder");
-        assert_eq!(file_type(Path::new("/n/ideas"), true), None, "a folder or section row");
+    /// The suffix indicator's text as drawn, without its padding.
+    fn suffix_text(path: &Path, is_dir: bool) -> Option<String> {
+        file_suffix(path, is_dir).map(|suffix| text_of(&Line::from(suffix_spans(&suffix, PreviewMode::Rendered))).trim().to_string())
     }
 
     #[test]
-    fn file_type_names_the_highlighting_language() {
-        assert_eq!(file_type(Path::new("/n/main.rs"), false).as_deref(), Some("rust"));
-        assert_eq!(file_type(Path::new("/n/App.kt"), false).as_deref(), Some("kotlin"));
-        assert_eq!(file_type(Path::new("/n/build.gradle.kts"), false).as_deref(), Some("kotlin"));
-        assert_eq!(file_type(Path::new("/n/a.md"), false).as_deref(), Some("markdown"));
-        assert_eq!(file_type(Path::new("/n/a.py"), false).as_deref(), Some("python"));
-        assert_eq!(file_type(Path::new("/n/a.txt"), false).as_deref(), Some("txt"));
-        assert_eq!(file_type(Path::new("/n/a.yaml"), false).as_deref(), Some("yaml"));
+    fn file_suffix_is_the_lowercase_suffix_with_its_dot_or_file() {
+        assert_eq!(suffix_text(Path::new("/n/a.md"), false).as_deref(), Some(".md"));
+        assert_eq!(suffix_text(Path::new("/n/A.MD"), false).as_deref(), Some(".md"));
+        assert_eq!(suffix_text(Path::new("/n/Cargo.toml"), false).as_deref(), Some(".toml"));
+        assert_eq!(suffix_text(Path::new("/n/main.RS"), false).as_deref(), Some(".rs"));
+        assert_eq!(suffix_text(Path::new("/n/app.ts"), false).as_deref(), Some(".ts"));
+        assert_eq!(suffix_text(Path::new("/n/notes.txt"), false).as_deref(), Some(".txt"));
+        assert_eq!(suffix_text(Path::new("/n/Makefile"), false).as_deref(), Some("file"));
+        assert_eq!(suffix_text(Path::new("/n/.gitignore"), false).as_deref(), Some("file"));
+        assert_eq!(suffix_text(Path::new("/n/trailing."), false).as_deref(), Some("file"));
+        assert_eq!(file_suffix(Path::new("/n/ideas.md"), true), None, "a folder");
+        assert_eq!(file_suffix(Path::new("/n/ideas"), true), None, "a folder or section row");
+    }
+
+    #[test]
+    fn file_suffix_carries_the_highlighting_language() {
+        let language = |path: &str| file_suffix(Path::new(path), false).unwrap().language;
+        assert_eq!(language("/n/main.rs"), Some(Language::Rust));
+        assert_eq!(language("/n/main.RS"), Some(Language::Rust));
+        assert_eq!(language("/n/App.kt"), Some(Language::Kotlin));
+        assert_eq!(language("/n/build.gradle.kts"), Some(Language::Kotlin));
+        assert_eq!(suffix_text(Path::new("/n/build.gradle.kts"), false).as_deref(), Some(".kts"));
+        assert_eq!(language("/n/a.md"), Some(Language::Markdown));
+        assert_eq!(language("/n/a.py"), Some(Language::Python));
+        assert_eq!(language("/n/a.txt"), None);
+        assert_eq!(language("/n/a.yaml"), None);
+        assert_eq!(language("/n/app.ts"), None);
+        assert_eq!(language("/n/Makefile"), None);
     }
 
     #[test]
@@ -5544,7 +5721,7 @@ mod tests {
         let line = "fn f() {}\n";
         let count = highlight::MAX_HIGHLIGHT_BYTES as usize / line.len() + 1;
         std::fs::write(&big, line.repeat(count)).unwrap();
-        assert_eq!(file_type(&big, false).as_deref(), Some("rust (not highlighted, large)"));
+        assert_eq!(suffix_text(&big, false).as_deref(), Some(".rs (not highlighted, large)"));
         let mut preview = Preview::default();
         let lines = preview.file_lines(&big, 40);
         assert_eq!(lines.len(), count);
@@ -5553,10 +5730,10 @@ mod tests {
 
         let small = dir.path().join("small.rs");
         std::fs::write(&small, line).unwrap();
-        assert_eq!(file_type(&small, false).as_deref(), Some("rust"));
+        assert_eq!(suffix_text(&small, false).as_deref(), Some(".rs"));
         let big_md = dir.path().join("big.md");
         std::fs::write(&big_md, "text\n".repeat(count * 2)).unwrap();
-        assert_eq!(file_type(&big_md, false).as_deref(), Some("markdown (not highlighted, large)"));
+        assert_eq!(suffix_text(&big_md, false).as_deref(), Some(".md (not highlighted, large)"));
     }
 
     fn style_of(line: &Line<'static>, text: &str) -> Style {
@@ -5668,7 +5845,7 @@ mod tests {
     fn the_toggle_key_is_a_free_browse_key_listed_once_in_the_view_group() {
         let rows: Vec<&KeyHint> = TREE_KEYS.iter().filter(|k| k.key == "p").collect();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].help, "toggle rendered / raw preview");
+        assert_eq!(rows[0].help, "toggle the preview: rendered / raw markdown, highlighted / plain code");
         assert_eq!(rows[0].group, Group::View);
         assert_eq!(rows[0].modes, BROWSE);
         for mode in [Mode::Tag, Mode::Filter, Mode::Rename, Mode::NewItem, Mode::ConfirmDelete, Mode::VimCommand, Mode::Move, Mode::SetScope, Mode::ConfirmMove] {
@@ -5682,9 +5859,9 @@ mod tests {
 
     #[test]
     fn the_toggle_hint_names_the_action_shows_only_for_markdown_and_drops_first() {
-        assert!(!shown_with(&tree_keys(None), 300).contains(&"p"), "hidden when the row is not markdown");
-        let rendered = tree_keys(Some(PreviewMode::Rendered));
-        let raw = tree_keys(Some(PreviewMode::Raw));
+        assert!(!shown_with(&tree_keys(None), 300).contains(&"p"), "hidden when the row has no language");
+        let rendered = tree_keys(Some(PreviewToggle::markdown(PreviewMode::Rendered)));
+        let raw = tree_keys(Some(PreviewToggle::markdown(PreviewMode::Raw)));
         assert_eq!(rendered.len(), TREE_KEYS.len(), "same rows, so help and footer indices agree");
         let line = |table: &[KeyHint]| text_of(&footer::line(table, Mode::Normal, &[], 300));
         assert!(line(&rendered).contains("  p raw  "), "{}", line(&rendered));
@@ -5698,19 +5875,124 @@ mod tests {
     }
 
     #[test]
-    fn the_browse_footer_leads_with_the_file_type_then_the_mark_count() {
-        let keys = tree_keys(Some(PreviewMode::Rendered));
-        let both = text_of(&browse_footer(&keys, Some("markdown"), 3, Mode::Normal, &[], 200));
-        assert!(both.starts_with(" markdown  3 marked  open  tags"), "{both}");
-        let type_only = text_of(&browse_footer(&keys, Some("toml"), 0, Mode::Normal, &[], 200));
-        assert!(type_only.starts_with(" toml  open  tags"), "{type_only}");
-        let marks_only = text_of(&browse_footer(&keys, None, 2, Mode::Normal, &[], 200));
-        assert!(marks_only.starts_with(" 2 marked  open  tags"), "{marks_only}");
-        let neither = browse_footer(&TREE_KEYS.to_vec(), None, 0, Mode::Normal, &[], 120);
+    fn the_browse_footer_leads_with_the_mark_count_and_no_file_type() {
+        let keys = tree_keys(Some(PreviewToggle::markdown(PreviewMode::Rendered)));
+        let marks = text_of(&browse_footer(&keys, 3, Mode::Normal, &[], 200));
+        assert!(marks.starts_with(" 3 marked  open  tags"), "{marks}");
+        let hints = browse_footer(&keys, 0, Mode::Normal, &[], 200);
+        assert_eq!(text_of(&hints), text_of(&footer::line(&keys, Mode::Normal, &[], 200)), "hints only");
+        let neither = browse_footer(&TREE_KEYS.to_vec(), 0, Mode::Normal, &[], 120);
         assert_eq!(text_of(&neither), text_of(&footer::line(TREE_KEYS, Mode::Normal, &[], 120)));
         for width in 0..30 {
-            let _ = browse_footer(&keys, Some("markdown"), 12, Mode::Normal, &[], width);
+            let _ = browse_footer(&keys, 12, Mode::Normal, &[], width);
         }
+    }
+
+    // --- Suffix indicator and preview border (NZ-39) ---
+
+    fn rendered_suffix(path: &str, mode: PreviewMode) -> Style {
+        suffix_style(&file_suffix(Path::new(path), false).unwrap(), mode)
+    }
+
+    #[test]
+    fn the_suffix_is_bold_in_its_language_colour_while_the_renderer_or_highlighter_is_on() {
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        assert_eq!(rendered_suffix("/n/a.md", PreviewMode::Rendered), bold.fg(theme::language_color(Language::Markdown)));
+        assert_eq!(rendered_suffix("/n/main.RS", PreviewMode::Rendered), bold.fg(theme::language_color(Language::Rust)));
+        assert_eq!(rendered_suffix("/n/App.kt", PreviewMode::Rendered), bold.fg(theme::language_color(Language::Kotlin)));
+    }
+
+    #[test]
+    fn the_suffix_is_plain_bold_while_off_or_without_a_language() {
+        let plain_bold = Style::default().fg(theme::NEUTRAL_SUFFIX).add_modifier(Modifier::BOLD);
+        assert_eq!(rendered_suffix("/n/a.md", PreviewMode::Raw), plain_bold, "markdown, raw");
+        assert_eq!(rendered_suffix("/n/main.rs", PreviewMode::Raw), plain_bold, "code, plain");
+        for mode in [PreviewMode::Rendered, PreviewMode::Raw] {
+            assert_eq!(rendered_suffix("/n/app.ts", mode), plain_bold, "unknown suffix, {mode:?}");
+            let file = rendered_suffix("/n/Makefile", mode);
+            assert!(!file.add_modifier.contains(Modifier::BOLD), "`file` is a word, not bold");
+        }
+    }
+
+    #[test]
+    fn a_large_or_unavailable_file_shows_plain_bold_and_its_note_dim() {
+        let large = FileSuffix { text: ".rs".into(), language: Some(Language::Rust), note: Some("not highlighted, large") };
+        let plain_bold = Style::default().fg(theme::NEUTRAL_SUFFIX).add_modifier(Modifier::BOLD);
+        assert_eq!(suffix_style(&large, PreviewMode::Rendered), plain_bold);
+        let spans = suffix_spans(&large, PreviewMode::Rendered);
+        assert_eq!(text_of(&Line::from(spans.clone())), " .rs (not highlighted, large) ");
+        let note = spans.iter().find(|span| span.content.contains("large")).unwrap();
+        assert_eq!(note.style, theme::dimmed());
+        let unavailable = FileSuffix { note: Some("highlighter unavailable"), ..large };
+        assert_eq!(text_of(&Line::from(suffix_spans(&unavailable, PreviewMode::Raw))), " .rs (highlighter unavailable) ");
+    }
+
+    #[test]
+    fn the_toggle_hint_names_the_action_per_file_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let toggle = |name: &str, mode| PreviewToggle::for_file(&dir.path().join(name), mode).map(PreviewToggle::desc);
+        assert_eq!(toggle("a.md", PreviewMode::Rendered), Some("raw"));
+        assert_eq!(toggle("a.md", PreviewMode::Raw), Some("rendered"));
+        assert_eq!(toggle("main.rs", PreviewMode::Rendered), Some("plain"));
+        assert_eq!(toggle("main.rs", PreviewMode::Raw), Some("highlighted"));
+        assert_eq!(toggle("Cargo.toml", PreviewMode::Rendered), Some("plain"));
+        assert_eq!(toggle("app.ts", PreviewMode::Rendered), None);
+        assert_eq!(toggle("Makefile", PreviewMode::Rendered), None);
+        let code = tree_keys(PreviewToggle::for_file(&dir.path().join("main.rs"), PreviewMode::Rendered));
+        let p = code.iter().find(|hint| hint.key == "p").unwrap();
+        assert_eq!(p.desc, "plain");
+        assert!(shown_with(&code, 300).contains(&"p"), "shown for a code file");
+        let line = text_of(&footer::line(&code, Mode::Normal, &[], 300));
+        assert!(line.contains("  plain  "), "the footer folds `p` into `plain`: {line}");
+        let code = tree_keys(PreviewToggle::for_file(&dir.path().join("main.rs"), PreviewMode::Raw));
+        let line = text_of(&footer::line(&code, Mode::Normal, &[], 300));
+        assert!(line.contains("  p highlighted  "), "{line}");
+    }
+
+    #[test]
+    fn the_bottom_right_path_is_relative_to_the_section_root() {
+        let root = Path::new("/home/u/notez/personal/notez");
+        assert_eq!(section_relative_path(&root.join("plan.md"), root), "plan.md", "a root-level note");
+        assert_eq!(section_relative_path(&root.join("ideas/plan.md"), root), "ideas/plan.md", "a nested note");
+        let docs = Path::new("/home/u/Repos/notez/docs");
+        assert_eq!(section_relative_path(&docs.join("specs/agent-workflow.md"), docs), "specs/agent-workflow.md", "a docs file");
+        assert_eq!(section_relative_path(Path::new("/elsewhere/x.md"), root), "x.md", "outside the root: the bare name");
+    }
+
+    fn bottom_texts(spans: Vec<Span<'static>>, path: &str, width: usize) -> (String, Option<String>) {
+        let (left, right) = preview_bottom_titles(spans, path, width);
+        (text_of(&left), right.map(|line| text_of(&line)))
+    }
+
+    #[test]
+    fn the_preview_border_shows_the_suffix_left_and_the_path_right_clipped_from_the_left() {
+        let suffix = || vec![Span::raw(" .md ")];
+        assert_eq!(bottom_texts(suffix(), "ideas/plan.md", 40), (" .md ".into(), Some(" ideas/plan.md ".into())));
+        // 5 for the suffix, 1 space, then " …plan.md " in the 10 left.
+        assert_eq!(bottom_texts(suffix(), "ideas/plan.md", 16), (" .md ".into(), Some(" …plan.md ".into())));
+        for width in 0..40 {
+            let (left, right) = bottom_texts(suffix(), "ideas/plan.md", width);
+            if let Some(right) = right {
+                let used = left.chars().count() + 1 + right.chars().count();
+                assert!(used <= width, "width {width}: {left:?} {right:?}");
+                assert!(right.ends_with("d "), "the end of the path stays visible: {right:?}");
+            }
+        }
+        assert_eq!(bottom_texts(suffix(), "ideas/plan.md", 8).1, None, "the path gives way first");
+        assert_eq!(bottom_texts(suffix(), "ideas/plan.md", 3).0, " .md ", "the suffix stays");
+    }
+
+    #[test]
+    fn the_preview_title_shows_the_section_root_with_a_tilde_clipped_from_the_left() {
+        let root = notez_core::util::tilde::expand("~/notez/personal/notez");
+        assert_eq!(tilde_path(&root), "~/notez/personal/notez");
+        let name = || vec![Span::raw("plan.md ")];
+        let title = |width| text_of(&Line::from(with_section_root(name(), "~/Repos/notez/docs", width)));
+        assert_eq!(title(80), "plan.md ~/Repos/notez/docs ");
+        assert_eq!(title(18), "plan.md …tez/docs ");
+        assert_eq!(title(9), "plan.md ", "no room: the root goes, the name stays");
+        let root_span = with_section_root(name(), "~/x", 80).pop().unwrap();
+        assert_eq!(root_span.style, theme::dimmed());
     }
 
     fn dir_node(depth: usize) -> TreeNode {
