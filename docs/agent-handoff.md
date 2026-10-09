@@ -589,9 +589,11 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 show derived dots, blank when untagged, strip at column 1) and NZ-41 DONE
 (merge `6854e03`, todoz cursor row, branch lines, margin, lavender frame);
 CI green on `main`, worktrees and branches removed. NZ-39 (language
-suffix indicator) dispatched on base `931ce3d`, worktree
-`.claude/worktrees/NZ-39`, branch `nz-39-suffix`, one worker pass then one
-review. NZ-42 and NZ-43 are Drafts.
+suffix indicator) DONE (merge `234d21c`, worker commit `7d6744d`; branch
+`nz-39-suffix` and its worktree removed after the merge). NZ-42 and
+NZ-43 are Drafts. 2026-10-09 night: a tmux crash during a test run was
+not reproduced; `cargo build` and `cargo test --workspace` on `234d21c`
+are green (524 + 147 passed) and the tmux server stayed up.
 Board ids: NZ-40 `PVTI_lAHOCU842c4BmE5Zzg_uHy4`, NZ-41 `..._uH0E`,
 NZ-42 `..._uH0g`, NZ-43 `..._uH10`.
 
@@ -4182,7 +4184,7 @@ title unchanged.
 
 #### NZ-39: bold coloured language suffix in the preview footer, `p` toggles highlighting too
 
-Status: Ready, runs after NZ-38 (same files). Requested by Andreas on
+Status: Done (merge `234d21c`, 2026-10-09). Was: Ready, runs after NZ-38 (same files). Requested by Andreas on
 2026-10-08 at 22:40 CEST: "i want the language suffix of previewed doc
 in the preview footer (.ts, .rs, .md etc) in bold and its correlated
 color scheme. the togglable syntax highlighter and formatter should
