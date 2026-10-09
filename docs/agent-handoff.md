@@ -243,7 +243,9 @@ State at the stop, in short (details under In flight, Tickets, Next step):
   relay" (the importance-glyph change and the todoz port), "I take the
   baton here" (lead on `claude-sonnet-5-5`, model substitution accepted),
   "Merge as you go" (the 2026-10-08 integration delegation applies again,
-  for NZ-40, NZ-41, NZ-42 only: reviewed diff, green branch CI, safe-merge
+  for NZ-40, NZ-41, NZ-42 only, and for NZ-39 from 2026-10-09 evening when
+  Andreas asked "can we implement this today?" about its language
+  indicator: reviewed diff, green branch CI, safe-merge
   checks, then `git merge --no-ff` into `main` and push), and "lets this
   relay lead work on todoz". Limits: those three tickets; the tree-sitter
   and pulldown-cmark dependency approval is not extended to anything new;
@@ -583,10 +585,13 @@ State at the stop, in short (details under In flight, Tickets, Next step):
 
 ## In flight
 
-2026-10-09 20:15 CEST: NZ-40 (worker, `tui/tree.rs` + README) and NZ-41
-(worker, `tui/todo.rs`) dispatched in parallel on disjoint files, base
-`14c0c14`, worktrees `.claude/worktrees/NZ-40` and `NZ-41`, branches
-`nz-40-dots` and `nz-41-todoz-visual`. NZ-42 and NZ-43 are Drafts.
+2026-10-09 evening: NZ-40 DONE (merge `931ce3d`, dots back, folders
+show derived dots, blank when untagged, strip at column 1) and NZ-41 DONE
+(merge `6854e03`, todoz cursor row, branch lines, margin, lavender frame);
+CI green on `main`, worktrees and branches removed. NZ-39 (language
+suffix indicator) dispatched on base `931ce3d`, worktree
+`.claude/worktrees/NZ-39`, branch `nz-39-suffix`, one worker pass then one
+review. NZ-42 and NZ-43 are Drafts.
 Board ids: NZ-40 `PVTI_lAHOCU842c4BmE5Zzg_uHy4`, NZ-41 `..._uH0E`,
 NZ-42 `..._uH0g`, NZ-43 `..._uH10`.
 
