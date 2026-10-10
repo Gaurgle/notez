@@ -63,8 +63,11 @@ update the handoff, record any running workers and release the baton.
 - **Small**: narrow scans, documentation and truly small changes.
 
 Workers, reviewers and small agents are leaves: they never delegate. At most
-two implementation workers run at once, on disjoint files. Implementation and
-review are always separate sessions, even on the same model.
+three implementation workers run at once (owner decision, 2026-10-10,
+recorded in `docs/agent-handoff.md`), each ticket on its own files, at most
+one worker per file (`tui/tree.rs` is always one worker), and merges into
+`main` one at a time. Implementation and review are always separate
+sessions, even on the same model.
 
 ## Task method and Superpowers
 

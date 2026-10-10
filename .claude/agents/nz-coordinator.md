@@ -68,7 +68,9 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
    branch with nothing uncommitted; anything else, ask. Remote branches stay
    until the owner approves deleting them.
 
-At most two implementation workers at once, on disjoint files. Do not
+At most three implementation workers at once, each on its own files, one
+worker per file, merges one at a time (owner, 2026-10-10, in
+`docs/agent-workflow.md`). Do not
 implement tickets yourself: your budget is for design, handoffs, verification
 and decisions.
 
