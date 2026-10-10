@@ -23,6 +23,7 @@ use notez_core::todo::{self, CheckState, Task};
 use notez_core::util::tilde;
 
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
+use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::{VimCommandMode, VimKey, theme};
 
@@ -206,7 +207,7 @@ fn warning_right(warning: &str, right: Vec<Span<'static>>, width: usize) -> Vec<
     if needed > width { Vec::new() } else { right }
 }
 
-/// What the title bar shows and which global-only features are enabled.
+/// What the header shows and which global-only features are enabled.
 pub struct BoardContext {
     /// Global board: category creation (`N`) and reload-after-create work.
     pub global: bool,
@@ -215,6 +216,8 @@ pub struct BoardContext {
     /// Shown in the footer's warning slot for the whole session, ahead of
     /// the prose warning when both apply.
     pub warning: Option<String>,
+    /// The vault's sync state as the session opened, for the header.
+    pub sync: SyncState,
 }
 
 /// The edited board plus the source files whose persisted state actually
@@ -724,10 +727,15 @@ fn event_loop(
     // Previous filter buffer; on change, sections/parents containing a match
     // auto-expand so results are not hidden behind collapsed rows.
     let mut prev_filter = String::new();
+    // The header's count of uncommitted vault files. Checks and edits stay
+    // in memory until the board saves on exit, so only creating a category,
+    // which writes files, marks it stale; plain navigation never runs git.
+    let mut vault_dirty = header::vault_dirty_count(config.notez_root_path(), ctx.sync);
 
     loop {
         todo::derive_parent_states(&mut items);
         todo::derive_header_flags(&mut items);
+        let vault_dirty_files = vault_dirty.get();
 
         terminal
             .draw(|frame| {
@@ -738,6 +746,10 @@ fn event_loop(
                     full.width.saturating_sub(4),
                     full.height.saturating_sub(2),
                 );
+                // The header line above the board; filled in once the
+                // counts are known.
+                let [header_area, area] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
 
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
@@ -784,29 +796,17 @@ fn event_loop(
                     })
                     .count();
 
-                let title = Line::from(vec![
-                    Span::styled(
-                        format!(" {} ", ctx.title),
-                        Style::default()
-                            .fg(theme::LAVENDER)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled("- ", Style::default().fg(theme::SURFACE)),
-                    Span::styled(
-                        format!("{} ", ctx.path_display),
-                        Style::default().fg(theme::OVERLAY),
-                    ),
-                    Span::styled("- ", Style::default().fg(theme::SURFACE)),
-                    Span::styled(
-                        format!("{} pending", todo_count),
-                        Style::default().fg(theme::SAPPHIRE),
-                    ),
-                    Span::styled(" · ", Style::default().fg(theme::SURFACE)),
-                    Span::styled(
-                        format!("{} done ", done_count),
-                        Style::default().fg(theme::GREEN),
-                    ),
-                ]);
+                let header_line = header::line(
+                    &header::Header {
+                        title: &ctx.title,
+                        path: &ctx.path_display,
+                        sync: ctx.sync,
+                        dirty: vault_dirty_files,
+                        counts: header::todo_counts(todo_count, done_count),
+                    },
+                    usize::from(header_area.width),
+                );
+                frame.render_widget(Paragraph::new(header_line), header_area);
 
                 // Filter strip: 5 tag dots (lit when in the active filter)
                 // followed by the search input or hint. The dots align with
@@ -893,7 +893,6 @@ fn event_loop(
                 }
 
                 let block = Block::default()
-                    .title(title)
                     .borders(Borders::ALL)
                     // The board is the only pane and always has focus, so
                     // it takes the focused border, as the tree's list does.
@@ -1317,6 +1316,7 @@ fn event_loop(
                             // the reload memory matches disk again.
                             todo::save_todos_for(&items, &dirty).ok();
                             dirty.clear();
+                            vault_dirty.mark_stale();
                             let registry = ProjectRegistry::load().unwrap_or_default();
                             items = todo::load_board(config, &registry);
                             input_buffer.clear();
