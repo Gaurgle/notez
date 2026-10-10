@@ -8,6 +8,7 @@
 #![allow(dead_code)]
 
 pub mod footer;
+pub mod header;
 pub mod help;
 pub mod highlight;
 pub mod markdown;

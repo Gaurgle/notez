@@ -15,19 +15,22 @@ use notez_core::core::{Project, Scope, resolve};
 use notez_core::todo::{self, CheckState, Task};
 use notez_core::util::tilde;
 
+use crate::tui::header::SyncState;
 use crate::tui::todo::{BoardContext, run_board};
 
 /// Quick-add `item`, or open the board when there is none. `warning`, if any,
-/// shows in the board's footer; a quick add ignores it.
+/// shows in the board's footer and `sync` in its header; a quick add ignores
+/// both.
 pub fn run(
     item: Option<String>,
     scope: Scope,
     config: &Config,
     warning: Option<&str>,
+    sync: SyncState,
 ) -> Result<()> {
     match item {
         Some(text) => quick_add(text, scope, config),
-        None => launch_tui(scope, config, warning),
+        None => launch_tui(scope, config, warning, sync),
     }
 }
 
@@ -69,9 +72,10 @@ fn quick_add(text: String, scope: Scope, config: &Config) -> Result<()> {
 /// Assemble the board for the scope, run the TUI, persist only the files
 /// the user actually changed (a quit with no edits writes nothing, and
 /// untouched files keep any non-todo text they carry).
-fn launch_tui(scope: Scope, config: &Config, warning: Option<&str>) -> Result<()> {
+fn launch_tui(scope: Scope, config: &Config, warning: Option<&str>, sync: SyncState) -> Result<()> {
     let (items, mut ctx) = build_board(scope, config)?;
     ctx.warning = warning.map(str::to_string);
+    ctx.sync = sync;
     let outcome = run_board(items, &ctx, config)?;
     todo::save_todos_for(&outcome.items, &outcome.dirty)
         .context("failed to save TODO.md files")?;
@@ -87,6 +91,7 @@ fn build_board(scope: Scope, config: &Config) -> Result<(Vec<Task>, BoardContext
             title: "todoz (global)".to_string(),
             path_display: tilde::contract(&config.notez_root_path()),
             warning: None,
+            sync: SyncState::Off,
         };
         return Ok((items, ctx));
     }
@@ -141,6 +146,7 @@ fn build_board(scope: Scope, config: &Config) -> Result<(Vec<Task>, BoardContext
         title: format!("{} todoz ({})", scope.icon(), name),
         path_display: tilde::contract(&root),
         warning: None,
+        sync: SyncState::Off,
     };
     Ok((items, ctx))
 }

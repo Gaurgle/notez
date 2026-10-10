@@ -14,6 +14,7 @@ use notez_core::core::{Project, Scope};
 use notez_core::note_tags;
 use notez_core::util::tilde;
 
+use crate::tui::header::SyncState;
 use crate::tui::tree::{NewNoteRoots, SectionSpec, TreeContext, run_tree};
 
 /// Nerdfont book icon for docs sections (scopes use `Scope::icon`).
@@ -46,11 +47,12 @@ impl View {
 }
 
 /// Open the tree browser on `view`. `warning`, if any, shows in the status
-/// bar as the browser opens.
-pub fn run(view: View, config: &Config, warning: Option<&str>) -> Result<()> {
+/// bar as the browser opens; `sync` is the header's sync state.
+pub fn run(view: View, config: &Config, warning: Option<&str>, sync: SyncState) -> Result<()> {
     let registry = ProjectRegistry::load().unwrap_or_default();
     let (sections, mut ctx) = build_view(view, config, &registry)?;
     ctx.warning = warning.map(str::to_string);
+    ctx.sync = sync;
     ctx.new_note_roots = new_note_roots(config, &registry, Project::try_detect().as_ref());
 
     // An empty view still opens: the browser shows an empty state and `n`
@@ -342,6 +344,7 @@ fn all_view(
             title,
             path_display: tilde::contract(&config.notez_root_path()),
             warning: None,
+            sync: SyncState::Off,
             current_project: current.map(|p| p.name.clone()),
             new_note_roots: NewNoteRoots::default(),
         },
@@ -380,6 +383,7 @@ fn single_scope_view(
             title: format!("{} notez ({})", scope.icon(), name),
             path_display,
             warning: None,
+            sync: SyncState::Off,
             current_project: project.map(|p| p.name.clone()),
             new_note_roots: NewNoteRoots::default(),
         },

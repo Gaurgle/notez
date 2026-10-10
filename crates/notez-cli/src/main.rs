@@ -19,6 +19,7 @@ use clap::Parser;
 
 use crate::cli::{Cli, Commands};
 use crate::commands::tree::View;
+use crate::tui::header::SyncState;
 use notez_core::config::Config;
 use notez_core::core::{Project, Scope};
 
@@ -121,9 +122,14 @@ fn main() -> ExitCode {
         Commands::Init { shell } => commands::init::run(&shell),
         Commands::Todo { item } | Commands::Todoz { item } => {
             let interactive = item.is_none();
-            let stop = pulled_before(&config, sync && interactive);
+            // A quick add has no header and no pull: the state goes unused.
+            let (stop, state) = if interactive {
+                opened(&config, sync)
+            } else {
+                (None, SyncState::Off)
+            };
             let warning = footer_warning(stop.as_deref());
-            let result = commands::todo::run(item, scope, &config, warning.as_deref());
+            let result = commands::todo::run(item, scope, &config, warning.as_deref(), state);
             synced_after(result, &config, sync && interactive, stop.as_deref())
         }
         Commands::Edit { term } | Commands::Editz { term } => {
@@ -202,9 +208,9 @@ fn decide(
 
 /// Open the browser with the vault pulled before and synced after.
 fn browse(view: View, config: &Config, sync: bool) -> anyhow::Result<()> {
-    let stop = pulled_before(config, sync);
+    let (stop, state) = opened(config, sync);
     let warning = footer_warning(stop.as_deref());
-    let result = commands::tree::run(view, config, warning.as_deref());
+    let result = commands::tree::run(view, config, warning.as_deref(), state);
     synced_after(result, config, sync, stop.as_deref())
 }
 
@@ -223,10 +229,26 @@ fn create_quick(
 /// the session's footer and for [`synced_after`]. Stderr is no use here: the
 /// alternate screen wipes it moments later.
 fn pulled_before(config: &Config, enabled: bool) -> Option<String> {
-    if !enabled {
-        return None;
-    }
-    match notez_core::sync::pull_on_open(&config.notez_root_path()) {
+    stop_reason(pull_before(config, enabled).as_ref())
+}
+
+/// [`pulled_before`] for a TUI session, plus the header's sync state, read
+/// from the pull's result and the vault's repository without a network call.
+fn opened(config: &Config, enabled: bool) -> (Option<String>, SyncState) {
+    let started = std::time::SystemTime::now();
+    let pull = pull_before(config, enabled);
+    let state = SyncState::after_open(&config.notez_root_path(), pull.as_ref(), started);
+    (stop_reason(pull.as_ref()), state)
+}
+
+/// The opening pull's result, or `None` when sync is off.
+fn pull_before(config: &Config, enabled: bool) -> Option<notez_core::sync::AutoSync> {
+    enabled.then(|| notez_core::sync::pull_on_open(&config.notez_root_path()))
+}
+
+/// The one-line reason a stopped pull gives, if it stopped.
+fn stop_reason(pull: Option<&notez_core::sync::AutoSync>) -> Option<String> {
+    match pull? {
         notez_core::sync::AutoSync::Stopped(why) => Some(
             why.lines()
                 .next()

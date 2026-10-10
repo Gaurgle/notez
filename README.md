@@ -322,6 +322,20 @@ when you quit, or after the editor for `edit`), and skips the exit sync so
 nothing is pushed over it; resolve it with `notez sync`. `add`, `quick`, `log`,
 `logz` and `todo "item"` never pull, and `--no-sync` skips the pull too.
 
+**Header.** The tree and the todo board open with one header line above
+the panes: the view and its path on the left; on the right the vault's
+sync state from that opening pull (`synced`, `offline`, `no upstream`,
+`pull stopped` or `sync off` with `--no-sync`), the number of uncommitted
+vault files (`3 uncommitted`, or `clean`), and the note count in the tree
+or the open and done counts on the board. Nothing in it reaches the
+network: the uncommitted count is a local `git status`, taken again only
+after something changes files (editing, creating, renaming, deleting or
+moving a note, and a reload), not on every key. Tags and board checks are
+saved when you quit, so they show in the count from the next session. A
+vault that is not a git repository shows no sync state and no count. On a
+narrow terminal the header drops the path first, then the counts, the
+uncommitted count and the sync state; it never wraps.
+
 **notez edit [term]** (alias `editz`) opens an existing note. Candidates come
 from the scope model, so it sees exactly the notes the rest of the tool
 considers in scope; a term matching one note skips the picker.

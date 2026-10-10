@@ -29,6 +29,7 @@ use notez_core::tags::FLAG_DEFS;
 use notez_core::util::sanitize;
 
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle};
+use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::highlight::{self, Language};
 use super::markdown;
@@ -37,13 +38,15 @@ use super::panes::{self, Pane, Panes, Press};
 use super::{VimCommandMode, VimKey, theme};
 use crate::commands::{add, mkdir, rename};
 
-/// What the title bar shows.
+/// What the header shows.
 pub struct TreeContext {
     pub title: String,
     pub path_display: String,
     /// Shown in the status bar for the whole session, whenever nothing
     /// transient is using the line.
     pub warning: Option<String>,
+    /// The vault's sync state as the session opened, for the header.
+    pub sync: SyncState,
     /// The project the browser was opened in, if any. Section prompts name
     /// the project only when it differs from this one.
     pub current_project: Option<String>,
@@ -3830,6 +3833,9 @@ fn event_loop(
     // which only records it. Paths no longer probed keep their entry, so a
     // folder expanded again compares against its last reading.
     let mut probe: Option<ProbeSnapshot> = None;
+    // The header's count of uncommitted vault files. Every action below
+    // that changes files marks it stale; plain navigation never runs git.
+    let mut dirty = header::vault_dirty_count(config.notez_root_path(), ctx.sync);
 
     loop {
         let nodes = &mut forest.nodes;
@@ -3869,6 +3875,9 @@ fn event_loop(
         if input_open {
             panes.focus(Pane::List);
         }
+        // Cached between actions that change files; see `DirtyCount`.
+        let dirty_files = dirty.get();
+        let note_count = nodes.iter().filter(|n| !n.is_dir).count();
 
         terminal
             .draw(|frame| {
@@ -3879,6 +3888,20 @@ fn event_loop(
                     full.width.saturating_sub(4),
                     full.height.saturating_sub(2),
                 );
+                // The header line above the panes carries the view's title.
+                let [header_area, area] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+                let header_line = header::line(
+                    &header::Header {
+                        title: &ctx.title,
+                        path: &ctx.path_display,
+                        sync: ctx.sync,
+                        dirty: dirty_files,
+                        counts: header::note_count(note_count),
+                    },
+                    usize::from(header_area.width),
+                );
+                frame.render_widget(Paragraph::new(header_line), header_area);
                 let rows = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -3895,19 +3918,7 @@ fn event_loop(
                     state.selected(),
                 );
 
-                let header = pane_title(Pane::List, panes.focus, vec![
-                    Span::styled(
-                        format!("{} ", ctx.title),
-                        Style::default()
-                            .fg(theme::LAVENDER)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled("- ", Style::default().fg(theme::SURFACE)),
-                    Span::styled(
-                        format!("{} ", ctx.path_display),
-                        Style::default().fg(theme::OVERLAY),
-                    ),
-                ]);
+                let header = pane_title(Pane::List, panes.focus, Vec::new());
 
                 // Filter strip (mirrors the todoz board).
                 let active_tags = filter::parse(&search_buffer)
@@ -4304,6 +4315,7 @@ fn event_loop(
             }
         };
         let Some(ev) = ev else {
+            dirty.mark_stale();
             match reload_view(forest, rebuild, &mut state, &mut pre_focus_expanded, &search_buffer) {
                 Ok(kept) => {
                     if let Some(row) = kept {
@@ -4428,6 +4440,7 @@ fn event_loop(
             if let Some(outcome) =
                 answer_delete(key.code, forest, retired, &prompt, &search_buffer, rebuild)
             {
+                dirty.mark_stale();
                 if outcome.relisted {
                     refresh_probe(&mut probe, forest);
                 }
@@ -4446,6 +4459,7 @@ fn event_loop(
             if let Some(outcome) =
                 answer_bulk_delete(key.code, forest, retired, &items, &search_buffer, rebuild)
             {
+                dirty.mark_stale();
                 if outcome.relisted {
                     refresh_probe(&mut probe, forest);
                 }
@@ -4524,6 +4538,7 @@ fn event_loop(
                 .map(|&i| old_nodes[i].path.clone());
             let outcome =
                 apply_bulk_move(forest, retired, carried, &plan.plans, &ctx.new_note_roots, rebuild);
+            dirty.mark_stale();
             if outcome.relisted {
                 refresh_probe(&mut probe, forest);
             }
@@ -4551,6 +4566,7 @@ fn event_loop(
             let old_nodes = forest.nodes.clone();
             let outcome =
                 apply_move(forest, retired, carried, &plan, &ctx.new_note_roots, rebuild);
+            dirty.mark_stale();
             if outcome.relisted {
                 refresh_probe(&mut probe, forest);
             }
@@ -4590,6 +4606,7 @@ fn event_loop(
                         new_note.take().expect("the prompt is open");
                     let old_nodes = forest.nodes.clone();
                     let outcome = create_folder(forest, &target, &buffer, rebuild);
+                    dirty.mark_stale();
                     if outcome.relisted {
                         refresh_probe(&mut probe, forest);
                     }
@@ -4625,6 +4642,7 @@ fn event_loop(
                     };
                     super::leave().context("failed to leave TUI")?;
                     add::open_created(&created.path, config);
+                    dirty.mark_stale();
                     *terminal = super::enter().context("failed to re-enter TUI")?;
 
                     let sections = match rebuild() {
@@ -4681,6 +4699,7 @@ fn event_loop(
                     match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
                         RenameEnter::Keep(message) => status_message = Some(message),
                         RenameEnter::Done(message) => {
+                            dirty.mark_stale();
                             rename_buffer = None;
                             if message.is_none() && nodes[ri].is_dir {
                                 let visible = compute_visible(nodes, &search_buffer);
@@ -4874,6 +4893,7 @@ fn event_loop(
                     } else {
                         let path = nodes[idx].path.clone();
                         super::open_in_editor(&config.editor.command, &path).ok();
+                        dirty.mark_stale();
                         *terminal = super::enter().context("failed to re-enter TUI")?;
                     }
                 }
@@ -4928,6 +4948,7 @@ fn event_loop(
                 focus_active = false;
             }
             KeyCode::Char('R') => {
+                dirty.mark_stale();
                 match reload_view(forest, rebuild, &mut state, &mut pre_focus_expanded, &search_buffer) {
                     Ok(kept) => {
                         if let Some(row) = kept {
@@ -6570,6 +6591,7 @@ mod tests {
             title: String::new(),
             path_display: String::new(),
             warning: None,
+            sync: SyncState::Off,
             current_project: current.map(str::to_string),
             new_note_roots,
         }
