@@ -45,3 +45,45 @@ pub fn run(config: &Config) -> Result<()> {
     println!("Sync complete.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    #[test]
+    fn explicit_sync_reports_an_unreachable_remote() {
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = tmp.path().join("remote.git");
+        let vault = tmp.path().join("vault");
+        std::fs::create_dir(&remote).unwrap();
+        std::fs::create_dir(&vault).unwrap();
+        git(&remote, &["init", "-q", "--bare", "-b", "main"]);
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            git(&vault, args);
+        }
+        std::fs::write(vault.join("a.md"), "base\n").unwrap();
+        git(&vault, &["add", "-A"]);
+        git(&vault, &["commit", "-q", "-m", "seed"]);
+        git(&vault, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(&vault, &["push", "-q", "-u", "origin", "main"]);
+        std::fs::rename(&remote, tmp.path().join("gone.git")).unwrap();
+        std::fs::write(vault.join("new.md"), "pending\n").unwrap();
+        let mut config = Config::defaults();
+        config.paths.notez_root = vault.to_str().unwrap().to_string();
+
+        let err = run(&config).unwrap_err();
+
+        assert!(err.to_string().contains("git pull --rebase failed"), "{err:#}");
+    }
+}

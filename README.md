@@ -308,9 +308,13 @@ picker. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
 **Auto sync.** When an interactive session ends (`notez tree`, `todo`, `edit`,
 `logz`, or `add` that opened the editor), notez commits the vault, runs
 `git pull --rebase` and pushes, like `notez sync` but silent unless something
-happened. Offline, no upstream or a conflict never fails the command: a failed
-pull aborts its rebase, leaves your notes as local commits and prints a one-line
-warning. Pass `--no-sync` to skip it. Only `~/notez` syncs; a project's public
+happened. Offline, no upstream or a conflict never fails the command. When the
+remote cannot be reached (offline, a missing remote, an expired credential),
+your notes are committed locally and nothing is printed; the next sync that
+reaches the remote pushes them. A conflict, a failed commit or a push the
+remote rejects aborts any rebase, leaves your notes as local commits and prints
+a one-line warning. `notez sync` still reports an unreachable remote. Pass
+`--no-sync` to skip the exit sync. Only `~/notez` syncs; a project's public
 `notez/` folder is never touched.
 
 **Pull on open.** `notez tree` (and bare `notez`), `notez todo` with no item

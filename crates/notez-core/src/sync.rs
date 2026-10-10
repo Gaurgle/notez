@@ -41,6 +41,13 @@ pub enum AutoSync {
 /// Commit, pull and push `root` without a terminal, for use when a session
 /// ends. Follows "stop rather than guess": a failed pull aborts its rebase and
 /// leaves the work as local commits instead of resolving anything.
+///
+/// A fetch that fails is `Idle`, after the commit, so ending a session offline
+/// is quiet and the work waits as local commits for the next sync that reaches
+/// the remote. The fetch runs on its own so git's exit status, not its error
+/// text, tells "could not reach the remote" (offline, missing remote, expired
+/// credential) apart from a conflict or a rejected push, which still stop.
+/// `notez sync` does not use this and still reports an unreachable remote.
 pub fn auto_sync(root: &Path) -> AutoSync {
     if git(root, &["rev-parse", "--is-inside-work-tree"]).is_err()
         || git(root, &["rev-parse", "--abbrev-ref", "@{u}"]).is_err()
@@ -51,6 +58,9 @@ pub fn auto_sync(root: &Path) -> AutoSync {
         Ok(c) => c,
         Err(e) => return AutoSync::Stopped(format!("{e:#}")),
     };
+    if git(root, &["fetch", "--quiet"]).is_err() {
+        return AutoSync::Idle;
+    }
     if let Err(e) = git(root, &["pull", "--rebase"]) {
         let _ = git(root, &["rebase", "--abort"]);
         return AutoSync::Stopped(format!("{e:#}"));
@@ -296,6 +306,98 @@ mod tests {
         assert!(!one.join(".git/rebase-merge").exists());
         assert!(!one.join(".git/rebase-apply").exists());
         assert_eq!(fs::read_to_string(one.join("a.md")).unwrap(), "mine\n");
+    }
+
+    #[test]
+    fn auto_sync_is_idle_and_commits_locally_when_the_remote_is_unreachable() {
+        let (tmp, one, _two) = remote_with_clones();
+        fs::rename(tmp.path().join("remote.git"), tmp.path().join("gone.git")).unwrap();
+        fs::write(one.join("mine.md"), "m\n").unwrap();
+
+        assert_eq!(auto_sync(&one), AutoSync::Idle);
+
+        assert!(git_in(&one, &["status", "--porcelain"]).is_empty());
+        assert_eq!(
+            git_in(&one, &["rev-list", "--count", "@{u}..HEAD"]).trim(),
+            "1"
+        );
+        assert!(!one.join(".git/rebase-merge").exists());
+        assert!(!one.join(".git/rebase-apply").exists());
+    }
+
+    #[test]
+    fn auto_sync_reports_a_conflict_with_a_reachable_remote_in_gits_words() {
+        let (_tmp, one, two) = remote_with_clones();
+        fs::write(two.join("a.md"), "theirs\n").unwrap();
+        assert_eq!(auto_sync(&two), AutoSync::Done);
+        fs::write(one.join("a.md"), "mine\n").unwrap();
+
+        let outcome = auto_sync(&one);
+
+        let AutoSync::Stopped(why) = outcome else {
+            panic!("expected Stopped, got {outcome:?}");
+        };
+        assert!(why.starts_with("git pull --rebase failed: "), "{why}");
+    }
+
+    #[test]
+    fn auto_sync_pushes_offline_commits_once_the_remote_is_reachable() {
+        let (tmp, one, two) = remote_with_clones();
+        let remote = tmp.path().join("remote.git");
+        let gone = tmp.path().join("gone.git");
+        fs::rename(&remote, &gone).unwrap();
+        fs::write(one.join("mine.md"), "m\n").unwrap();
+        assert_eq!(auto_sync(&one), AutoSync::Idle);
+        fs::rename(&gone, &remote).unwrap();
+
+        assert_eq!(auto_sync(&one), AutoSync::Done);
+
+        git_in(&two, &["pull", "-q"]);
+        assert!(two.join("mine.md").exists());
+    }
+
+    /// Point `dir` at its own hooks directory, so a global core.hooksPath
+    /// cannot make git skip the hook, and install an executable `name` hook.
+    #[cfg(unix)]
+    fn install_hook(dir: &Path, hooks_dir: &Path, name: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(hooks_dir).unwrap();
+        git_in(dir, &["config", "core.hooksPath", hooks_dir.to_str().unwrap()]);
+        let hook = hooks_dir.join(name);
+        fs::write(&hook, body).unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn auto_sync_reports_a_failed_commit_even_when_the_remote_is_unreachable() {
+        let (tmp, one, _two) = remote_with_clones();
+        fs::rename(tmp.path().join("remote.git"), tmp.path().join("gone.git")).unwrap();
+        install_hook(&one, &one.join(".git/hooks"), "pre-commit", "#!/bin/sh\nexit 1\n");
+        fs::write(one.join("mine.md"), "m\n").unwrap();
+
+        let outcome = auto_sync(&one);
+
+        let AutoSync::Stopped(why) = outcome else {
+            panic!("expected Stopped, got {outcome:?}");
+        };
+        assert!(why.starts_with("git commit -m notes: sync "), "{why}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn auto_sync_reports_a_push_rejected_by_a_reachable_remote() {
+        let (tmp, one, _two) = remote_with_clones();
+        let remote = tmp.path().join("remote.git");
+        install_hook(&remote, &remote.join("hooks"), "pre-receive", "#!/bin/sh\nexit 1\n");
+        fs::write(one.join("mine.md"), "m\n").unwrap();
+
+        let outcome = auto_sync(&one);
+
+        let AutoSync::Stopped(why) = outcome else {
+            panic!("expected Stopped, got {outcome:?}");
+        };
+        assert!(why.starts_with("git push failed: "), "{why}");
     }
 
     #[test]

@@ -714,4 +714,32 @@ mod tests {
         assert!(git(&vault, &["status", "--porcelain"]).is_empty());
         assert_ne!(git(&remote, &["rev-parse", "main"]), before);
     }
+
+    #[test]
+    fn an_unreachable_remote_keeps_the_exit_sync_local_and_quiet() {
+        let (tmp, vault, remote) = vault_with_pending_note();
+        let gone = tmp.path().join("gone.git");
+        std::fs::rename(&remote, &gone).unwrap();
+
+        let result = synced_after(Ok(()), &config_for(&vault), true, None);
+
+        assert!(result.is_ok());
+        assert!(git(&vault, &["status", "--porcelain"]).is_empty(), "committed locally");
+        assert_eq!(git(&vault, &["rev-list", "--count", "@{u}..HEAD"]).trim(), "1");
+        assert_eq!(
+            notez_core::sync::auto_sync(&vault),
+            notez_core::sync::AutoSync::Idle,
+            "an unreachable remote is idle, which the exit sync does not print"
+        );
+
+        std::fs::rename(&gone, &remote).unwrap();
+        let result = synced_after(Ok(()), &config_for(&vault), true, None);
+
+        assert!(result.is_ok());
+        assert_eq!(
+            git(&remote, &["rev-parse", "main"]),
+            git(&vault, &["rev-parse", "HEAD"]),
+            "the next reachable session pushes the offline commit"
+        );
+    }
 }
