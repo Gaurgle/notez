@@ -202,6 +202,19 @@ pub fn language_available(language: Language) -> bool {
     grammar(language.slot()).is_some()
 }
 
+/// Parse `source` with `language`'s grammar into a syntax tree, for
+/// callers that inspect the tree itself (the preview's lint pass walks it
+/// for `ERROR` and `MISSING` nodes). Only the language's own grammar runs:
+/// injections (markdown inline, fenced code, Rust macro bodies) are not
+/// parsed. `None` when the grammar is unavailable (see
+/// [`language_available`]) or the parser gives up.
+pub fn parse(source: &str, language: Language) -> Option<tree_sitter::Tree> {
+    let config = grammar(language.slot())?;
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&config.language).ok()?;
+    parser.parse(source, None)
+}
+
 /// Highlight `source` as `language`, one entry per source line (as
 /// `str::lines` splits them: a trailing newline adds no line, `\r\n` loses
 /// its `\r`). The spans of a line concatenate to exactly that line's text;

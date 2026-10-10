@@ -11,6 +11,7 @@ pub mod footer;
 pub mod header;
 pub mod help;
 pub mod highlight;
+pub mod lint;
 pub mod markdown;
 pub mod move_path;
 pub mod panes;
