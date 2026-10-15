@@ -11,6 +11,35 @@ decide when to move its pin.
 
 ## [Unreleased]
 
+### notez-core
+
+Dates on notes and todos, read-only (NZ-48, design in
+`docs/design-nz47-dates.md`). The workspace version is 0.2.0. Nothing in
+notez writes a date into a file yet. epoz's pinned rev is unaffected until
+it moves; after a move, every addition below is additive for serde.
+
+- New module `core::frontmatter`: `split`, `get` and `set` for the
+  Pinz-style `---` block at the top of a note. `set` changes one key and
+  keeps every other byte; it has no caller yet.
+- New module `core::dates` with the `NoteDate` type (`date` plus an
+  optional `time`), parsed from `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` and
+  serialized as that string. Any other value is not a date.
+- `core::dates::NoteDates` (`created`, `due`, `event: Option<NoteDate>`),
+  read on demand: `NoteDates::from_text(text, file_name)` is pure, and
+  `NoteDates::read(path)` reads at most the first 4 KiB of a file (a read
+  error gives no dates). Values come from the frontmatter; `created` falls
+  back to a `Date:` line near the top, then a `YYYY-MM-DD-` or
+  `YYYY-MM-DD-HHMMSS-` filename prefix. `NoteEntry` and `collect_all` are
+  unchanged.
+- `Task` gains `due: Option<NoteDate>`, the one new field on an existing
+  type. It is read from an `@YYYY-MM-DD` or `@YYYY-MM-DDTHH:MM` word on the
+  line (the last such word, if several) and written back after the text and
+  before the tags (`- [ ] text @2026-10-20 #prio`). Code that builds a
+  `Task` with a struct literal must add the field.
+- New `todo::parse_todo_lines`, returning `TodoLine` values that carry the
+  due date. `parse_todos_from_content` keeps its tuple signature and output,
+  with the `@date` word left in the text.
+
 ## [0.1.0] - 2026-10-15
 
 First versioned release. Everything below shipped before versioning began.

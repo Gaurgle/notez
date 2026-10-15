@@ -502,6 +502,62 @@ mod tests {
         assert_eq!(found, expected);
     }
 
+    /// Median of nine timed runs of `f`, after one warm-up run.
+    fn median_of_runs(mut f: impl FnMut()) -> std::time::Duration {
+        f();
+        let mut runs: Vec<std::time::Duration> = (0..9)
+            .map(|_| {
+                let start = std::time::Instant::now();
+                f();
+                start.elapsed()
+            })
+            .collect();
+        runs.sort();
+        runs[runs.len() / 2]
+    }
+
+    /// Timing probe on a vault of 300 notes, each with a frontmatter block
+    /// and a body: `collect_all` reads no file contents (dates are read on
+    /// demand), and `NoteDates::read` over the same files is timed for the
+    /// record. Run with
+    /// `cargo test -p notez-core --release collect_all_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn collect_all_timing_on_300_notes() {
+        let notez_root = tempdir().unwrap();
+        let config = config_with_root(notez_root.path());
+        let body = "Some prose line for the body of a note.\n".repeat(40);
+        for i in 0..300 {
+            let dir = notez_root.path().join(format!("folder-{}", i % 10));
+            std::fs::create_dir_all(&dir).unwrap();
+            let text = format!(
+                "---\ncreated: 2026-10-15\ndue: 2026-10-20\n---\n# Note {i}\n\nDate: 2026-10-15\n\n{body}"
+            );
+            std::fs::write(dir.join(format!("2026-10-15-note-{i}.md")), text).unwrap();
+        }
+        let registry = ProjectRegistry::default();
+        let metadata = NotezMetadata::default();
+
+        let mut entries = Vec::new();
+        let walk = median_of_runs(|| {
+            entries = collect_all(&config, &registry, &metadata).unwrap();
+        });
+        assert_eq!(entries.len(), 300);
+        let reads = median_of_runs(|| {
+            for e in &entries {
+                assert!(crate::core::dates::NoteDates::read(&e.path).due.is_some());
+            }
+        });
+        println!("collect_all on 300 notes: median {walk:?}");
+        println!("NoteDates::read on the same 300 notes: median {reads:?}");
+        // Before NZ-48 this was about 0.4 ms; an eager per-file read made it
+        // 4 to 7 ms. A loose bound keeps the probe from flaking.
+        assert!(
+            walk < std::time::Duration::from_millis(2),
+            "collect_all should not read file contents"
+        );
+    }
+
     #[test]
     fn collect_all_does_not_duplicate_personal_into_global() {
         let notez_root = tempdir().unwrap();

@@ -1871,6 +1871,7 @@ mod tests {
             collapsed: false,
             is_code_todo: false,
             flags,
+            due: None,
         }
     }
 
