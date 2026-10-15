@@ -681,6 +681,7 @@ pub(super) fn exit_tag_maps(
             scope_icon: "",
             tag_root,
             section: 0,
+            hidden: false,
         });
     }
     changed_tag_maps_retiring(&nodes, &tag_roots, &initial, retired)

@@ -49,6 +49,7 @@ mod new_note;
 mod preview;
 mod rename_prompt;
 mod render;
+mod scope;
 mod search;
 #[cfg(test)]
 mod test_support;
@@ -63,6 +64,7 @@ use new_note::*;
 use preview::*;
 use rename_prompt::*;
 use render::*;
+use scope::*;
 use search::*;
 
 /// What the header shows.
@@ -150,6 +152,7 @@ pub fn run_tree(
         nodes,
         tag_roots,
         initial,
+        scope: ViewScope::All,
     };
     let mut retired = Vec::new();
     let mut carried = Vec::new();

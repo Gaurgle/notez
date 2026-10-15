@@ -95,6 +95,8 @@ pub(super) fn event_loop(
         let nodes = &mut forest.nodes;
         let sections = &forest.sections;
         derive_dir_flags(nodes);
+        apply_scope(nodes, sections, forest.scope);
+        drop_hidden_marks(&mut marks, nodes);
         prune_marks(&mut marks, nodes);
 
         // Auto-expand directories that contain filter matches whenever the
@@ -131,7 +133,8 @@ pub(super) fn event_loop(
         }
         // Cached between actions that change files; see `DirtyCount`.
         let dirty_files = dirty.get();
-        let note_count = nodes.iter().filter(|n| !n.is_dir).count();
+        let note_count = notes_in_scope(nodes);
+        let no_rows = no_rows_text(nodes, &visible, &search_buffer, forest.scope);
 
         terminal
             .draw(|frame| {
@@ -151,7 +154,7 @@ pub(super) fn event_loop(
                         path: &ctx.path_display,
                         sync: ctx.sync,
                         dirty: dirty_files,
-                        counts: header::note_count(note_count),
+                        counts: header::scope_and_note_count(forest.scope.label(), note_count),
                     },
                     usize::from(header_area.width),
                 );
@@ -168,7 +171,14 @@ pub(super) fn event_loop(
                 let inner_width = list_text_width(list_area.width);
 
                 let items = list_items(
-                    list_lines(nodes, sections, &visible, &marks, inner_width),
+                    list_lines(
+                        nodes,
+                        sections,
+                        &visible,
+                        &marks,
+                        inner_width,
+                        &search_buffer,
+                    ),
                     state.selected(),
                 );
 
@@ -220,7 +230,7 @@ pub(super) fn event_loop(
                     ));
                     if search_buffer.is_empty() {
                         filter_spans.push(Span::styled(
-                            "  text + #tag or click a dot",
+                            "  fuzzy text + #tag or click a dot",
                             Style::default().fg(Color::Rgb(80, 80, 95)),
                         ));
                     }
@@ -276,6 +286,14 @@ pub(super) fn event_loop(
                     frame.render_widget(
                         Paragraph::new(Line::from(Span::styled(
                             format!("  {}", empty_state_text(&ctx.title)),
+                            Style::default().fg(theme::OVERLAY),
+                        ))),
+                        inner_chunks[2],
+                    );
+                } else if let Some(text) = &no_rows {
+                    frame.render_widget(
+                        Paragraph::new(Line::from(Span::styled(
+                            format!("  {text}"),
                             Style::default().fg(theme::OVERLAY),
                         ))),
                         inner_chunks[2],
@@ -861,9 +879,10 @@ pub(super) fn event_loop(
             let pos = match outcome.row {
                 Some(row) => {
                     if !visible.contains(&row) {
-                        search_buffer.clear();
-                        cursor_pos = 0;
-                        search_mode = false;
+                        if reveal_row(forest, &mut search_buffer, row).filter_cleared {
+                            cursor_pos = 0;
+                            search_mode = false;
+                        }
                         visible = compute_visible(&forest.nodes, &search_buffer);
                     }
                     visible.iter().position(|&i| i == row)
@@ -898,9 +917,10 @@ pub(super) fn event_loop(
             };
             let mut visible = compute_visible(&forest.nodes, &search_buffer);
             if !visible.contains(&row) {
-                search_buffer.clear();
-                cursor_pos = 0;
-                search_mode = false;
+                if reveal_row(forest, &mut search_buffer, row).filter_cleared {
+                    cursor_pos = 0;
+                    search_mode = false;
+                }
                 visible = compute_visible(&forest.nodes, &search_buffer);
             }
             state.select(visible.iter().position(|&i| i == row));
@@ -938,11 +958,15 @@ pub(super) fn event_loop(
                     };
                     let mut visible = compute_visible(&forest.nodes, &search_buffer);
                     if !visible.contains(&row) {
-                        search_buffer.clear();
-                        cursor_pos = 0;
-                        search_mode = false;
+                        let revealed = reveal_row(forest, &mut search_buffer, row);
+                        if revealed.filter_cleared {
+                            cursor_pos = 0;
+                            search_mode = false;
+                        }
                         visible = compute_visible(&forest.nodes, &search_buffer);
-                        status_message = Some("filter cleared to show the new folder".to_string());
+                        if let Some(message) = revealed.message("folder", forest.scope) {
+                            status_message = Some(message);
+                        }
                     }
                     state.select(visible.iter().position(|&i| i == row));
                 }
@@ -984,11 +1008,15 @@ pub(super) fn event_loop(
                     };
                     let mut visible = compute_visible(&forest.nodes, &search_buffer);
                     if !visible.contains(&row) {
-                        search_buffer.clear();
-                        cursor_pos = 0;
-                        search_mode = false;
+                        let revealed = reveal_row(forest, &mut search_buffer, row);
+                        if revealed.filter_cleared {
+                            cursor_pos = 0;
+                            search_mode = false;
+                        }
                         visible = compute_visible(&forest.nodes, &search_buffer);
-                        status_message = Some("filter cleared to show the new note".to_string());
+                        if let Some(message) = revealed.message("note", forest.scope) {
+                            status_message = Some(message);
+                        }
                     }
                     state.select(visible.iter().position(|&i| i == row));
                 }
@@ -1303,6 +1331,23 @@ pub(super) fn event_loop(
                 search_mode = true;
                 search_buffer.clear();
                 cursor_pos = 0;
+            }
+            KeyCode::Char('0') => {
+                if search_buffer.split_whitespace().any(|t| t.starts_with('#')) {
+                    search_buffer = clear_tag_tokens(&search_buffer);
+                    state.select(Some(0));
+                }
+            }
+            KeyCode::Char('s') => {
+                // The cursor stays on its row when the next scope shows it.
+                let cursor = visible.get(selected).copied();
+                forest.set_scope(forest.scope.next());
+                drop_hidden_marks(&mut marks, &forest.nodes);
+                let shown = compute_visible(&forest.nodes, &search_buffer);
+                let pos = cursor
+                    .and_then(|row| shown.iter().position(|&i| i == row))
+                    .unwrap_or(0);
+                state.select(Some(pos));
             }
             KeyCode::Char('t') => {
                 flag_mode = true;

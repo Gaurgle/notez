@@ -22,6 +22,10 @@ pub(super) struct TreeNode {
     pub(super) tag_root: usize,
     /// Index of the [`SectionSpec`] this row belongs to.
     pub(super) section: usize,
+    /// On a section row: the view scope `s` picked leaves the section out
+    /// (see [`apply_scope`]), so neither it nor any row under it is
+    /// visible. Always false on other rows.
+    pub(super) hidden: bool,
 }
 
 /// What the event loop browses, kept together so a rebuild can replace it:
@@ -34,9 +38,18 @@ pub(super) struct Forest {
     /// stays listed (with no rows), so its retired keys still get written.
     pub(super) tag_roots: Vec<PathBuf>,
     pub(super) initial: Vec<HashMap<String, u8>>,
+    /// The sections `s` shows; session only. Every rebuild marks its rows
+    /// for it (see [`apply_scope`]) before a cursor row is chosen.
+    pub(super) scope: ViewScope,
 }
 
 impl Forest {
+    /// Show `scope` from now on and mark the rows for it.
+    pub(super) fn set_scope(&mut self, scope: ViewScope) {
+        self.scope = scope;
+        apply_scope(&mut self.nodes, &self.sections, scope);
+    }
+
     /// Swap in freshly listed `sections`, keeping the session state (see
     /// [`restore_state`]). Returns the row of `created`, if listed.
     pub(super) fn rebuild(&mut self, sections: Vec<SectionSpec>, created: &Path) -> Option<usize> {
@@ -71,9 +84,10 @@ impl Forest {
     }
 
     /// Replace the sections and rows; the new rows carry no session state
-    /// yet. Returns the old rows.
+    /// yet beyond the view scope's marks. Returns the old rows.
     fn replace(&mut self, sections: Vec<SectionSpec>) -> Vec<TreeNode> {
         let (mut nodes, mut tag_roots) = build_forest(&sections);
+        apply_scope(&mut nodes, &sections, self.scope);
         let mut initial = carry_initial_tags(&self.tag_roots, &self.initial, &tag_roots);
         apply_tags(&mut nodes, &tag_roots, &initial);
         for (root, map) in self.tag_roots.iter().zip(&self.initial) {
@@ -205,6 +219,7 @@ pub(super) fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<Path
             scope_icon: spec.icon,
             tag_root: root_idx,
             section: section_idx,
+            hidden: false,
         });
         emit_children(&tmp, &spec.root, 1, wrapper_idx, root_idx, &mut nodes);
         for node in &mut nodes[wrapper_idx..] {
@@ -253,6 +268,7 @@ fn emit_children(
             scope_icon: "",
             tag_root,
             section: 0,
+            hidden: false,
         });
         emit_children(sub, &path, depth + 1, idx, tag_root, nodes);
     }
@@ -273,6 +289,7 @@ fn emit_children(
             scope_icon: "",
             tag_root,
             section: 0,
+            hidden: false,
         });
     }
 }
@@ -706,6 +723,7 @@ mod tests {
             nodes: old,
             tag_roots: roots,
             initial,
+            scope: ViewScope::All,
         };
         let created = forest.rebuild(
             vec![spec("/r", "S", &["new.md", "one.md"])],
@@ -838,6 +856,7 @@ mod tests {
             nodes,
             tag_roots,
             initial,
+            scope: ViewScope::All,
         };
         let personal = row(&forest.nodes, "/n/personal/proj");
         let global = row(&forest.nodes, "/n");

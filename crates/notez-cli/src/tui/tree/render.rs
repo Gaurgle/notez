@@ -153,21 +153,32 @@ fn branch_prefix(nodes: &[TreeNode], idx: usize, later: &[bool]) -> String {
 }
 
 /// Every row of `visible` drawn for a list `inner_width` columns wide:
-/// branch lines measured over these rows, marked rows drawn as marked.
+/// branch lines measured over these rows, marked rows drawn as marked, and
+/// the name's characters that the text tokens of the filter
+/// `search_buffer` matched in [`theme::filter_match`].
 pub(super) fn list_lines(
     nodes: &[TreeNode],
     sections: &[SectionSpec],
     visible: &[usize],
     marks: &HashSet<PathBuf>,
     inner_width: usize,
+    search_buffer: &str,
 ) -> Vec<Line<'static>> {
     let later = later_siblings(nodes, visible);
+    let f = filter::parse(search_buffer);
     visible
         .iter()
         .map(|&idx| {
             let node = &nodes[idx];
             let branch = branch_prefix(nodes, idx, &later);
-            let line = row_line(node, sections.get(node.section), &branch, inner_width);
+            let matched = text::filter_match_positions(&f, &node.name);
+            let line = row_line(
+                node,
+                sections.get(node.section),
+                &branch,
+                inner_width,
+                &matched,
+            );
             if is_marked(marks, node) {
                 mark_row(line)
             } else {
@@ -267,14 +278,19 @@ pub(super) fn list_chunks(list_area: Rect) -> std::rc::Rc<[Rect]> {
 /// name, and on a directory row a dotted leader to its file count, which
 /// ends at `inner_width` in display columns. A section header also shows
 /// its scope icon in the scope colour before the label; the icon and colour
-/// name the scope, so no scope word follows. `spec` is the row's section
-/// and `inner_width` the list pane's text width.
+/// name the scope, so no scope word follows. `spec` is the row's section,
+/// `inner_width` the list pane's text width, and `matched` the byte indices
+/// of the name's characters the filter matched (see
+/// [`text::filter_match_positions`]), drawn in [`theme::filter_match`].
 fn row_line(
     node: &TreeNode,
     spec: Option<&SectionSpec>,
     branch: &str,
     inner_width: usize,
+    matched: &[usize],
 ) -> Line<'static> {
+    let name =
+        |base: Style| text::highlight_spans(&node.name, 0, matched, base, theme::filter_match());
     let header_color = spec.map_or(theme::OVERLAY, section_color);
     let mut spans = vec![Span::raw(" ")];
     spans.extend(tag_field(node.flags, node.is_dir));
@@ -292,10 +308,7 @@ fn row_line(
         ));
     }
     if node.is_dir {
-        spans.push(Span::styled(
-            node.name.clone(),
-            Style::default().fg(theme::SAPPHIRE),
-        ));
+        spans.extend(name(Style::default().fg(theme::SAPPHIRE)));
         if node.child_count > 0 {
             let count_str = format!("{}", node.child_count);
             let prefix_len: usize = spans.iter().map(Span::width).sum();
@@ -311,10 +324,7 @@ fn row_line(
             spans.push(Span::styled(count_str, Style::default().fg(theme::OVERLAY)));
         }
     } else {
-        spans.push(Span::styled(
-            node.name.clone(),
-            Style::default().fg(theme::TEXT),
-        ));
+        spans.extend(name(Style::default().fg(theme::TEXT)));
     }
     Line::from(spans)
 }
@@ -583,7 +593,8 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("tab", "scope", "set scope: next scope (personal, public, local, global)", theme::SAPPHIRE, Group::Edit, SETTING_SCOPE, Slot::Priority(3), None),
     key("y", "confirm", "move to another scope: yes, move it", theme::RED, Group::Edit, CONFIRMING_MOVE, Slot::Priority(1), None),
     key("n/esc", "cancel", "move to another scope: cancel (any other key too), nothing moves", theme::PEACH, Group::Edit, CONFIRMING_MOVE, Slot::Priority(2), None),
-    key("/", "filter", "filter: text and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
+    key("/", "filter", "filter: fuzzy text (flz finds fleetz, matches lit) and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
+    key("0", "no #tags", "clear the filter's #tag tokens, keep its text", theme::YELLOW, Group::Filter, BROWSE, Slot::Priority(10), None),
     key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
     key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
     key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
@@ -591,6 +602,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("esc", "clear", "clear marks; with none, clear the filter",theme::PEACH, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
+    key("s", "scopes", "show the next scope: all, scratch, project, global (the header names it)", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(10), None),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
@@ -601,7 +613,8 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("esc", "cancel", ":command: close the command line, nothing else", theme::PEACH, Group::View, COMMAND, Slot::Priority(2), None),
     key("bksp", "delete", ":command: delete the last char; deleting the : closes it", theme::TEXT, Group::View, COMMAND, Slot::Priority(3), None),
     // Navigate keys, then the pane keys, listed last so they end the
-    // footer's hints. The pane keys drop first, then "J/K preview".
+    // footer's hints. The pane keys drop first, then "J/K preview", then
+    // "s scopes" and "0 no #tags".
     key("J/K", "preview", "scroll preview down / up (also Shift+Down/Up)", theme::TEXT, Group::Navigate, BROWSE, Slot::Priority(11), None),
     key("PgDn/PgUp", "page", "scroll preview a page", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     // With the preview focused, `pane_keys` swaps in the preview footer.
@@ -655,18 +668,18 @@ pub(super) fn footer_toggles(
     .collect()
 }
 
-/// True when some top-level section is collapsed: `v` then expands all,
-/// otherwise it collapses all, and its footer hint is lit.
+/// True when some top-level section the view scope shows is collapsed: `v`
+/// then expands all, otherwise it collapses all, and its footer hint is lit.
 pub(super) fn any_top_collapsed(nodes: &[TreeNode]) -> bool {
     nodes
         .iter()
-        .any(|n| n.is_dir && n.depth == 0 && !n.expanded)
+        .any(|n| n.is_dir && n.depth == 0 && !n.hidden && !n.expanded)
 }
 
-/// Whether `v` is lit: at least one top-level directory exists and none is
-/// collapsed. The `v` key itself only checks `any_top_collapsed`.
+/// Whether `v` is lit: at least one shown top-level directory exists and
+/// none is collapsed. The `v` key itself only checks `any_top_collapsed`.
 pub(super) fn view_all_lit(nodes: &[TreeNode]) -> bool {
-    nodes.iter().any(|n| n.is_dir && n.depth == 0) && !any_top_collapsed(nodes)
+    nodes.iter().any(|n| n.is_dir && n.depth == 0 && !n.hidden) && !any_top_collapsed(nodes)
 }
 
 /// Columns taken by the " ! " prefix of the warning footer.
@@ -774,8 +787,8 @@ mod tests {
     #[test]
     fn normal_and_focus_footers_hint_the_browse_keys() {
         let expected = vec![
-            "o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "f", "v", "?", "J/K", "1/2",
-            "tab", "</>", "=", "q",
+            "o", "t", "r", "n", "N", "m", "S", "space", "d", "/", "0", "f", "s", "v", "?", "J/K",
+            "1/2", "tab", "</>", "=", "q",
         ];
         assert_eq!(shown_keys(Mode::Normal, &[], 200), expected);
         assert_eq!(shown_keys(Mode::Focus, &[], 200), expected);
@@ -1147,6 +1160,7 @@ mod tests {
             scope_icon: "",
             tag_root: 0,
             section: 0,
+            hidden: false,
         }
     }
 
@@ -2268,5 +2282,80 @@ mod tests {
         for (col, tag) in [(1, 0), (3, 2), (5, 4)] {
             assert_eq!(marked[col].1, Some(theme::FLAG_COLORS[tag]), "column {col}");
         }
+    }
+
+    #[test]
+    fn the_filter_lights_the_matched_characters_of_each_row() {
+        let sections = [spec("/r", "S", &["tools/fleetz.md"])];
+        let (mut nodes, _) = build_forest(&sections);
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        let lines = |search: &str| {
+            let visible = compute_visible(&nodes, search);
+            list_lines(&nodes, &sections, &visible, &HashSet::new(), 80, search)
+        };
+        let lit = theme::filter_match();
+        let is_lit = |span: &Span| span.style.fg == lit.fg;
+        let file = Style::default().fg(theme::TEXT);
+        let tail = |line: &Line<'static>, n: usize| -> Vec<(String, Style)> {
+            line.spans[line.spans.len() - n..]
+                .iter()
+                .map(|s| (s.content.to_string(), s.style))
+                .collect()
+        };
+
+        let rows = lines("flz");
+        assert_eq!(rows.len(), 3, "the section, the folder and the note");
+        assert_eq!(
+            tail(&rows[2], 4),
+            [
+                ("fl".to_string(), file.patch(lit)),
+                ("eet".to_string(), file),
+                ("z".to_string(), file.patch(lit)),
+                (".md".to_string(), file),
+            ]
+        );
+        // The section and the folder are context: "flz" matches neither.
+        for row in &rows[..2] {
+            assert!(!row.spans.iter().any(is_lit), "{row:?}");
+        }
+        // A folder that matches lights its own name in its own colour.
+        let rows = lines("tls");
+        let folder = Style::default().fg(theme::SAPPHIRE);
+        assert!(rows[1]
+            .spans
+            .iter()
+            .any(|s| s.content == "t" && s.style == folder.patch(lit)));
+        // No filter, or tags only: one name span in the row's own style.
+        for search in ["", "#"] {
+            let rows = lines(search);
+            if let Some(note) = rows.get(2) {
+                assert_eq!(
+                    tail(note, 1),
+                    [("fleetz.md".to_string(), file)],
+                    "{search:?}"
+                );
+            }
+            assert!(
+                !rows.iter().flat_map(|r| r.spans.iter()).any(is_lit),
+                "{search:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_and_s_are_browse_keys_in_the_footer_and_the_help() {
+        for (key, group) in [("0", Group::Filter), ("s", Group::View)] {
+            let rows: Vec<_> = TREE_KEYS.iter().filter(|k| k.key == key).collect();
+            assert_eq!(rows.len(), 1, "{key}");
+            assert_eq!(rows[0].modes, BROWSE, "{key}");
+            assert_eq!(rows[0].group, group, "{key}");
+            assert!(shown_keys(Mode::Normal, &[], 200).contains(&key), "{key}");
+            let i = TREE_KEYS.iter().position(|k| k.key == key).unwrap();
+            assert!(help::rows(TREE_KEYS).contains(&help::Row::Key(i)), "{key}");
+        }
+        let slash = TREE_KEYS.iter().find(|k| k.key == "/").unwrap();
+        assert!(slash.help.contains("fuzzy"), "{}", slash.help);
     }
 }

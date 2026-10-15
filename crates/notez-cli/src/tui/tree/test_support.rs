@@ -146,7 +146,7 @@ pub(super) fn line_at_width(
         .iter()
         .position(|&i| i == idx)
         .expect("a visible row");
-    list_lines(nodes, sections, &visible, &HashSet::new(), width).swap_remove(pos)
+    list_lines(nodes, sections, &visible, &HashSet::new(), width, "").swap_remove(pos)
 }
 
 /// [`line_at_width`] at [`LIST_TEXT_WIDTH`].
@@ -267,6 +267,7 @@ pub(super) fn forest_of(sections: Vec<SectionSpec>) -> Forest {
         nodes,
         tag_roots,
         initial,
+        scope: ViewScope::All,
     }
 }
 

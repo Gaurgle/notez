@@ -734,6 +734,7 @@ mod tests {
             nodes,
             tag_roots,
             initial,
+            scope: ViewScope::All,
         };
         let mut marks = marks_of(&["/r/ideas", "/r/ideas/a.md", "/r/ideas/b.md", "/r/z.md"]);
 

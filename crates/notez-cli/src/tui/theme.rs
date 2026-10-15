@@ -132,6 +132,13 @@ pub fn command_line() -> Style {
     Style::default().fg(MAUVE)
 }
 
+/// The characters of a row's text that the `/` filter's text tokens
+/// matched, patched over the row text's own style: the filter strip's
+/// yellow, bold, so a match reads on file, folder and todo rows alike.
+pub fn filter_match() -> Style {
+    Style::default().fg(YELLOW).add_modifier(Modifier::BOLD)
+}
+
 /// A rendered markdown heading. Levels 1 and 2 get their own colour,
 /// deeper levels are bold only. The colours stay clear of the scope badge
 /// colours in [`scope_color`].

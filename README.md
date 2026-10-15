@@ -281,6 +281,22 @@ default mapping for them, so use `J`/`K` there or add the mappings
 listing every key of that view; `?` or `Esc` closes it, and `j`/`k` scroll
 it on a short terminal.
 
+**Filter and scope.** `/` filters the tree and the todo board. Its text
+words match fuzzily, as a case-insensitive subsequence (`flz` finds
+`fleetz`), and the matched characters are lit in each row; several words
+must all match. `#tag` words filter by tag as before: several of them must
+all match, and one word such as `#13` matches tag 1 or tag 3. The tree keeps
+its order while filtering, and a filter that matches nothing shows a single
+`no matches` row. In the tree, `0` drops the `#tag` words from the filter
+and keeps its text, and `s` cycles the view through four scopes: all,
+scratch (the current repository's `.notez/`), project (the current
+repository's personal, public and docs sections) and global (the vault's
+global notes). A note or folder created or moved into a section the scope
+hides switches the view to a scope that shows it, and marks in hidden
+sections are dropped. The header names the active scope before the note count;
+`f` still focuses a single section inside any scope, and the todo board has
+no scope cycle.
+
 **Panes.** The tree's list and preview are two panes with a split you can
 move: `<` and `>` narrow and widen the list by 5 points, `=` resets it to
 50/50, and dragging the `⠿` grip on the border between them resizes it

@@ -213,6 +213,18 @@ pub fn note_count(count: usize) -> Vec<Span<'static>> {
     )]
 }
 
+/// The tree's scope and count segment: the view scope `s` picked (`all`,
+/// `scratch`, `project` or `global`), then [`note_count`] of the notes it
+/// shows. Both drop together when the header runs out of room.
+pub fn scope_and_note_count(scope: &str, count: usize) -> Vec<Span<'static>> {
+    let mut spans = vec![
+        Span::styled(scope.to_string(), Style::default().fg(theme::MAUVE)),
+        separator(),
+    ];
+    spans.extend(note_count(count));
+    spans
+}
+
 /// The todo board's count segment.
 pub fn todo_counts(open: usize, done: usize) -> Vec<Span<'static>> {
     vec![
@@ -451,6 +463,19 @@ mod tests {
             "{shown:?}"
         );
         assert_eq!(note_count(1)[0].content, "1 note");
+    }
+
+    #[test]
+    fn the_tree_header_names_the_active_scope_before_its_count() {
+        let tree = Header {
+            counts: scope_and_note_count("scratch", 3),
+            ..header(SyncState::Synced, Some(0))
+        };
+        let shown = text(&line(&tree, 100));
+        assert!(
+            shown.ends_with("synced · clean · scratch · 3 notes "),
+            "{shown:?}"
+        );
     }
 
     #[test]

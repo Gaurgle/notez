@@ -4,17 +4,21 @@ use super::*;
 
 // --- Visibility & filtering ---
 
+/// The rows the expansion state shows, in tree order. A section the view
+/// scope hides (see [`apply_scope`]) shows no row at all.
 pub(super) fn get_visible_nodes(nodes: &[TreeNode]) -> Vec<usize> {
     let mut visible = Vec::new();
     for (idx, node) in nodes.iter().enumerate() {
         if node.depth == 0 {
-            visible.push(idx);
+            if !node.hidden {
+                visible.push(idx);
+            }
             continue;
         }
         let mut ancestor_expanded = true;
         let mut check = node.parent_idx;
         while let Some(p) = check {
-            if !nodes[p].expanded {
+            if !nodes[p].expanded || nodes[p].hidden {
                 ancestor_expanded = false;
                 break;
             }
@@ -27,13 +31,14 @@ pub(super) fn get_visible_nodes(nodes: &[TreeNode]) -> Vec<usize> {
     visible
 }
 
-/// Keep-mask for the filter: a node matches on name + flags, and every
-/// match pulls in its ancestor chain so results keep their tree context.
+/// Keep-mask for the filter: a node matches on name (text tokens as fuzzy
+/// subsequences, see [`text::filter_matches`]) + flags, and every match
+/// pulls in its ancestor chain so results keep their tree context.
 pub(super) fn compute_filter_keep(nodes: &[TreeNode], f: &Filter) -> Vec<bool> {
     let n = nodes.len();
     let mut keep = vec![false; n];
     for (i, node) in nodes.iter().enumerate() {
-        if f.matches(&node.name, node.flags) {
+        if text::filter_matches(f, &node.name, node.flags) {
             keep[i] = true;
         }
     }
@@ -64,6 +69,37 @@ pub(super) fn compute_visible(nodes: &[TreeNode], search_buffer: &str) -> Vec<us
     let keep = compute_filter_keep(nodes, &f);
     v.retain(|&i| keep[i]);
     v
+}
+
+/// The filter buffer `0` leaves: `buffer` without its `#tag` tokens (as
+/// `notez_core::filter::parse` reads them, any token starting with `#`),
+/// the free text kept in its order, single-spaced.
+pub(super) fn clear_tag_tokens(buffer: &str) -> String {
+    buffer
+        .split_whitespace()
+        .filter(|token| !token.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The single row the list shows when the tree has rows but none is
+/// visible: [`text::NO_MATCHES`] when the filter hid them, otherwise the
+/// view scope shows no section. `None` while a row is visible, or when the
+/// tree has no rows at all ([`empty_state_line`] covers that).
+pub(super) fn no_rows_text(
+    nodes: &[TreeNode],
+    visible: &[usize],
+    search_buffer: &str,
+    scope: ViewScope,
+) -> Option<String> {
+    if nodes.is_empty() || !visible.is_empty() {
+        return None;
+    }
+    Some(if filter::parse(search_buffer).is_empty() {
+        format!("nothing in the {} scope: s shows the next", scope.label())
+    } else {
+        text::NO_MATCHES.to_string()
+    })
 }
 
 pub(super) fn find_top_dir(nodes: &[TreeNode], idx: usize) -> Option<usize> {
@@ -105,6 +141,76 @@ mod tests {
         assert!(kept.contains(&"dir"));
         assert!(kept.contains(&"S"));
         assert!(!kept.contains(&"other.md"));
+    }
+
+    #[test]
+    fn filter_text_matches_names_by_subsequence_and_keeps_ancestors() {
+        let s = spec("/r", "S", &["tools/fleetz.md", "tools/other.md"]);
+        let (mut nodes, _) = build_forest(&[s]);
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        let shown: Vec<&str> = compute_visible(&nodes, "flz")
+            .into_iter()
+            .map(|i| nodes[i].name.as_str())
+            .collect();
+        assert_eq!(shown, ["S", "tools", "fleetz.md"]);
+        // Tag tokens still gate: no note carries #prio.
+        assert!(compute_visible(&nodes, "flz #prio").is_empty());
+    }
+
+    #[test]
+    fn zero_clears_the_tag_tokens_and_keeps_the_free_text() {
+        assert_eq!(clear_tag_tokens("buy #prio milk #13"), "buy milk");
+        assert_eq!(clear_tag_tokens("#important #"), "");
+        assert_eq!(clear_tag_tokens("  flz   md "), "flz md");
+        assert_eq!(clear_tag_tokens(""), "");
+        let cleared = filter::parse(&clear_tag_tokens("flz #prio #idea"));
+        assert_eq!(cleared.text_tokens, vec!["flz"]);
+        assert!(cleared.tag_sets.is_empty());
+    }
+
+    #[test]
+    fn a_filter_that_hides_every_row_shows_one_no_matches_row() {
+        let s = spec("/r", "S", &["a.md"]);
+        let (nodes, _) = build_forest(&[s]);
+        let visible = compute_visible(&nodes, "zzz");
+        assert!(visible.is_empty());
+        assert_eq!(
+            no_rows_text(&nodes, &visible, "zzz", ViewScope::All).as_deref(),
+            Some("no matches")
+        );
+        let visible = compute_visible(&nodes, "a");
+        assert_eq!(no_rows_text(&nodes, &visible, "a", ViewScope::All), None);
+        // No rows at all is the empty state's, not this row's.
+        assert_eq!(no_rows_text(&[], &[], "zzz", ViewScope::All), None);
+    }
+
+    #[test]
+    fn a_scope_without_sections_says_so_and_an_empty_store_matches_nothing() {
+        // An empty store still lists its section row; a filter hides it.
+        let mut s = spec("/r", "S", &[]);
+        s.is_current = true;
+        s.scope = Scope::Local;
+        s.project = Some("p".to_string());
+        let sections = [s];
+        let (mut nodes, _) = build_forest(&sections);
+        assert_eq!(compute_visible(&nodes, ""), [0]);
+        let visible = compute_visible(&nodes, "zzz");
+        assert_eq!(
+            no_rows_text(&nodes, &visible, "zzz", ViewScope::Scratch).as_deref(),
+            Some("no matches")
+        );
+        apply_scope(&mut nodes, &sections, ViewScope::Global);
+        let visible = compute_visible(&nodes, "");
+        assert_eq!(
+            no_rows_text(&nodes, &visible, "", ViewScope::Global).as_deref(),
+            Some("nothing in the global scope: s shows the next")
+        );
+        assert_eq!(
+            no_rows_text(&nodes, &visible, "zzz", ViewScope::Global).as_deref(),
+            Some("no matches")
+        );
     }
 
     #[test]
