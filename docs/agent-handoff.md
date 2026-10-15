@@ -36,7 +36,56 @@ stated to Andreas at takeover for him to correct: RESUME the Next step
 queue under the recorded standing scope and the "merge as you go"
 delegation: NZ-5 on the `tui/tree/` line, NZ-30 pass 1 and NZ-11 in
 the other slots, then NZ-42, NZ-32, NZ-28 pass 2, NZ-30 pass 2.
-Nothing is dispatched until he confirms.
+Nothing is dispatched until he confirms. (He confirmed, with
+changes, at about 12:10; see Authorized by the owner, 2026-10-15.)
+
+STOPPED FOR THE DAY on 2026-10-15 on Andreas's "we can try to find a
+good place to stop for the day". BATON RELEASED once the NZ-32
+`main` run finished (see the last In flight entry for its result).
+No lead is active. No worker or reviewer is running: every agent
+dispatched today reported and its ticket was merged or closed; the
+last were the NZ-32 worker and reviewer.
+
+State at the stop, in short:
+
+- Done and merged today, in order: NZ-45 (`aabf8f2`, storage
+  integration tests), NZ-17 (`dd2ff6a`, version 0.1.0, tagged
+  `v0.1.0`), NZ-5 (`e4a3130`, fuzzy filter, `0`, `s`), NZ-46
+  (`0d91cd4`, docs refresh), NZ-11 (`835d932`, footer display
+  columns), NZ-48 (`4c58f36`, notez-core frontmatter and dates,
+  workspace 0.2.0), NZ-32 (`bc63288`, document type filter).
+  `main` = `origin/main` = `bc63288` plus the docs commit this lead
+  makes at the stop. CI green on each code merge.
+- No ticket worktree, branch or remote branch remains after the
+  NZ-32 cleanup. Tag `v0.1.0` at `dd2ff6a`; 0.2.0 is NOT tagged (the
+  owner tags when he wants; `main` carries notez-core API additions
+  since 0.1.0).
+- Board: NZ-5, NZ-11, NZ-17, NZ-32, NZ-45, NZ-46, NZ-48 Done; NZ-30,
+  NZ-43 Ready; NZ-42 Draft (narrowed, brief to write); NZ-18, NZ-28
+  (parked), NZ-29 (closed "not now"), NZ-47 (design) Draft.
+- Andreas's installed binary: he was told to `./install.sh` after
+  wave 1; whether he did is not recorded. Visible changes since
+  2026-10-10: fuzzy `/` filter with lit matches in both views, `0`,
+  `s` cycling eight stops (all, scratch, project, global, private,
+  public, docs, todo) named in the header, `@type` filter tokens,
+  "no matches" row, column-correct footer warnings, `notez
+  --version` with the sha (0.2.0).
+- Decisions taken today are under Authorized by the owner
+  (2026-10-15, two entries) and in `docs/design-nz47-dates.md`.
+- Standing permissions in force and paused with the baton: the
+  integration delegation ("merge as you go"), branch pushes with
+  remote deletion after the merge, board items for tickets Andreas
+  asks for in a lead session, the tree-sitter and pulldown-cmark
+  dependency approval, the working rule, the three-worker cap, and
+  the 2026-10-15 "milestones only" reporting rule.
+- Process notes from today: a reviewer that restores a mutated file
+  with its old mtime leaves a stale test binary, so the lead
+  `touch`es a source file before its own verification run; `notez
+  --version` exits 2 (pre-existing clap behaviour), so never put it
+  in a `&&` chain before a push; the lead's own briefs twice carried
+  stale or wrong code facts (NZ-5 "already fuzzy", NZ-46 "tree
+  dims") and the reviewers caught both: verify code facts before
+  writing a brief, or mark them "worker verifies".
 
 Previous lead record follows.
 
@@ -182,6 +231,38 @@ still apply stay below.
   - Limits unchanged: no new dependency beyond the recorded approval,
     no `notez-core` public API or file-format change without his yes,
     installing, tags and releases are his, NZ-18 does not run.
+- 2026-10-15, later, Andreas, in the lead session (`8a79e020`),
+  answering the NZ-43 proposal and the NZ-47 questions: "i think
+  right pane should be ON by default. wudth is ok. order is ok. not
+  in it: yes for now, open up later on? NZ-47: 2: go with event then
+  4: yes 6: yes 7: yes 8: not read only from notez, but warn for
+  longer than standard pinz length". The lead's reading, applied:
+  - NZ-43 DESIGN APPROVED (bounded path): todoz right pane ON by
+    default where the width allows (120 columns or more; below that
+    `p` reports too narrow), `p` toggles, NZ-4 resize and fold keys,
+    shows the selected task's source `TODO.md` rendered and scrolled
+    to the task's highlighted line, footer shows the due date once
+    dates exist. Not in it for now (may open later): editing in the
+    pane, linked-note previews, calendar views. Runs after NZ-42 and
+    NZ-48. Board item `PVTI_lAHOCU842c4BmE5Zzg_uH10`, Ready.
+  - NZ-47 decisions: field `event`; frontmatter written only when a
+    date is set; nvim-only for dating existing notes at first.
+  - NZ-48 AUTHORIZED (NZ-47a): `notez-core` frontmatter and dates,
+    read-only, workspace 0.2.0 with a `notez-core` changelog entry.
+    This is the `notez-core` public API change the working rule
+    reserves for him; his "6: yes" is that approval, for the scope in
+    `docs/design-nz47-dates.md` only. Board item
+    `PVTI_lAHOCU842c4BmE5ZzhA-tKk`. Brief under Tickets.
+  - NZ-18 FOLDED into the dates rollout as NZ-47d: pins are a note
+    type read through the same frontmatter parser; NOT read-only:
+    they open in the editor like any note; notez never runs git in
+    `~/pinz-board`; notez warns when a pin body exceeds a standard pin
+    length (threshold to be proposed in that brief; Pinz has none in
+    code). Still a design-first ticket; no code until its brief is
+    approved. The Pinz-side "keep unknown keys" change is a Pinz
+    ticket Andreas owns.
+  - Limits unchanged. Also in force since the same day: report at
+    milestones only, stop him only for his decisions.
 - 2026-10-10 12:50 CEST, Andreas, in the lead session (`f25c8d27`):
   "continue work", then "order is fine" to the queue the lead stated
   back (NZ-3, NZ-5, NZ-42 after NZ-5 is merged, NZ-32, NZ-28, NZ-30;
@@ -510,6 +591,191 @@ with Andreas in the lead session, then NZ-46 (`nz-small`, docs) and
 NZ-32 (tree line) in parallel, then NZ-11 alone, NZ-42, NZ-30.
 NZ-47 waits for his answers to questions 2, 4, 6, 7, 8 in
 `docs/design-nz47-dates.md`.
+
+WORKING RULE UPDATE, Andreas 2026-10-15 in the lead session: "do you
+need to prompt me this whole time? i miss many things, it costs us
+time. perhaps only prompt me for important decisions?" Applied: the
+lead reports at milestones only (a ticket merged, a wave done, a
+blocker) and stops him only for decisions that are his (scope,
+design direction, anything irreversible or costing money, the stop
+conditions of 2026-10-08). Tickets already in the authorized queue
+run and merge without a check-in. Extends the 2026-10-08 working
+rule; limits unchanged.
+
+WAVE 2 DISPATCHED 2026-10-15 from base `b253758` (the docs commit on
+top of `e4a3130`), `git status --short` clean: NZ-11 (`nz-worker`,
+opus) on `fix/nz-11-footer-width`, worktree `.claude/worktrees/nz-11`,
+files `tui/tree/render.rs`, `tui/todo.rs`, `tui/footer.rs`; NZ-46
+(`nz-small`, sonnet) on `docs/nz-46-docs-refresh`, worktree
+`.claude/worktrees/nz-46`, files `DESIGN.md`, `README.md`,
+`docs/multi-user-sync.md`, `docs/handover-2026-09-02-small-machine.md`.
+Board: both In flight. NZ-32 waits for NZ-11 (shared `footer.rs`) and
+NZ-46 (shared `README.md`); NZ-42 waits for NZ-11 (`todo.rs`) and the
+NZ-43 decision; NZ-30 after NZ-32 on the tree line.
+
+NZ-46 worker (`nz-small`) REPORTED twice: DESIGN.md Status rewritten
+(edit and nav implemented, feature set, preview, 0.1.0, old skeleton
+list reduced to a sentence), the 2026-10-15 file-reader decision
+recorded, test-scenario drifts fixed, calendar section points to the
+NZ-47 design, README Version note and Roadmap dates line, handover
+doc marked historical; `multi-user-sync.md` left as parked research.
+REVIEW DISPATCHED (`nz-reviewer`). NZ-11 worker REPORTED blocked on
+one existing test asserting the defect
+(`warning_layout_truncates_on_a_char_boundary_and_keeps_the_hint`
+expected a 4-column string in 3 text columns). LEAD DECISION: that
+single assertion is updated to expect `"ab"` with a comment, since
+NZ-11 is the authorized change of that contract; the test is kept.
+`tui/tree/input.rs` added to NZ-11's allowed files for criterion 4
+(the hardcoded `"quit "` hint, which also overflowed by one column,
+goes through `footer::hint_spans`). Worker resumed. Already fixed by
+the worker: `warning_layout`, todoz `warning_lead` and
+`warning_right`, `footer::span_cols`, via a new
+`footer::clip_to_cols` that cuts between graphemes.
+
+NZ-46 REVIEW: changes requested once (the lead's own brief wrongly
+said the tree dims a missing project; `collect_all` skips the whole
+project and only `notez list` marks `(not found)`; also a wrong
+skeleton date), fixed by the worker with `CHANGELOG.md` added to its
+files for the lint line, RE-REVIEW ACCEPTED at hash `814a80d3…455c`.
+COMMITTED `d30c19a`, pushed, MERGED into `main` as `0d91cd4`
+(docs-only: no CI run starts; the last code run on `main`, `e4a3130`,
+was green). NZ-46 DONE: board Done, worktree and branches removed.
+Nits left: DESIGN.md:541 could say "omits the project"; one long
+wrapped line at 580. NZ-11 worker REPORTED complete: `warning_line`
+in `tree/render.rs` now draws the quit hint via `footer::hint_spans`,
+the input.rs warning arm is one call, 602 + 5 + 157 green, the one
+authorized assertion change made with a comment. REVIEW DISPATCHED
+(`nz-reviewer`, with grapheme and ZWJ checks asked for). `main` =
+`0d91cd4`.
+
+NZ-11 REVIEW ACCEPTED at hash `93e119a4…27c5`, no blockers; the
+reviewer probed ZWJ families, flags, lone combining marks, Hangul
+jamo and tabs at widths 0 to 80 in a scratch copy and drew into a
+real ratatui buffer; follow-ups (low, pre-existing): `footer_cols`
+counts chars (ASCII keys only), below width 7 the line still
+overflows, a tab counts as one column. Lead verification after
+`touch`: zero warnings, 602 + 5 + 157 green, hash matches.
+COMMITTED `28ed23c` on `fix/nz-11-footer-width`, PUSHED, branch CI
+watch in the background. Branch CI run `38737608885` GREEN. MERGED
+into `main` as `835d932` (`--no-ff`), combined checks zero warnings,
+602 + 5 + 157 green, pushed; `main` CI watch in the background;
+NZ-11 worktree and branches removed once it is green.
+
+WAVE 3 DISPATCHED from base `835d932`: NZ-48 (`nz-worker`, opus) on
+`feat/nz-48-core-dates`, worktree `.claude/worktrees/nz-48`, files
+`crates/notez-core/src/**`, root `Cargo.toml` (version), `CHANGELOG.md`,
+plus the `Task { .. }` literal lines in `tui/todo.rs` and
+`commands/todo.rs`; NZ-32 (`nz-worker`, opus) on
+`feat/nz-32-type-filter`, worktree `.claude/worktrees/nz-32`, files
+`tui/tree/**`, `tui/text.rs`, `tui/footer.rs`, `tui/help.rs`,
+`tui/header.rs`, `README.md`. Lead decision for NZ-32 (working
+rule): one `s` cycle covering NZ-5's locations and the types, order
+all, scratch, project, global, private, public, docs, todo; `@`
+tokens compose with it; `0` clears `#tag` tokens only. Board: both In
+flight. After this wave: NZ-42 (`tui/todo.rs`, after NZ-48 touched its
+literals), then NZ-43 and NZ-30; NZ-49 (`agenda` plus inspector
+footer) and NZ-50 (write path) to be created from the design when
+NZ-48 is on `main`.
+
+`main` run `38745116321` GREEN. NZ-11 DONE: board Done, worktree and
+branches removed. `main` = `835d932`.
+
+NZ-32 worker REPORTED (about 13 min): done, 619 + 5 + 157 green,
+new `tui/tree/doc_type.rs` (`parse_filter`, `TreeFilter`,
+`clear_type_tokens`), `TreeNode.doc_types` bitmask, eight-stop `s`
+cycle (all, scratch, project, global, private, public, docs, todo),
+`@` tokens AND with the stop, `s` back to all clears `@` tokens, 17
+new tests; footer.rs, header.rs, help.rs, text.rs needed no change.
+Existing-test edits ACCEPTED by the lead as contract updates: the
+four-stop cycle test renamed and extended to eight stops; one call
+site changed for the `compute_filter_keep` signature. Worker
+decisions recorded: every note under `_todos/` counts as todo; the
+header names only the `s` stop. REVIEW DISPATCHED (`nz-reviewer`).
+
+NZ-48 worker REPORTED (about 14 min): core done (frontmatter, dates,
+`Task.due`, `parse_todo_lines`, round-trip test, 0.2.0, changelog),
+190 core tests green, but blocked: eager `NoteEntry` date fields
+broke three test literals in `commands/edit.rs` and
+`commands/tree.rs` outside its files, and `collect_all` on 300 notes
+went from about 0.4 ms to 4 to 7 ms (it opened every file). LEAD
+DECISION (design change, recorded in `docs/design-nz47-dates.md`):
+dates are read on demand, not eagerly. No fields on `NoteEntry`;
+`core::dates::NoteDates { created, due, event }` with
+`from_text(text, file_name)` and `read(path)` (first 4 KiB), to be
+called by the inspector footer and `agenda`. That removes the
+literal edits and the cost from every tree build. Also accepted: the
+last `@date` on a line wins (stable under the serializer position);
+`parse_todos_from_content` output unchanged; `NoteDate` serde as
+text; `Cargo.lock` version lines allowed. Worker resumed and
+REPORTED: `NoteEntry` and the aggregate functions back to base,
+`NoteDates::from_text` and `NoteDates::read` as associated functions
+(accepted), `collect_all` 420 us vs 390 us base, `read` over 300
+files 3 to 7 ms, 602 + 5 + 191 green with one ignored timing probe,
+`notez 0.2.0 (835d932-dirty)`. REVIEW DISPATCHED (`nz-reviewer`)
+with frontmatter byte-exactness (CRLF, BOM, horizontal-rule false
+block) and `@date` edge cases asked for.
+
+NZ-32 REVIEW ACCEPTED at hash `afe8e848…707c`, no blockers; the
+reviewer verified `mail@todo`-style tokens stay text and that the
+remainder equals core's own parse for buffers without `@` tokens.
+LEAD DECISION: take three low follow-ups before committing (guard
+the buffer rewrite on `s` back to all; folders match type tokens
+only as ancestors so a type filter does not leave every folder
+expanded; README wording for eight stops), worker resumed, re-review
+after. Design question left open for Andreas to meet in the build:
+section rows carry no type, so an empty store of a type hides on
+that type's own stop.
+
+NZ-48 REVIEW ACCEPTED at hash `71f15d45…30e7`, no blockers; the
+reviewer probed `set` byte-exactness, token edge cases, load-save-
+load idempotence, base-equivalence of `parse_todos_from_content` and
+serde back-compat in a scratch crate. Follow-ups: F1 a `@date` on a
+TODO.md line now disappears from the todoz row text (no such tokens
+exist in Andreas's files today; the due column ticket shows it); F2
+(medium, for the write path NZ-50, recorded in the design note): a
+note opening with a horizontal rule, a CRLF block or a UTF-8 BOM is
+misread as or outside a block, so `set` must refuse or special-case
+them before it gets a caller; F3 the ignored timing probe's 2 ms
+bound is tight in debug builds; F4 a date inside a spaced code span
+counts. Lead verification after `touch`: zero warnings, 602 + 5 +
+191 green, hash matches. COMMITTED `5610338` on
+`feat/nz-48-core-dates`, PUSHED, branch CI watch in the background.
+Owner approval for the `notez-core` API and `TODO.md` token change:
+"6: yes" (Authorized by the owner, 2026-10-15). F2's write-path rules
+are recorded in `docs/design-nz47-dates.md` under "Requirements for
+the write path".
+
+NZ-32 follow-up round REPORTED: guard inside `clear_type_tokens`,
+notes-only typing (folders kept only as ancestors; an empty folder
+in a typed section hides under its type like under a text filter),
+README reworded; 621 + 5 + 157 green; two new tests written first
+and seen failing. RE-REVIEW DISPATCHED to the same reviewer. Merge
+order: NZ-48 first (branch CI running), then NZ-32.
+
+NZ-48 branch CI run `38748941192` GREEN. MERGED into `main` as
+`4c58f36` (`--no-ff`), combined checks zero warnings, 602 + 5 + 191
+green, pushed; `main` CI watch in the background.
+
+NZ-32 RE-REVIEW ACCEPTED at hash `22c92479…0c67`, no blockers; two
+nits left (a doc-comment parenthetical in `assign_doc_types`, README
+line wrapping). Lead verification after `touch`: zero warnings, 621
++ 5 + 157 green, hash matches. COMMITTED `f1f14b5` on
+`feat/nz-32-type-filter`, PUSHED, branch CI watch in the background.
+
+STOPPING FOR THE DAY on Andreas's "we can try to find a good place
+to stop for the day" (2026-10-15): the lead lands NZ-32 (merge on
+green, `main` CI, cleanup), dispatches nothing new, then releases
+the baton. See the Current lead section for the release line.
+
+NZ-48 `main` run `38749749511` GREEN; NZ-48 DONE, worktree and
+branches removed. NZ-32 branch CI run `38749842196` GREEN, MERGED
+into `main` as `bc63288` (`--no-ff`), combined checks zero warnings,
+621 + 5 + 191 green, pushed; `main` run `38750312207` GREEN; NZ-32
+DONE, board Done, worktree and branches removed. `git worktree list`
+shows only the main checkout; no ticket branches local or remote;
+`ps` shows this lead as the only `nz-coordinator`. The lead commits
+this handoff and the design note to `main` as its last action and
+releases the baton.
 
 TAG: Andreas, 2026-10-15 in the lead session, "you can run the git
 commands", directly after the lead presented the `v0.1.0` tag and
@@ -1342,6 +1608,78 @@ read the same field, and the epoz compatibility rule from NZ-17. Ends
 with a recommendation and open questions for Andreas. No code until he
 approves; any `notez-core` change needs his explicit yes.
 
+### NZ-48: notez-core frontmatter and dates, read-only (2026-10-15, Ready)
+
+Board item `PVTI_lAHOCU842c4BmE5ZzhA-tKk`. Authorized by Andreas
+("6: yes", 2026-10-15) as the `notez-core` part of
+`docs/design-nz47-dates.md`, which is the brief's source of truth.
+Runs after NZ-11 merges (it adds a field to `Task`, and
+`tui/todo.rs` has four `Task { .. }` literals), beside NZ-32.
+
+Outcome: `notez-core` can read dates from notes and todos, nothing
+is written to any note file, `TODO.md` round-trips byte-identically
+including `@date` tokens, and the workspace is 0.2.0.
+
+Acceptance criteria:
+
+1. `core::frontmatter`: `split(text) -> (Vec<(String, String)>, &str)`
+   and `set(text, key, value) -> String` with the Pinz rules (block
+   starts at byte 0 with `---\n`, ends at the next `\n---`; no block
+   or unterminated block means no fields and the text unchanged;
+   `key: value` lines, trimmed; unknown keys preserved verbatim and
+   in order by `set`, which inserts or replaces one key and leaves
+   every other byte identical). Tests include a Pinz pin file with
+   `x`, `y`, `z`, `color` surviving `set("due", ...)` unchanged.
+2. `core::dates`: `NoteDate { date: NaiveDate, time: Option<NaiveTime> }`
+   parsed from `YYYY-MM-DD` and `YYYY-MM-DDTHH:MM`, formatted back the
+   same way; anything else is `None` (kept verbatim by callers, never
+   an error). `chrono` is already a dependency; no new crate.
+3. `NoteEntry` gains `created`, `due`, `event: Option<NoteDate>`
+   with `#[serde(default)]`, filled from the frontmatter; `created`
+   falls back to a `Date: YYYY-MM-DD` line in the first lines, then a
+   `YYYY-MM-DD-` or `YYYY-MM-DD-HHMMSS-` filename prefix, then
+   `None`. Reading the first 4 KiB of each file is enough; measure
+   that `collect_all` on a vault of a few hundred notes stays within
+   the same order of time as before (report the numbers).
+4. `Task` gains `due: Option<NoteDate>` with `#[serde(default)]`. The
+   parser strips one whitespace-delimited `@YYYY-MM-DD` or
+   `@YYYY-MM-DDTHH:MM` token (exact shape, so `name@example.com` and
+   `@2026` stay text; a second date token stays in the text) and the
+   serializer writes it back after the text and before the tags.
+   `parse_todos_from_content` keeps its public tuple signature as a
+   wrapper; a new `parse_todo_lines` returns a small struct with the
+   date. Every `Task { .. }` literal in the workspace gets
+   `due: None` (`crates/notez-cli/src/tui/todo.rs` and
+   `commands/todo.rs` are allowed for those lines only).
+5. Round-trip test: a `TODO.md` with dates, tags, prose, nested tasks
+   and a `[/]` state is byte-identical after load and save; the
+   existing dirty-source tests are untouched.
+6. Workspace version 0.2.0 in the root `Cargo.toml`; `CHANGELOG.md`
+   Unreleased gets a `notez-core` subsection naming the new module,
+   type and fields and stating that epoz's pinned rev is unaffected
+   until it moves; `docs/versioning.md` unchanged.
+7. No write path: nothing in this ticket writes frontmatter into a
+   note file; `set` exists and is tested but has no caller yet.
+   `notez_core::filter` is untouched. No CLI or TUI behaviour change.
+
+Allowed files: `crates/notez-core/src/**`, `Cargo.toml`,
+`CHANGELOG.md`, and the `Task { .. }` literal lines in
+`crates/notez-cli/src/tui/todo.rs` and
+`crates/notez-cli/src/commands/todo.rs`. One worker, one review.
+
+### NZ-43: todoz preview pane (2026-10-15, Ready, design approved)
+
+Approved by Andreas on 2026-10-15 (see Authorized by the owner).
+Right pane ON by default at 120 columns or more, `p` toggles, below
+that `p` reports too narrow; NZ-4 resize and fold keys; shows the
+selected task's source `TODO.md` rendered (`tui/markdown.rs`) and
+scrolled to the task's line, highlighted; its footer shows the task's
+due date once NZ-48 has landed. Not in it for now: editing in the
+pane, linked-note previews, calendar views. Runs after NZ-42 and
+NZ-48. Allowed files when cut: `tui/todo.rs`, `tui/panes.rs`,
+`tui/footer.rs`, `tui/help.rs`, `README.md`. Brief details (keys,
+tests) to be written at dispatch from this record.
+
 ### NZ-42: todoz navigation like the tree browser (2026-10-09, Draft)
 
 NARROWED 2026-10-15 (Andreas "42: ok?" to the lead's proposal): `/`
@@ -1357,7 +1695,7 @@ reload-on-change behaviour from NZ-34 (a relist must succeed before any
 probe cache is refreshed), pane-focus keys if NZ-43 happens. Not to port:
 `Space` marks (todoz's `Space` checks a task). Not ready: needs NZ-5.
 
-### NZ-43: todoz preview pane (2026-10-09, Draft)
+### NZ-43: todoz preview pane (2026-10-09, Draft; superseded by the 2026-10-15 record above)
 
 Outcome: possibly a list-plus-preview layout in todoz using `panes.rs`,
 showing a task's source file or notes. Needs a brainstorm with Andreas
@@ -1466,8 +1804,45 @@ answers the questions listed on it, and names which to run.
 
 ## Next step
 
-Written 2026-10-15 by lead `8a79e020` after Andreas's answers to the
-product review (see Authorized by the owner, 2026-10-15).
+Updated 2026-10-15 at the stop by lead `8a79e020`. Nothing runs until
+Andreas says to continue; when he does, the queue below is already
+authorized (standing scope plus the 2026-10-15 entries) and needs no
+new confirmation.
+
+1. NZ-42, todoz `/` fuzzy search reusing NZ-5's `text::filter_matches`
+   and highlight, plus reload-on-change (NZ-34 behaviour): files
+   `tui/todo.rs`, `tui/help.rs`, `README.md`. Brief to write from the
+   narrowed record under Tickets. One worker, one review.
+2. NZ-49 (create the board item under the standing permission):
+   `notez agenda [--days N] [--json]` listing due todos and dated
+   notes across scopes via `NoteDates::read` and `Task.due`, overdue
+   first, grouped by day, plus the inspector footer showing the
+   selected note's dates next to the language badge. Files:
+   `commands/agenda.rs` (new), `cli/mod.rs`, `main.rs`,
+   `tui/tree/preview.rs` or wherever the preview footer is drawn,
+   `README.md`. Can run beside NZ-42 (disjoint files). Design:
+   `docs/design-nz47-dates.md`, consumers 1 and 3.
+3. NZ-43, todoz preview pane (approved design under Tickets), after
+   NZ-42 and NZ-49.
+4. NZ-30, symbol outline, on the tree line after NZ-49's footer
+   change.
+5. NZ-50 (create when reached): the write path, todoz due column
+   with the `D` prompt and `notez add --due/--on`, under the
+   "Requirements for the write path" in the design note.
+6. NZ-47d / NZ-18: Pinz as a note type, design brief first (pins
+   editable, no git from notez in `~/pinz-board`, length warning
+   with a proposed threshold); needs Andreas's approval of the brief
+   and the Pinz-side "keep unknown keys" change before code.
+
+Per ticket the procedure is unchanged (see the 2026-10-10 paragraph
+below): branch and worktree from current `main`, `nz-worker`, a
+separate `nz-reviewer` on the exact diff, re-review after changes,
+lead verification (touch a source file first), commit exactly the
+reviewed diff, push, green branch CI, `--no-ff` merge, checks on
+`main`, push, green `main` CI, Done, cleanup. Report at milestones
+only; stop Andreas only for his decisions.
+
+The 2026-10-15 morning queue text follows for history.
 
 Wave 1, in flight from `7cfeb27`: NZ-5 (tree line, owns README),
 NZ-45 (tests only), NZ-17 (manifests, build.rs, changelog). Each gets

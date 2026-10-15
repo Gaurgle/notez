@@ -108,11 +108,16 @@ Why not the alternatives:
 2. `core::dates`: parse and format the two accepted shapes; a
    `NoteDate { date: NaiveDate, time: Option<NaiveTime> }` type.
    `chrono` is already a dependency; no new crate.
-3. `NoteEntry` (aggregate) gains `created`, `due`, `event:
-   Option<NoteDate>`, filled from the frontmatter when present
-   (`created` falls back to the `Date:` header, then the filename
-   prefix, then nothing; mtime stays what it is). Additive, serde
-   default, so epoz's DTOs keep deserializing.
+3. Dates are read on demand, not eagerly (changed 2026-10-15 during
+   NZ-48: eager reading in `collect_all` opened every file and made
+   a 300-note listing 10 to 18 times slower, for fields the tree
+   never shows). `core::dates::NoteDates { created, due, event:
+   Option<NoteDate> }` with `from_text(text, file_name)` (pure:
+   frontmatter, then a `Date:` line in the first body lines, then a
+   `YYYY-MM-DD-` or `YYYY-MM-DD-HHMMSS-` filename prefix, then
+   nothing) and `read(path)` (first 4 KiB). The inspector footer and
+   `agenda` call it; `NoteEntry` is unchanged, so epoz's DTOs are
+   untouched and it can call `read` when it wants dates.
 4. `Task` gains `due: Option<NoteDate>`. `parse_todos_from_content`
    returns a `(String, CheckState, u8, u8)` tuple today and is `pub`;
    adding a field means a signature change. Proposal: a new
@@ -170,7 +175,23 @@ until a date is set on it.
 Andreas, 2026-10-15, on the first round of questions: frontmatter
 format agreed ("good format"), `agenda` agreed, the malformed-value
 rule agreed ("kept verbatim until linting"), the `@date` token rule
-agreed. Still open: questions 2, 4, 6, 7, 8 below.
+agreed.
+
+Andreas, 2026-10-15, second round, DECIDED: (2) the field is `event`;
+(4) frontmatter is written only when a date is set, new notes keep
+the `Date:` line; (6) NZ-47a is a go, tracked as ticket NZ-48
+(`notez-core` frontmatter, dates, fields, round-trip tests, workspace
+0.2.0); (7) dating an existing note is nvim-only at first; (8) NZ-18
+folds into this rollout as NZ-47d, and pins are NOT read-only from
+notez: a pin opens in the editor like any note, notez never runs git
+in `~/pinz-board` (Pinz's own sync and lock own that), and notez
+warns when a pin's body grows longer than a standard pin. Pinz has no
+length rule in code today (checked `pinz-core` and `pinz-tui`: only a
+clipboard byte cap), so the threshold is a notez-side constant to be
+proposed in the NZ-47d brief (starting point: 12 lines or 600
+characters, whichever first) for Andreas to confirm. The Pinz-side
+change (keep unknown frontmatter keys on save) is still required
+before dates on pins are safe.
 
 ## Rules decided by the lead (working rule, 2026-10-15)
 
@@ -191,6 +212,27 @@ agreed. Still open: questions 2, 4, 6, 7, 8 below.
   (the inspector footer shows the result). A `D` key in the tree
   browser or a `notez date` command is a later ticket, if missed.
   Andreas decides (question 7).
+
+## Requirements for the write path (from the NZ-48 review, 2026-10-15)
+
+`frontmatter::set` follows Pinz's reading rules, which is right for
+reading and not yet safe for writing. Before `set` gets its first
+caller (NZ-50: todoz `D`, `notez add --due/--on`), it must handle:
+
+- A note that opens with a markdown horizontal rule
+  (`---\n\nSome text\n---\nMore`): today this reads as a block with
+  no fields and `set` would write `due:` into the prose. Rule: a
+  block counts only if it holds at least one `key: value` line;
+  otherwise `set` inserts a new block above the whole text.
+- CRLF line endings: the block is not recognised and `set` would
+  prepend a second LF block. Rule: detect `\r\n` and keep it.
+- A UTF-8 BOM: the block is not recognised and `set` would put the
+  new block before the BOM. Rule: keep the BOM first.
+- A date inside a spaced code span on a todo line counts as the due
+  date (whitespace rule); acceptable, noted.
+
+Tests for each case ship with the write-path ticket, and `set` is
+only ever called from an explicit user action.
 
 ## Later, deliberately not in the first version
 
