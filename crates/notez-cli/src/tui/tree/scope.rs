@@ -1,12 +1,15 @@
-//! The view scope `s` cycles: which sections the tree shows. Rows keep
-//! their order and their state; a section outside the scope and every row
+//! The view scope `s` cycles: which sections and rows the tree shows. Rows
+//! keep their order and their state; a row outside the scope and every row
 //! under it are only left out of the visible rows (see
 //! [`get_visible_nodes`]).
 
 use super::*;
 
-/// The sections the tree shows, in `s` order. `f` (focus one section) is
-/// separate and works inside any scope.
+/// What the tree shows, in `s` order. The first stops are locations (which
+/// sections), the rest are document types (which rows, in any section).
+/// `@type` tokens in the filter narrow further: they AND with the stop,
+/// so `@public` on the project stop shows the project's public notes. `f`
+/// (focus one section) is separate and works inside any scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum ViewScope {
     /// Every section.
@@ -18,16 +21,29 @@ pub(super) enum ViewScope {
     Project,
     /// The vault's global notes.
     Global,
+    /// Personal notes of every project.
+    Private,
+    /// Public notes of every project, not docs.
+    Public,
+    /// Docs of every project.
+    Docs,
+    /// Every `TODO.md` and the `_todos` store.
+    Todo,
 }
 
 impl ViewScope {
-    /// The scope after this one: all, scratch, project, global, all.
+    /// The scope after this one: all, scratch, project, global, private,
+    /// public, docs, todo, all.
     pub(super) fn next(self) -> Self {
         match self {
             Self::All => Self::Scratch,
             Self::Scratch => Self::Project,
             Self::Project => Self::Global,
-            Self::Global => Self::All,
+            Self::Global => Self::Private,
+            Self::Private => Self::Public,
+            Self::Public => Self::Docs,
+            Self::Docs => Self::Todo,
+            Self::Todo => Self::All,
         }
     }
 
@@ -38,14 +54,30 @@ impl ViewScope {
             Self::Scratch => "scratch",
             Self::Project => "project",
             Self::Global => "global",
+            Self::Private => "private",
+            Self::Public => "public",
+            Self::Docs => "docs",
+            Self::Todo => "todo",
         }
     }
 
-    /// Whether `spec` is shown in this scope. Other projects' sections show
-    /// only in [`Self::All`].
+    /// The document type a type stop shows; `None` for a location stop.
+    pub(super) fn doc_type(self) -> Option<DocType> {
+        match self {
+            Self::All | Self::Scratch | Self::Project | Self::Global => None,
+            Self::Private => Some(DocType::Private),
+            Self::Public => Some(DocType::Public),
+            Self::Docs => Some(DocType::Docs),
+            Self::Todo => Some(DocType::Todo),
+        }
+    }
+
+    /// Whether this scope's location takes in `spec`. Other projects'
+    /// sections show only in [`Self::All`] and the type stops, which take
+    /// in every section and leave the rows to [`apply_scope`].
     pub(super) fn includes(self, spec: &SectionSpec) -> bool {
         match self {
-            Self::All => true,
+            Self::All | Self::Private | Self::Public | Self::Docs | Self::Todo => true,
             Self::Scratch => spec.is_current && !spec.is_doc && spec.scope == Scope::Local,
             Self::Project => {
                 spec.is_current
@@ -56,35 +88,60 @@ impl ViewScope {
     }
 }
 
-/// Mark each section row hidden or not for `scope`. Only section rows
-/// (depth 0) carry the mark; [`get_visible_nodes`] reads it for the rows
-/// under them. [`Forest::set_scope`] calls it when the scope changes and
-/// every rebuild calls it on the new rows, so a cursor row chosen after
-/// either already sees the marks.
+/// Mark each row hidden or not for `scope`: a section row whose section
+/// the location leaves out and, on a type stop, every row that neither has
+/// the type nor holds a row that has it (so a section with no such row is
+/// hidden too). [`get_visible_nodes`] reads the marks for the rows under
+/// them. [`Forest::set_scope`] calls it when the scope changes and every
+/// rebuild calls it on the new rows, so a cursor row chosen after either
+/// already sees the marks. The rows' types are refreshed first.
 pub(super) fn apply_scope(nodes: &mut [TreeNode], sections: &[SectionSpec], scope: ViewScope) {
-    for node in nodes.iter_mut().filter(|n| n.depth == 0) {
-        node.hidden = !sections
-            .get(node.section)
-            .is_some_and(|spec| scope.includes(spec));
+    assign_doc_types(nodes, sections);
+    for node in nodes.iter_mut() {
+        node.hidden = node.depth == 0
+            && !sections
+                .get(node.section)
+                .is_some_and(|spec| scope.includes(spec));
+    }
+    let Some(doc_type) = scope.doc_type() else {
+        return;
+    };
+    let typed = TreeFilter {
+        filter: Filter {
+            text_tokens: Vec::new(),
+            tag_sets: Vec::new(),
+        },
+        types: doc_type.bit(),
+    };
+    let keep = compute_filter_keep(nodes, &typed);
+    for (node, keep) in nodes.iter_mut().zip(keep) {
+        node.hidden |= !keep;
     }
 }
 
-/// Whether `row` belongs to a section the view scope shows.
-fn in_shown_section(nodes: &[TreeNode], row: usize) -> bool {
-    find_top_dir(nodes, row).is_none_or(|top| !nodes[top].hidden)
+/// Whether the view scope shows `row` and every row above it.
+fn shown_by_scope(nodes: &[TreeNode], row: usize) -> bool {
+    let mut cur = nodes.get(row);
+    while let Some(node) = cur {
+        if node.hidden {
+            return false;
+        }
+        cur = node.parent_idx.and_then(|p| nodes.get(p));
+    }
+    true
 }
 
-/// The notes in the sections the scope shows, for the header's count.
+/// The notes the scope shows, for the header's count.
 pub(super) fn notes_in_scope(nodes: &[TreeNode]) -> usize {
     nodes
         .iter()
         .enumerate()
-        .filter(|&(row, node)| !node.is_dir && in_shown_section(nodes, row))
+        .filter(|&(row, node)| !node.is_dir && shown_by_scope(nodes, row))
         .count()
 }
 
-/// Drop the marks on rows in sections the view scope hides, so a bulk
-/// `d`, `m` or `S` only ever acts on rows that can be seen.
+/// Drop the marks on rows the view scope hides, so a bulk `d`, `m` or `S`
+/// only ever acts on rows that can be seen.
 pub(super) fn drop_hidden_marks(marks: &mut HashSet<PathBuf>, nodes: &[TreeNode]) {
     if marks.is_empty() {
         return;
@@ -92,7 +149,7 @@ pub(super) fn drop_hidden_marks(marks: &mut HashSet<PathBuf>, nodes: &[TreeNode]
     let hidden: HashSet<&Path> = nodes
         .iter()
         .enumerate()
-        .filter(|&(row, _)| !in_shown_section(nodes, row))
+        .filter(|&(row, _)| !shown_by_scope(nodes, row))
         .map(|(_, node)| node.path.as_path())
         .collect();
     marks.retain(|path| !hidden.contains(path.as_path()));
@@ -101,7 +158,7 @@ pub(super) fn drop_hidden_marks(marks: &mut HashSet<PathBuf>, nodes: &[TreeNode]
 /// What [`reveal_row`] changed to bring a row into view.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Revealed {
-    /// The row's section was hidden: the view moved to a scope showing it.
+    /// The scope hid the row: the view moved to a scope showing it.
     pub(super) scope_changed: bool,
     /// The filter hid the row, so it was cleared.
     pub(super) filter_cleared: bool,
@@ -124,14 +181,15 @@ impl Revealed {
     }
 }
 
-/// Bring `row` (just created or moved) into view. A row in a section the
-/// view scope hides first switches the scope to the narrowest one showing
-/// that section (scratch, project or global), else to all. Only then is
-/// the filter `search_buffer` checked, and it is cleared only if it is not
+/// Bring `row` (just created or moved) into view. A row the view scope
+/// hides (its section is out of the location, or a type stop leaves the
+/// row out) first switches the scope to the narrowest location showing its
+/// section (scratch, project or global), else to all. Only then is the
+/// filter `search_buffer` checked, and it is cleared only if it is not
 /// empty and still hides the row.
 pub(super) fn reveal_row(forest: &mut Forest, search_buffer: &mut String, row: usize) -> Revealed {
     let mut revealed = Revealed::default();
-    if !in_shown_section(&forest.nodes, row) {
+    if !shown_by_scope(&forest.nodes, row) {
         let spec = find_top_dir(&forest.nodes, row)
             .and_then(|top| forest.sections.get(forest.nodes[top].section));
         let scope = [ViewScope::Scratch, ViewScope::Project, ViewScope::Global]
@@ -178,14 +236,168 @@ mod tests {
     }
 
     #[test]
-    fn s_cycles_all_scratch_project_global_and_back() {
+    fn s_cycles_the_locations_then_the_types_and_back() {
         let mut scope = ViewScope::default();
         let mut seen = vec![scope.label()];
-        for _ in 0..4 {
+        for _ in 0..8 {
             scope = scope.next();
             seen.push(scope.label());
         }
-        assert_eq!(seen, ["all", "scratch", "project", "global", "all"]);
+        assert_eq!(
+            seen,
+            ["all", "scratch", "project", "global", "private", "public", "docs", "todo", "all"]
+        );
+    }
+
+    /// [`every_kind`] marked for `scope` with every folder open.
+    fn every_kind_in(scope: ViewScope) -> Forest {
+        let mut forest = forest_of(every_kind());
+        for node in &mut forest.nodes {
+            node.expanded = true;
+        }
+        forest.set_scope(scope);
+        forest
+    }
+
+    fn shown_notes(forest: &Forest, buffer: &str) -> Vec<String> {
+        compute_visible(&forest.nodes, buffer)
+            .into_iter()
+            .filter(|&i| !forest.nodes[i].is_dir)
+            .map(|i| forest.nodes[i].path.display().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_type_stop_shows_its_rows_in_every_section_and_hides_the_rest() {
+        let forest = every_kind_in(ViewScope::Todo);
+        assert_eq!(
+            shown_notes(&forest, ""),
+            [
+                "/n/personal/proj/TODO.md",
+                "/p/notez/TODO.md",
+                "/p/.notez/TODO.md",
+                "/n/_todos/work/TODO.md",
+                "/n/_todos/work/w.md",
+                "/n/TODO.md"
+            ]
+        );
+        // The docs and the other project's section hold no todo.
+        let sections: Vec<&str> = get_visible_nodes(&forest.nodes)
+            .into_iter()
+            .filter(|&i| forest.nodes[i].depth == 0)
+            .map(|i| forest.nodes[i].name.as_str())
+            .collect();
+        assert_eq!(
+            sections,
+            ["/n/personal/proj", "/p/notez", "/p/.notez", "/n"]
+        );
+        assert_eq!(notes_in_scope(&forest.nodes), 6);
+        assert_eq!(forest.scope.label(), "todo");
+
+        let forest = every_kind_in(ViewScope::Public);
+        assert_eq!(
+            shown_notes(&forest, ""),
+            ["/p/notez/TODO.md", "/p/notez/u.md", "/o/notez/o.md"]
+        );
+        let forest = every_kind_in(ViewScope::Docs);
+        assert_eq!(shown_notes(&forest, ""), ["/p/docs/c.md"]);
+        let forest = every_kind_in(ViewScope::Private);
+        assert_eq!(notes_in_scope(&forest.nodes), 2);
+    }
+
+    #[test]
+    fn a_type_stop_with_no_rows_says_so() {
+        let mut sections = every_kind();
+        sections[2].files.clear(); // no docs anywhere
+        let mut forest = forest_of(sections);
+        forest.set_scope(ViewScope::Docs);
+        let visible = compute_visible(&forest.nodes, "");
+        assert!(visible.is_empty());
+        assert_eq!(
+            no_rows_text(&forest.nodes, &visible, "", forest.scope).as_deref(),
+            Some("nothing in the docs scope: s shows the next")
+        );
+        assert_eq!(
+            no_rows_text(&forest.nodes, &visible, "@docs", forest.scope).as_deref(),
+            Some("no matches")
+        );
+    }
+
+    #[test]
+    fn type_tokens_and_the_stop_compose() {
+        // `@public` on the project stop: the project's public notes only.
+        let forest = every_kind_in(ViewScope::Project);
+        assert_eq!(
+            shown_notes(&forest, "@public"),
+            ["/p/notez/TODO.md", "/p/notez/u.md"]
+        );
+        // `@private` on the todo stop: the personal TODO.md.
+        let forest = every_kind_in(ViewScope::Todo);
+        assert_eq!(
+            shown_notes(&forest, "@private"),
+            ["/n/personal/proj/TODO.md"]
+        );
+        // Back on all, the token alone decides.
+        let forest = every_kind_in(ViewScope::All);
+        assert_eq!(
+            shown_notes(&forest, "@public"),
+            ["/p/notez/TODO.md", "/p/notez/u.md", "/o/notez/o.md"]
+        );
+    }
+
+    #[test]
+    fn a_note_created_where_a_type_stop_hides_it_switches_to_a_location() {
+        let mut with_new = every_kind();
+        with_new[4].files.push(PathBuf::from("/n/new.md"));
+        let mut forest = every_kind_in(ViewScope::Todo);
+        let row = forest
+            .rebuild(with_new, Path::new("/n/new.md"))
+            .expect("listed");
+        assert!(!compute_visible(&forest.nodes, "").contains(&row));
+        let mut search = String::new();
+        let revealed = reveal_row(&mut forest, &mut search, row);
+        assert!(revealed.scope_changed);
+        assert_eq!(forest.scope, ViewScope::Global);
+        assert!(compute_visible(&forest.nodes, "").contains(&row));
+
+        // Another project's note has no narrower location: back to all.
+        let mut with_new = every_kind();
+        with_new[5].files.push(PathBuf::from("/o/notez/new.md"));
+        let mut forest = every_kind_in(ViewScope::Private);
+        let row = forest
+            .rebuild(with_new, Path::new("/o/notez/new.md"))
+            .expect("listed");
+        let revealed = reveal_row(&mut forest, &mut search, row);
+        assert!(revealed.scope_changed);
+        assert_eq!(forest.scope, ViewScope::All);
+        assert!(compute_visible(&forest.nodes, "").contains(&row));
+    }
+
+    #[test]
+    fn a_typed_token_that_hides_the_new_note_is_cleared() {
+        let mut with_new = every_kind();
+        with_new[4].files.push(PathBuf::from("/n/new.md"));
+        let mut forest = every_kind_in(ViewScope::All);
+        let row = forest
+            .rebuild(with_new, Path::new("/n/new.md"))
+            .expect("listed");
+        let mut search = "@docs".to_string();
+        let revealed = reveal_row(&mut forest, &mut search, row);
+        assert!(revealed.filter_cleared && !revealed.scope_changed);
+        assert!(search.is_empty());
+    }
+
+    #[test]
+    fn marks_on_rows_a_type_stop_hides_are_dropped() {
+        let mut forest = every_kind_in(ViewScope::Todo);
+        let mut marks: HashSet<PathBuf> = ["/p/notez/TODO.md", "/p/notez/u.md", "/p/docs/c.md"]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        drop_hidden_marks(&mut marks, &forest.nodes);
+        assert_eq!(marks, HashSet::from([PathBuf::from("/p/notez/TODO.md")]));
+        forest.set_scope(ViewScope::All);
+        assert_eq!(notes_in_scope(&forest.nodes), 12);
     }
 
     #[test]

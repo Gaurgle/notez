@@ -41,6 +41,7 @@ use crate::commands::{add, mkdir, rename};
 
 mod bulk;
 mod delete;
+mod doc_type;
 mod folder;
 mod input;
 mod model;
@@ -56,6 +57,7 @@ mod test_support;
 
 use bulk::*;
 use delete::*;
+use doc_type::*;
 use folder::*;
 use input::*;
 use model::*;
