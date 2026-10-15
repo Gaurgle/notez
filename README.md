@@ -402,13 +402,17 @@ notez --help
 Run `install.sh` on every machine after pulling. The vault layout assumes both
 machines run the same binary; see `docs/handover-2026-09-02-small-machine.md`.
 
+**Version.** `notez --version` prints the version and the git sha it was built
+from. [CHANGELOG.md](CHANGELOG.md) lists the changes and
+[docs/versioning.md](docs/versioning.md) has the versioning policy.
+
 See [DESIGN.md](DESIGN.md) for the architecture, scope model, and test-scenario matrix. Core logic is covered by unit tests (`cargo test`).
 
 ## Roadmap
 
 Planned, not yet built (details in [DESIGN.md](DESIGN.md) → *Open questions and future work*):
 
-- **Dates & calendar for todos** - tag a todo with a **deadline** or **event** date and surface it on a calendar. The todoz preview pane already hosts a placeholder calendar; the open decision is the `@date` encoding inside `TODO.md` so it round-trips through the `notez` / `todoz` CLI byte-for-byte (mirroring how `#tags` already work).
+- **Dates & calendar** - a design exists in [docs/design-nz47-dates.md](docs/design-nz47-dates.md): frontmatter dates on notes, `@date` tokens on todo lines and a `notez agenda` command. It is awaiting the owner's decision.
 - **Scope migration** - move a note or todo between scopes (e.g. `personal → public`) without losing history.
 
 ## License

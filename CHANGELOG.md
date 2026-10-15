@@ -82,7 +82,8 @@ First versioned release. Everything below shipped before versioning began.
 - Language suffix on the preview border; `p` toggles highlighting too
   (NZ-39).
 - Scrolling with `Shift+Up`/`Shift+Down` and page keys (NZ-22).
-- Lint diagnostics for syntax and markdown (NZ-28, first pass).
+- Lint diagnostics for syntax and markdown (NZ-28, first pass): the lint
+  module landed but is not yet shown in the UI.
 
 ### notez-core
 
