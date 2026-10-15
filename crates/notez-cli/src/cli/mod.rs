@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "notez",
     about = "A local-first CLI note-taking tool",
-    version,
+    version = crate::VERSION,
     disable_help_flag = true,
 )]
 pub struct Cli {

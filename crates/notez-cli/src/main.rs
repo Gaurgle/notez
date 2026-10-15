@@ -23,6 +23,12 @@ use crate::tui::header::SyncState;
 use notez_core::config::{Config, ProjectRegistry};
 use notez_core::core::{Project, Scope};
 
+/// What `notez --version` prints after the name: the workspace version plus
+/// the short commit sha (`0.1.0 (abc1234)`, `-dirty` when tracked files have
+/// uncommitted changes), or the plain version when built outside a git
+/// checkout. Set by `build.rs`.
+pub(crate) const VERSION: &str = env!("NOTEZ_VERSION");
+
 fn main() -> ExitCode {
     install_panic_hook();
 
@@ -510,6 +516,21 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    #[test]
+    fn version_starts_with_the_package_version() {
+        assert!(
+            VERSION.starts_with(env!("CARGO_PKG_VERSION")),
+            "{VERSION:?} should start with {:?}",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+
+    #[test]
+    fn clap_reports_the_build_version() {
+        use clap::CommandFactory;
+        assert_eq!(Cli::command().get_version(), Some(VERSION));
+    }
 
     fn git(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
