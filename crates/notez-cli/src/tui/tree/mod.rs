@@ -77,6 +77,10 @@ pub struct TreeContext {
     /// The project the browser was opened in, if any. Section prompts name
     /// the project only when it differs from this one.
     pub current_project: Option<String>,
+    /// Whether the current repository's sections open expanded. False when
+    /// that repository has no `notez/` or `.notez/`: then every section
+    /// opens collapsed.
+    pub expand_current: bool,
     /// Where new notes can go beyond the folder under the cursor: the
     /// scope roots `Tab` cycles through in the new-note prompt, and the
     /// target when the tree has no rows.
@@ -135,7 +139,9 @@ pub fn run_tree(
     rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
 ) -> Result<Vec<(PathBuf, HashMap<String, u8>)>> {
     let (mut nodes, tag_roots) = build_forest(&sections);
-    open_current_sections(&mut nodes, &sections);
+    if ctx.expand_current {
+        open_current_sections(&mut nodes, &sections);
+    }
     let initial: Vec<HashMap<String, u8>> =
         tag_roots.iter().map(|r| note_tags::load_tags(r)).collect();
     apply_tags(&mut nodes, &tag_roots, &initial);

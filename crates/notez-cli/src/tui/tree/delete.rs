@@ -650,8 +650,17 @@ mod tests {
         );
 
         let (f, sel) = delete_and_select(&["ideas/a.md"], &[], "/r/ideas/a.md", &open, "");
-        assert!(f.nodes.is_empty());
-        assert_eq!(sel, None, "nothing left to select");
+        let rows: Vec<&Path> = f.nodes.iter().map(|n| n.path.as_path()).collect();
+        assert_eq!(
+            rows,
+            vec![Path::new("/r")],
+            "the emptied store keeps its section row"
+        );
+        assert_eq!(
+            sel,
+            Some(row(&f.nodes, "/r")),
+            "the section row is selected"
+        );
     }
 
     #[test]
@@ -808,9 +817,16 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            !forest.nodes.iter().any(|n| n.path.starts_with(&local)),
-            "the section is gone"
+        let local_rows: Vec<&Path> = forest
+            .nodes
+            .iter()
+            .filter(|n| n.path.starts_with(&local))
+            .map(|n| n.path.as_path())
+            .collect();
+        assert_eq!(
+            local_rows,
+            vec![local.as_path()],
+            "only the emptied section's own row is left"
         );
         let changed =
             changed_tag_maps_retiring(&forest.nodes, &forest.tag_roots, &forest.initial, &retired);

@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::paths;
+use crate::core::Project;
+use crate::core::project::has_note_stores;
 use crate::util::tilde;
 
 /// The full registry: one entry per attached project.
@@ -87,6 +89,35 @@ impl ProjectRegistry {
             .iter()
             .map(|(name, e)| (name.as_str(), tilde::expand(&e.local_path)))
     }
+
+    /// Register `project` without an explicit `notez attach`, so a repository
+    /// with notes folders shows up in every browser on this machine once any
+    /// notez command has run inside it. Returns whether it was added.
+    ///
+    /// Only a repository with a `notez/` or `.notez/` folder qualifies. Never
+    /// overwrites: a name already taken (even by another path) or a path
+    /// already registered under another name is left alone, and so is the
+    /// vault at `notez_root` or anything inside it. Paths are compared
+    /// canonicalized, so `~/repos` and `~/Repos` on a case-insensitive disk
+    /// are the same repository.
+    pub fn register_discovered(&mut self, project: &Project, notez_root: &Path) -> bool {
+        if !has_note_stores(&project.root) || self.projects.contains_key(&project.name) {
+            return false;
+        }
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let root = canonical(&project.root);
+        if root.starts_with(canonical(notez_root)) {
+            return false;
+        }
+        if self
+            .iter_resolved()
+            .any(|(_, path)| canonical(&path) == root)
+        {
+            return false;
+        }
+        self.attach(&project.name, &project.root);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -158,6 +189,72 @@ mod tests {
         assert_eq!(back.projects.len(), 2);
         assert_eq!(back.projects["foo"].local_path, "~/repos/foo");
         assert_eq!(back.projects["bar"].local_path, "~/Repos/bar");
+    }
+
+    /// A temp vault and a repo `name` under the same temp dir, with the repo
+    /// holding the folders in `stores`.
+    fn discovered(name: &str, stores: &[&str]) -> (tempfile::TempDir, Project, PathBuf) {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(name);
+        std::fs::create_dir_all(&root).unwrap();
+        for store in stores {
+            std::fs::create_dir_all(root.join(store)).unwrap();
+        }
+        let vault = dir.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let project = Project {
+            name: name.to_string(),
+            root,
+        };
+        (dir, project, vault)
+    }
+
+    #[test]
+    fn a_repo_with_a_public_or_scratch_folder_is_registered() {
+        for store in ["notez", ".notez"] {
+            let (_dir, project, vault) = discovered("analytics", &[store]);
+            let mut reg = ProjectRegistry::default();
+            assert!(reg.register_discovered(&project, &vault), "{store}");
+            assert_eq!(reg.resolve("analytics"), Some(project.root.clone()));
+        }
+    }
+
+    #[test]
+    fn a_repo_without_notes_folders_is_not_registered() {
+        let (_dir, project, vault) = discovered("analytics", &[]);
+        let mut reg = ProjectRegistry::default();
+        assert!(!reg.register_discovered(&project, &vault));
+        assert!(reg.projects.is_empty());
+    }
+
+    #[test]
+    fn a_taken_name_is_never_overwritten() {
+        let (_dir, project, vault) = discovered("analytics", &["notez"]);
+        let mut reg = ProjectRegistry::default();
+        reg.attach("analytics", Path::new("/elsewhere/analytics"));
+        assert!(!reg.register_discovered(&project, &vault));
+        assert_eq!(
+            reg.resolve("analytics"),
+            Some(PathBuf::from("/elsewhere/analytics"))
+        );
+    }
+
+    #[test]
+    fn a_path_registered_under_another_name_is_not_added_twice() {
+        let (_dir, project, vault) = discovered("analytics", &["notez"]);
+        let mut reg = ProjectRegistry::default();
+        reg.attach("stats", &project.root);
+        assert!(!reg.register_discovered(&project, &vault));
+        assert_eq!(reg.projects.len(), 1);
+    }
+
+    #[test]
+    fn the_vault_itself_is_not_registered() {
+        let (_dir, mut project, vault) = discovered("analytics", &[]);
+        std::fs::create_dir_all(vault.join("notez")).unwrap();
+        project.root = vault.clone();
+        let mut reg = ProjectRegistry::default();
+        assert!(!reg.register_discovered(&project, &vault));
     }
 
     #[test]

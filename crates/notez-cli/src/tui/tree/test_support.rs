@@ -106,6 +106,7 @@ pub(super) fn ctx_with(current: Option<&str>, new_note_roots: NewNoteRoots) -> T
         warning: None,
         sync: SyncState::Off,
         current_project: current.map(str::to_string),
+        expand_current: true,
         new_note_roots,
     }
 }

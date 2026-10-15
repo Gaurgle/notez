@@ -20,7 +20,7 @@ use clap::Parser;
 use crate::cli::{Cli, Commands};
 use crate::commands::tree::View;
 use crate::tui::header::SyncState;
-use notez_core::config::Config;
+use notez_core::config::{Config, ProjectRegistry};
 use notez_core::core::{Project, Scope};
 
 fn main() -> ExitCode {
@@ -42,7 +42,8 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let in_project = Project::try_detect().is_some();
+    let project = Project::try_detect();
+    let in_project = project.is_some();
     let scope = Scope::from_flags(parsed.global, parsed.private, parsed.local, in_project);
     let has_scope_flag = parsed.has_scope_flag();
     let (nav, sync) = (parsed.nav, !parsed.no_sync);
@@ -64,6 +65,16 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    // `attach` and `detach` manage the registry themselves; registering
+    // first would undo a `detach` run inside the repository.
+    let manages_registry = matches!(
+        action,
+        Action::Run(Commands::Attach { .. } | Commands::Detach { .. })
+    );
+    if let (Some(project), false) = (&project, manages_registry) {
+        register_discovered(project, &config);
+    }
 
     if nav {
         return finish(commands::nav::run(&config));
@@ -315,6 +326,34 @@ fn finish(result: anyhow::Result<()>) -> ExitCode {
 
 fn load_config() -> anyhow::Result<Config> {
     Config::load()
+}
+
+/// Add the repository notez runs in to this machine's registry when it has
+/// notes folders and is not there yet (see
+/// [`ProjectRegistry::register_discovered`]). Best-effort: a registry that
+/// fails to load or save is reported and the command still runs.
+fn register_discovered(project: &Project, config: &Config) {
+    let mut registry = match ProjectRegistry::load() {
+        Ok(registry) => registry,
+        Err(e) => {
+            eprintln!(
+                "notez: registry not read, {} not registered: {e:#}",
+                project.name
+            );
+            return;
+        }
+    };
+    if !registry.register_discovered(project, &config.notez_root_path()) {
+        return;
+    }
+    match registry.save() {
+        Ok(()) => eprintln!(
+            "notez: registered {} ({})",
+            project.name,
+            notez_core::util::tilde::contract(&project.root)
+        ),
+        Err(e) => eprintln!("notez: could not register {}: {e:#}", project.name),
+    }
 }
 
 /// Map symlink names like `todoz` -> `notez todo`. If argv[0]'s file name is

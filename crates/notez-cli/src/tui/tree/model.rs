@@ -153,14 +153,14 @@ fn is_numbered(name: &str) -> bool {
 /// Build the flattened forest: one depth-0 wrapper node per section, with a
 /// folder row for every listed directory and every directory a file sits
 /// in. Returns the nodes plus the dedup'd tag-root list they index into.
+/// Every section gets a row, an empty one too: which stores are listed is
+/// the caller's choice (`commands::tree`), and an empty store is still
+/// somewhere to create the first note.
 pub(super) fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<PathBuf>) {
     let mut nodes: Vec<TreeNode> = Vec::new();
     let mut tag_roots: Vec<PathBuf> = Vec::new();
 
     for (section_idx, spec) in sections.iter().enumerate() {
-        if spec.files.is_empty() && spec.dirs.is_empty() {
-            continue;
-        }
         let root_idx = match tag_roots.iter().position(|r| r == &spec.tag_root) {
             Some(i) => i,
             None => {
@@ -798,6 +798,19 @@ mod tests {
                 .all(|n| !n.expanded),
             "folders inside a section stay collapsed",
         );
+    }
+
+    #[test]
+    fn an_empty_section_still_gets_a_row() {
+        let mut current = scoped("/p/notez", Scope::Public, false, &[]);
+        current.is_current = true;
+        let other = scoped("/q/notez", Scope::Public, false, &[]);
+        let (nodes, _) = build_forest(&[current, other]);
+        let rows: Vec<(&str, usize)> = nodes
+            .iter()
+            .map(|n| (path_str(&n.path), n.child_count))
+            .collect();
+        assert_eq!(rows, vec![("/p/notez", 0), ("/q/notez", 0)]);
     }
 
     #[test]

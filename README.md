@@ -57,12 +57,26 @@ project including `docs`, tag strip + `#tag` filtering, preview pane,
 open-in-editor). Tag changes write only `.tags` roots that actually changed.
 A bare `notez` opens it too. With no scope flag it shows everything in one
 view: the current repository's sections first (personal, public, docs and
-scratch), expanded, then the vault's global notes, then every other
-project, collapsed; outside a repository the first group is absent. A flag
+scratch), then the vault's global notes, then every other project;
+outside a repository the first group is absent. Only the current
+repository's sections open expanded, and only when it has a `notez/` or
+`.notez/` folder; everything else opens collapsed. A flag
 narrows the view: `-g` the vault's global notes only (not the `personal/`
 folders), `-p` only the project's personal notes, `-l` only its scratch
 notes. It opens even when the view has no notes yet, with an empty-state
-line pointing at `n` that names the scope in a narrowed view.
+line pointing at `n` that names the scope in a narrowed view. A project's
+stores (`personal/<project>/`, `notez/`, `.notez/`) are listed whenever their
+folder exists, even with nothing in it, so `n` and `N` can create the first
+note or folder there. A narrowed view lists only its own store that way.
+
+**Registering projects.** The browser lists the current repository and every
+project in the per-machine registry. A repository registers itself the
+first time any notez command runs inside it while it has a `notez/` or
+`.notez/` folder, with a one-line `registered <name>` notice; `notez attach`
+is only needed for a repository without either folder, or to pick a name.
+Auto-registration never replaces an existing entry, skips the vault itself,
+and does not run for `attach` or `detach`, so a detached repository stays
+detached until its next other notez command.
 
 **Reload.** `R` lists the tree again from disk, so a note written by the
 editor, by `notez add` in another shell or by a sync shows up; the cursor

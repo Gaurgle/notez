@@ -42,6 +42,12 @@ pub fn ensure_public_store(root: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
+/// Whether the repository at `root` has a public (`notez/`) or scratch
+/// (`.notez/`) store folder: the mark of a repository that uses notez.
+pub fn has_note_stores(root: &Path) -> bool {
+    root.join("notez").is_dir() || root.join(".notez").is_dir()
+}
+
 /// Ensure the scratch store is gitignored where it lives.
 ///
 /// Scratch notes are private by promise; without an ignore rule a habitual

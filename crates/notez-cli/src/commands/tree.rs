@@ -10,6 +10,7 @@ use anyhow::Result;
 
 use notez_core::config::{Config, NotezMetadata, ProjectRegistry};
 use notez_core::core::aggregate::{self, NoteEntry, SourceKind};
+use notez_core::core::project::has_note_stores;
 use notez_core::core::{Project, Scope};
 use notez_core::note_tags;
 use notez_core::util::tilde;
@@ -189,6 +190,21 @@ const BUCKET_GLOBAL: u8 = 1;
 /// Section bucket of every other project, alphabetically by name.
 const BUCKET_OTHER: u8 = 2;
 
+/// A project's own note stores, in section order.
+const PROJECT_STORES: [Scope; 3] = [Scope::Personal, Scope::Public, Scope::Local];
+
+/// Which stores get a section while they hold no notes.
+#[derive(Debug, Clone, Copy)]
+enum EmptyStores {
+    /// None: a store shows only once it has a note.
+    Hidden,
+    /// This store of the current project (a narrowed view).
+    Current(Scope),
+    /// Personal, public and scratch of every project with a repository here,
+    /// registered or current (the everything view).
+    AllProjects,
+}
+
 /// Group aggregator entries into ordered sections: the current project's
 /// sections first (when `current` is set), then NOTEZ (global), then each
 /// other project alphabetically. Within a project the order is personal,
@@ -197,11 +213,16 @@ const BUCKET_OTHER: u8 = 2;
 /// A project with no known repository (one only present as a
 /// `personal/<name>/` folder) has a personal section only, rooted at that
 /// folder; its tag root is the notez root like every personal section.
+///
+/// Stores named by `empty_stores` get a section even with no notes in them,
+/// as long as their folder exists: an empty `notez/` or `.notez/` is still a
+/// place to create notes and folders in.
 fn sections_from_entries(
     entries: Vec<NoteEntry>,
     config: &Config,
     registry: &ProjectRegistry,
     current: Option<&Project>,
+    empty_stores: EmptyStores,
 ) -> Vec<SectionSpec> {
     let notez_root = config.notez_root_path();
     let repo_paths = repo_paths(registry, current);
@@ -209,6 +230,30 @@ fn sections_from_entries(
 
     let mut grouped: std::collections::BTreeMap<(u8, String, u8), Vec<PathBuf>> =
         std::collections::BTreeMap::new();
+    let listed_empty: Vec<(&str, Scope)> = match empty_stores {
+        EmptyStores::Hidden => Vec::new(),
+        EmptyStores::Current(scope) => current_name.map(|n| (n, scope)).into_iter().collect(),
+        EmptyStores::AllProjects => repo_paths
+            .keys()
+            .flat_map(|name| PROJECT_STORES.map(|scope| (name.as_str(), scope)))
+            .collect(),
+    };
+    for (name, scope) in listed_empty {
+        // `repo_paths` holds the current project too, registered or not.
+        let Some(repo) = repo_paths.get(name) else {
+            continue;
+        };
+        let (root, ..) = section_meta(scope, SourceKind::Note, name, repo, &notez_root);
+        if root.is_dir() {
+            let bucket = if Some(name) == current_name {
+                BUCKET_CURRENT
+            } else {
+                BUCKET_OTHER
+            };
+            let rank = scope_rank(scope, SourceKind::Note);
+            grouped.entry((bucket, name.to_string(), rank)).or_default();
+        }
+    }
     for entry in entries {
         let (bucket, project) = match &entry.project {
             None => (BUCKET_GLOBAL, String::new()),
@@ -333,7 +378,8 @@ fn all_view(
             entries.retain(|e| seen.insert(e.path.clone()));
         }
     }
-    let sections = sections_from_entries(entries, config, registry, current);
+    let sections =
+        sections_from_entries(entries, config, registry, current, EmptyStores::AllProjects);
     let title = match current {
         Some(p) => format!("notez ({})", p.name),
         None => "notez".to_string(),
@@ -346,6 +392,7 @@ fn all_view(
             warning: None,
             sync: SyncState::Off,
             current_project: current.map(|p| p.name.clone()),
+            expand_current: current.is_some_and(|p| has_note_stores(&p.root)),
             new_note_roots: NewNoteRoots::default(),
         },
     ))
@@ -364,7 +411,12 @@ fn single_scope_view(
     // into the NOTEZ section rather than under the current project.
     let owner = project.filter(|_| scope != Scope::Global);
     let entries = aggregate::collect_in_scope(scope, config, owner);
-    let sections = sections_from_entries(entries, config, registry, project);
+    let empty_stores = if scope == Scope::Global {
+        EmptyStores::Hidden
+    } else {
+        EmptyStores::Current(scope)
+    };
+    let sections = sections_from_entries(entries, config, registry, project, empty_stores);
     let name = match (scope, project) {
         (Scope::Global, _) | (_, None) => scope.to_string(),
         (_, Some(p)) => p.name.clone(),
@@ -385,6 +437,7 @@ fn single_scope_view(
             warning: None,
             sync: SyncState::Off,
             current_project: project.map(|p| p.name.clone()),
+            expand_current: project.is_some_and(|p| has_note_stores(&p.root)),
             new_note_roots: NewNoteRoots::default(),
         },
     )
@@ -429,7 +482,8 @@ mod tests {
                 SourceKind::Note,
             ),
         ];
-        let sections = sections_from_entries(entries, &config, &registry, None);
+        let sections =
+            sections_from_entries(entries, &config, &registry, None, EmptyStores::Hidden);
         let labels: Vec<&str> = sections.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(labels, vec!["NOTEZ", "proj (personal)", "proj (docs)"]);
         assert!(sections[2].is_doc);
@@ -501,17 +555,162 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn all_view_shows_personal_notes_when_the_public_store_is_empty() {
+    fn all_view_lists_the_current_projects_empty_public_store() {
         let (labels, title, name) = view_in_project(View::All);
         assert_eq!(
             labels,
             vec![
                 (format!("{name} (personal)"), 1),
+                (format!("{name} (public)"), 0),
                 (format!("{name} (scratch)"), 1),
                 ("NOTEZ".to_string(), 1),
             ]
         );
         assert_eq!(title, format!("notez ({name})"));
+    }
+
+    /// Whether `view` opens the current repository's sections expanded, with
+    /// the cwd in a temp git repository holding `stores` (and a personal
+    /// note, so the repository has a section either way).
+    fn expands_current(view: View, stores: &[&str]) -> bool {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        for store in stores {
+            std::fs::create_dir_all(repo.path().join(store)).unwrap();
+        }
+        let name = Project::try_detect_from(repo.path()).unwrap().name;
+        let personal = root.path().join("personal").join(&name);
+        std::fs::create_dir_all(&personal).unwrap();
+        std::fs::write(personal.join("mine.md"), "# mine\n").unwrap();
+
+        let mut config = Config::defaults();
+        config.paths.notez_root = root.path().to_string_lossy().into_owned();
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(repo.path()).unwrap();
+        let built = build_view(view, &config, &ProjectRegistry::default());
+        std::env::set_current_dir(saved).unwrap();
+        built.unwrap().1.expand_current
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_repo_with_notes_folders_opens_its_sections_expanded() {
+        assert!(expands_current(View::All, &["notez"]));
+        assert!(expands_current(View::All, &[".notez"]));
+        assert!(expands_current(View::Only(Scope::Personal), &["notez"]));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_repo_without_notes_folders_opens_everything_collapsed() {
+        assert!(!expands_current(View::All, &[]));
+        assert!(!expands_current(View::Only(Scope::Personal), &[]));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn public_view_lists_the_empty_public_store() {
+        let (labels, _, name) = view_in_project(View::Only(Scope::Public));
+        assert_eq!(labels, vec![(format!("{name} (public)"), 0)]);
+    }
+
+    /// A current project whose `notez/` and `.notez/` hold folders but no
+    /// notes, with no personal folder in the vault.
+    fn empty_project() -> (tempfile::TempDir, Config, Project) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("notez")).unwrap();
+        std::fs::create_dir_all(repo.join(".notez/drafts")).unwrap();
+        let mut config = Config::defaults();
+        config.paths.notez_root = dir.path().join("vault").to_string_lossy().into_owned();
+        let project = Project {
+            name: "proj".to_string(),
+            root: repo,
+        };
+        (dir, config, project)
+    }
+
+    #[test]
+    fn empty_current_stores_get_sections_when_their_folder_exists() {
+        let (_dir, config, project) = empty_project();
+        let sections = sections_from_entries(
+            Vec::new(),
+            &config,
+            &ProjectRegistry::default(),
+            Some(&project),
+            EmptyStores::AllProjects,
+        );
+        let listed: Vec<(&str, usize, bool)> = sections
+            .iter()
+            .map(|s| (s.label.as_str(), s.dirs.len(), s.is_current))
+            .collect();
+        // No personal section: `personal/proj/` does not exist.
+        assert_eq!(
+            listed,
+            vec![("proj (public)", 0, true), ("proj (scratch)", 1, true)]
+        );
+    }
+
+    #[test]
+    fn a_narrowed_view_lists_only_its_own_empty_store() {
+        let (_dir, config, project) = empty_project();
+        let sections = sections_from_entries(
+            Vec::new(),
+            &config,
+            &ProjectRegistry::default(),
+            Some(&project),
+            EmptyStores::Current(Scope::Local),
+        );
+        let labels: Vec<&str> = sections.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(labels, vec!["proj (scratch)"]);
+    }
+
+    #[test]
+    fn other_registered_projects_list_their_empty_stores_too() {
+        let (dir, config, project) = empty_project();
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(other.join("notez")).unwrap();
+        let missing = dir.path().join("not-on-this-machine");
+        let mut registry = ProjectRegistry::default();
+        registry.attach("other", &other);
+        registry.attach("gone", &missing);
+        let sections = sections_from_entries(
+            Vec::new(),
+            &config,
+            &registry,
+            Some(&project),
+            EmptyStores::AllProjects,
+        );
+        let listed: Vec<(&str, bool)> = sections
+            .iter()
+            .map(|s| (s.label.as_str(), s.is_current))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("proj (public)", true),
+                ("proj (scratch)", true),
+                ("other (public)", false),
+            ]
+        );
+    }
+
+    #[test]
+    fn hidden_lists_no_empty_store() {
+        let (_dir, config, project) = empty_project();
+        let sections = sections_from_entries(
+            Vec::new(),
+            &config,
+            &ProjectRegistry::default(),
+            Some(&project),
+            EmptyStores::Hidden,
+        );
+        assert!(sections.is_empty());
     }
 
     #[test]
@@ -548,7 +747,8 @@ mod tests {
             Some("proj"),
             SourceKind::Note,
         )];
-        let sections = sections_from_entries(entries, &config, &registry, None);
+        let sections =
+            sections_from_entries(entries, &config, &registry, None, EmptyStores::Hidden);
         assert_eq!(sections[0].root, PathBuf::from("/nr/personal/proj"));
         assert_eq!(sections[0].tag_root, PathBuf::from("/nr"));
     }
@@ -622,6 +822,7 @@ mod tests {
             &nr_config(),
             &ProjectRegistry::default(),
             Some(&current),
+            EmptyStores::Hidden,
         );
         let labels: Vec<&str> = sections.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(
@@ -646,6 +847,7 @@ mod tests {
             &nr_config(),
             &ProjectRegistry::default(),
             None,
+            EmptyStores::Hidden,
         );
         let labels: Vec<&str> = sections.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(
@@ -674,8 +876,13 @@ mod tests {
             Some("socials"),
             SourceKind::Note,
         )];
-        let sections =
-            sections_from_entries(entries, &nr_config(), &ProjectRegistry::default(), None);
+        let sections = sections_from_entries(
+            entries,
+            &nr_config(),
+            &ProjectRegistry::default(),
+            None,
+            EmptyStores::Hidden,
+        );
         assert_eq!(sections.len(), 1);
         let s = &sections[0];
         assert_eq!(s.label, "socials (personal)");
@@ -838,7 +1045,8 @@ mod tests {
             note(root.join("personal/proj/n.md"), Scope::Personal, Some("proj")),
         ];
 
-        let sections = sections_from_entries(entries, &config, &ProjectRegistry::default(), None);
+        let sections =
+            sections_from_entries(entries, &config, &ProjectRegistry::default(), None, EmptyStores::Hidden);
 
         let global = sections.iter().find(|s| s.scope == Scope::Global).unwrap();
         let expected: Vec<PathBuf> =
