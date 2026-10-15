@@ -11,6 +11,36 @@ keeps it current as tickets move.
 ## Current lead
 
 Claude `nz-coordinator` (model `claude-fable-5-1`), session
+`8a79e020-56cc-417a-9e5f-599fa8f046ba`, took the baton on 2026-10-15
+11:36 CEST (from `date`) on Andreas's "check the commits done today
+regarding notez. then see if there's a handover and lets get to it?".
+Reconciled at takeover: previous lead `f25c8d27` released the baton on
+2026-10-10 13:48 with nothing in flight (record below); `ps` shows one
+`claude --agent nz-coordinator` process (this session, pid 44577) and
+no worker or reviewer. `main` = `origin/main` = `7cfeb27`, working tree
+clean, only the main checkout in `git worktree list`, no local or
+remote ticket branch (`origin/phase2-subdir-and-stubs` is an old
+non-Relay branch). `7cfeb27` is Andreas's own commit of today 11:19
+(auto-register notez repos, list empty stores in the browser), made
+outside Relay; its `main` CI run is green. It touched
+`commands/tree.rs`, `main.rs`, `tui/tree/{delete,mod,model,
+test_support}.rs`, `config/registry.rs` and `core/project.rs`, so
+every ticket from here bases on `7cfeb27` or later and the NZ-5 brief's
+code facts (pre-split line numbers) are stale: the filter strip and
+`search_mode` live in `tui/tree/input.rs` and `tui/tree/search.rs`.
+Board agrees with the 2026-10-10 stop: NZ-5, NZ-11, NZ-28, NZ-30,
+NZ-32 Ready; NZ-17, NZ-18, NZ-29, NZ-42 Draft; the rest Done. Two
+board gaps carried over: NZ-43 and NZ-44 have no board row in the
+listing (NZ-44 was merged in `10312c6`). Reading of "lets get to it",
+stated to Andreas at takeover for him to correct: RESUME the Next step
+queue under the recorded standing scope and the "merge as you go"
+delegation: NZ-5 on the `tui/tree/` line, NZ-30 pass 1 and NZ-11 in
+the other slots, then NZ-42, NZ-32, NZ-28 pass 2, NZ-30 pass 2.
+Nothing is dispatched until he confirms.
+
+Previous lead record follows.
+
+Claude `nz-coordinator` (model `claude-fable-5-1`), session
 `f25c8d27-3615-4dda-8b9c-273a6aea1204`, took the baton on 2026-10-10
 12:41 CEST on Andreas's "continue work". Reconciled at takeover: `main`
 = `origin/main` = `e7c51ca`, working tree clean, `git worktree list`
@@ -113,6 +143,45 @@ still apply stay below.
 
 ## Authorized by the owner
 
+- 2026-10-15 11:36 and about 12:10 CEST, Andreas, in the lead session
+  (`8a79e020`): "check the commits done today regarding notez. then see
+  if there's a handover and lets get to it?", then, after the lead's
+  product review of the queue ("is this overengineering?"), his
+  answers: "i think the inspector DO can look more like a file reader,
+  that's ok. hence the toggable view. add integration tests. add
+  versioning, changelo. look at notez-core and NZ-17. update DESIGN.md
+  (and other docs). NZ-32 is good, i like that. 42: ok? NZ-43 shouldnt
+  be parked for too long. Linting we can park, as we dont offer a way
+  yet to read, write or inspect actual code. Only .md as for now. no
+  need to park 30 'outline' really? we'll look into the storage
+  integration, date (altough this is a big and important addition?,
+  converning both pinz notes and what could be adjecent to a calendar
+  TUI, slack bots and more. shouldb e a integral part of a notezs note
+  .md document). i trust you on the rest". The lead's reading, applied:
+  - RESUME the standing scope under the 2026-10-08 permissions (the
+    "merge as you go" integration delegation, branch pushes with remote
+    deletion after the merge, board items for tickets he asks for here,
+    the working rule, the three-worker cap).
+  - NZ-5 runs TRIMMED (no fleetz scorer port, no ranking: subsequence
+    match plus highlight, `0`, `s`, "no matches" row). NZ-32 runs as
+    its brief is written. NZ-42 runs narrowed to `/` fuzzy search
+    reusing NZ-5's matcher plus reload-on-change. NZ-30 stays in the
+    queue (the preview may become a file reader; toggleable).
+  - NZ-17 (versioning 0.1.0, changelog, a `notez-core` compatibility
+    rule for epoz) is CONFIRMED and runs now. Tagging stays his.
+  - NEW TICKETS, board items created under the standing permission:
+    NZ-45 storage integration tests (runs now), NZ-46 docs refresh
+    (DESIGN.md status, README, stale docs; runs after NZ-5 frees the
+    README), NZ-47 dates as a first-class part of a note (DESIGN ONLY:
+    the lead writes `docs/design-nz47-dates.md`; no code, and nothing in
+    `notez-core` without his approval of the design).
+  - PARKED: NZ-28 pass 2 (lint UI) until notez reads non-markdown
+    files as notes; NZ-29 closed as "not now". NZ-43 is NOT parked: the
+    lead brainstorms it with him in this session once NZ-5 is on
+    `main`, before NZ-42 is dispatched.
+  - Limits unchanged: no new dependency beyond the recorded approval,
+    no `notez-core` public API or file-format change without his yes,
+    installing, tags and releases are his, NZ-18 does not run.
 - 2026-10-10 12:50 CEST, Andreas, in the lead session (`f25c8d27`):
   "continue work", then "order is fine" to the queue the lead stated
   back (NZ-3, NZ-5, NZ-42 after NZ-5 is merged, NZ-32, NZ-28, NZ-30;
@@ -278,6 +347,178 @@ still apply stay below.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
+
+2026-10-15 about 12:20 CEST (real `date` at the worktree step: see
+the git reflog for exact times): three workers DISPATCHED from base
+`7cfeb27`, `git status --short` clean before dispatch, all `nz-worker`
+(opus, medium):
+- NZ-5 on `feat/nz-5-fuzzy-search`, worktree `.claude/worktrees/nz-5`
+  (the `tui/tree/` line; owns `README.md` for this wave).
+- NZ-45 on `test/nz-45-storage-integration`, worktree
+  `.claude/worktrees/nz-45` (only `crates/*/tests/**`).
+- NZ-17 on `feat/nz-17-versioning`, worktree `.claude/worktrees/nz-17`
+  (manifests, `Cargo.lock`, `build.rs`, `main.rs` version attribute,
+  `CHANGELOG.md`, `docs/versioning.md`, `install.sh`; not `README.md`).
+Board: NZ-5, NZ-17, NZ-45 In flight; NZ-46 Ready; NZ-47 Draft; NZ-28
+back to Draft (parked).
+
+NZ-45 worker REPORTED (about 9 min): two untracked files,
+`crates/notez-cli/tests/common/mod.rs` and
+`crates/notez-cli/tests/storage_scenarios.rs`, five tests (A, C, E, I,
+J) green on macOS, no production or manifest change, no product
+defect, `env_clear()` plus explicit `HOME` and `XDG_CONFIG_HOME`,
+scenario E uses the `7cfeb27` auto-registration on the second
+machine, scenario J resolves with `git add` and `git rebase
+--continue`. Doc drift noted: DESIGN.md scenario A expects a dated
+filename but plain `notez add` writes undated names; scenario I says
+`notez tree` warns, test covers `notez list`. Both go to NZ-46. REVIEW
+DISPATCHED (`nz-reviewer`, opus) with a mutation check asked for.
+
+NZ-17 worker REPORTED (about 9 min), not yet complete: workspace
+version in place, `build.rs` with git sha and `-dirty` via `git
+rev-parse --git-path` (worktree `.git` file handled), fallback to the
+plain version without git verified in a scratch copy, `CHANGELOG.md`,
+`docs/versioning.md`, `install.sh` version line, test in `main.rs`.
+Blocker it raised: the clap `version` attribute lives in
+`crates/notez-cli/src/cli/mod.rs`, not `main.rs` as the brief said,
+so `--version` printed no sha. LEAD DECISION: `cli/mod.rs` added to
+NZ-17's allowed files (no other worker touches it); worker resumed to
+wire `version = crate::VERSION` and add a `Cli::command()
+.get_version()` test. Known limits to carry into the review: `-dirty`
+refreshes on edits under `crates/` only; a tree first built outside
+git stays plain until a package file changes; `Cargo.lock` unchanged.
+NZ-17 worker finished the wiring (`cli/mod.rs` one line, a
+`clap_reports_the_build_version` test; `--version` prints `notez
+0.1.0 (7cfeb27-dirty)`, 575 + 157 green, no warnings). NZ-17 REVIEW
+DISPATCHED (`nz-reviewer`, opus).
+
+NZ-45 REVIEW ACCEPTED, no blockers, mutation check passed (two
+assertions inverted, both failed, file restored; hash
+`40406d07…eaa16` over the two files). Lead verification: the first
+`cargo test` in the worktree FAILED exactly the two mutated tests;
+cause: the reviewer restored the file with its old mtime, so cargo
+kept the mutated test binary as fresh. `touch` on the two files and a
+rerun: 573 + 5 + 157 green, hash unchanged. LESSON for reviewer
+briefs: after an edit-and-restore mutation check, `touch` the file
+(or the lead does) before trusting a rerun. COMMITTED `e39d158` on
+`test/nz-45-storage-integration` (the two files only), PUSHED, branch
+CI watch running in the background. Reviewer follow-ups (low, not
+blocking): a comment that scenario J pins the "rebase left in
+progress" behaviour; add/add conflict not covered; scenario A does
+not check the date prefix. Doc drift goes to NZ-46. Branch CI run
+`38717681805` GREEN (ubuntu, macos, lint). MERGED into `main` as
+`aabf8f2` (`--no-ff`), checks on the combined result 573 + 5 + 157
+green, pushed. `main` run `38717972796` GREEN. NZ-45 DONE: board
+Done, worktree `.claude/worktrees/nz-45` removed, local and remote
+branch deleted (standing permission). `main` = `aabf8f2`.
+
+NZ-17 REVIEW ACCEPTED, no blockers; reviewer exercised build.rs in
+scratch clones (path with spaces, packed refs, detached HEAD, shallow
+clone, tarball, no git on PATH) and confirmed `-dirty` refreshes on
+nested edits under `crates/`. Hash `111ca698…79d4b` over the diff plus
+the three new files. Lead verification after `touch`: zero warnings,
+575 + 157 green, `notez 0.1.0 (7cfeb27-dirty)`, no dashes, hash
+matches. COMMITTED `8fde0f5` on `feat/nz-17-versioning`, PUSHED,
+branch CI watch running in the background. Reviewer follow-ups
+(low): `-dirty` can go stale after a commit whose ref lives only in
+`packed-refs` or after edits outside `crates/` (documented in
+build.rs); `notez --version` and `--help` exit with status 2, a
+pre-existing clap handling in `main.rs`, candidate for a small
+ticket. After the merge the lead presents the `v0.1.0` tag command.
+
+NZ-5 worker REPORTED (about 18 min): none of the criteria was met at
+base (`text::fuzzy_match` was substring and unused; both views used
+core's substring `Filter::matches`). Delivered: subsequence matching
+in both views via `text::filter_matches` (tags still go to core),
+yellow bold highlight of matched chars in tree and todoz rows, `0`
+clears tag tokens, `s` cycles all / scratch / project / global via
+new `tui/tree/scope.rs` (`ViewScope`, a `hidden` flag on section
+nodes applied each loop pass), header shows "scratch · 3 notes", "no
+matches" row in both views, `0` and `s` in footer and help, README
+paragraph. 593 + 157 green, 20 new tests. Existing test edits flagged
+for review: the footer key-list test gained `0` and `s`, two
+mechanical helper changes. Lead decisions recorded from the worker's
+choices: scratch scope is the current repo's `.notez/` only; a
+section that first appears in a rebuild can show for one key step.
+Files: README.md, tui/{header,text,theme,todo}.rs,
+tui/tree/{input,mod,model,move_prompt,render,search,test_support}.rs,
+new tui/tree/scope.rs. REVIEW DISPATCHED (`nz-reviewer`, opus) with
+parity, multibyte highlight and scope checks asked for. Look and
+layout: Andreas can try the branch build before the merge (`cargo run
+--release --manifest-path .claude/worktrees/nz-5/Cargo.toml -p
+notez-cli -- tree`); under the working rule the lead otherwise merges
+after acceptance and green CI and he overrules after `./install.sh`.
+
+NZ-17 branch CI run `38718268906` GREEN. MERGED into `main` as
+`dd2ff6a` (`--no-ff`, on top of the NZ-45 merge), checks on the
+combined result zero warnings, 575 + 5 + 157 green, `notez 0.1.0
+(dd2ff6a-dirty)`; the lead's command chain stopped before the push
+because `notez --version` exits 2 (the pre-existing clap quirk), the
+push was done separately; `main` CI watch running in the background.
+`main` run `38718910312` GREEN. NZ-17 DONE: board Done, worktree
+`.claude/worktrees/nz-17` removed, local and remote branch deleted.
+`main` = `dd2ff6a`. Tag command presented to Andreas (his to run,
+whenever he chooses): `git tag -a v0.1.0 -m "notez 0.1.0" dd2ff6a &&
+git push origin v0.1.0`. Not yet tagged at the time of writing.
+
+NZ-5 REVIEW: CHANGES REQUESTED at hash `54f10ce2…e9fa`. Blocker B1:
+creating a note or folder into a section the `s` scope hides (for
+example scratch scope, `n`, Tab to global) leaves the row hidden,
+clears the filter wrongly and reports "filter cleared"; the fix is to
+switch the view scope to one that shows the new row before the filter
+check, plus moving scope application into `Forest::replace()` so
+rebuild cursor rows see hidden flags. Also asked in the same round:
+F1 whole-string lowercase for parity with core (Greek sigma), F2
+clear or exclude marks under hidden sections from bulk `d`/`m`/`S`.
+All seven criteria otherwise satisfied; multibyte highlight, footer
+widths and core parity verified by the reviewer. WORKER RESUMED with
+the fix list. Worker REPORTED the fix round: `scope::reveal_row`
+(switches to the narrowest scope that shows a created or moved row,
+then clears the filter only if it still hides it; used by new note,
+new folder, single and bulk move), scope owned by `Forest` and
+applied in `replace()`, whole-string lowercasing with index mapping,
+`scope::drop_hidden_marks` each pass and on `s`; five new tests, 598
++ 157 green; `tree/bulk.rs` and `tree/delete.rs` now also touched
+(mechanical `scope: ViewScope::All` in `Forest` literals). RE-REVIEW
+ACCEPTED at hash `5fb0852c…f719`: B1 closed in all four handlers,
+F1 and F2 fixed, no core, manifest or CI change. Follow-ups (low, not
+blocking, for a later ticket): `drop_hidden_marks` drops a mark if
+any hidden row has that path even when a shown row lists it too
+(sections do not overlap today); an automatic scope switch from
+`reveal_row` can drop marks without saying so and the move handlers
+do not mention the switch; a bulk move reveals only the first moved
+row; `0` sends the cursor to row 0. Lead verification after `touch`:
+zero warnings, 598 + 157 green, hash matches. COMMITTED `58d3d8b` on
+`feat/nz-5-fuzzy-search` (the 15 reviewed files), PUSHED. Branch CI
+run `38734518167` GREEN. MERGED into `main` as `e4a3130` (`--no-ff`),
+checks on the combined result zero warnings, 600 + 5 + 157 green,
+pushed. `main` run `38735193505` GREEN. NZ-5 DONE: board Done,
+worktree `.claude/worktrees/nz-5` removed, local and remote branch
+deleted.
+
+WAVE 1 COMPLETE (2026-10-15). `main` = `origin/main` = `e4a3130`,
+tagged `v0.1.0` at `dd2ff6a`. No worktree, no ticket branch, no
+worker or reviewer running. Board: NZ-5, NZ-17, NZ-45 Done; NZ-11,
+NZ-30, NZ-32, NZ-46 Ready; NZ-18, NZ-28 (parked), NZ-29 (closed "not
+now"), NZ-42, NZ-43, NZ-47 Draft. Andreas's installed binary predates
+all of today; after `./install.sh` the visible changes are the fuzzy
+`/` filter with lit matches in both views, `0` and `s` in the tree
+with the scope named in the header, the "no matches" row, `notez
+--version` with the sha, plus last week's header line and quiet
+offline exit. Next per the Next step section: the NZ-43 brainstorm
+with Andreas in the lead session, then NZ-46 (`nz-small`, docs) and
+NZ-32 (tree line) in parallel, then NZ-11 alone, NZ-42, NZ-30.
+NZ-47 waits for his answers to questions 2, 4, 6, 7, 8 in
+`docs/design-nz47-dates.md`.
+
+TAG: Andreas, 2026-10-15 in the lead session, "you can run the git
+commands", directly after the lead presented the `v0.1.0` tag and
+push command. Read as explicit authorization for exactly that
+command, one-off. The lead checked that `ci.yml` triggers on branch
+pushes only (a tag push starts nothing), then ran `git tag -a v0.1.0
+-m "notez 0.1.0" dd2ff6a && git push origin v0.1.0`. Tag object
+`3e684f0`, points at `dd2ff6a`, on `origin`. Tagging otherwise stays
+his; this entry grants nothing further.
 
 2026-10-10 12:55 CEST: NZ-3 DISPATCHED. Worker `nz-worker` (opus,
 medium), base `e7c51ca`, branch `feat/nz-3-header`, worktree
@@ -474,6 +715,45 @@ Allowed files: `crates/notez-cli/src/tui/tree.rs`,
 
 #### NZ-17: versioning, first version 0.1.0
 
+CONFIRMED and IN FLIGHT 2026-10-15 (Andreas: "add versioning,
+changelo. look at notez-core and NZ-17"). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_KbOk`. Branch `feat/nz-17-versioning`, base
+`7cfeb27`. Brief as run:
+
+1. One source of truth: `[workspace.package] version = "0.1.0"` in the
+   root `Cargo.toml`, both crates `version.workspace = true`.
+   `Cargo.lock` follows. No dependency added.
+2. `notez --version` prints `notez 0.1.0 (<short sha>)`, with
+   `-dirty` when the tree is dirty, via a `build.rs` in `notez-cli`
+   that shells out to `git` and sets a `cargo:rustc-env`; outside a
+   git checkout or without `git` it falls back to the plain version.
+   `rerun-if-changed` on `.git/HEAD` and the current ref so the sha is
+   not stale. The clap `version` attribute uses that value.
+3. `CHANGELOG.md` in Keep a Changelog form: an `Unreleased` section and
+   a `0.1.0` section summarizing what has shipped, grouped by area
+   (storage and sync, CLI, tree browser, todoz, preview), one line per
+   feature, drawn from `git log` and the Done tickets; one page, not a
+   commit list. A `notez-core` subsection lists public API and file
+   format changes, since epoz pins the crate by rev.
+4. `docs/versioning.md` (short): semver, 0.x so minor bumps may break;
+   patch for fixes; any `notez-core` public API or on-disk format
+   change is at least a minor bump and gets a `notez-core` changelog
+   entry so epoz can read what changed between pinned revs; both
+   crates share the workspace version; tagging and releasing are the
+   owner's. The README line comes with NZ-46.
+5. `install.sh` prints the installed version after the copy
+   (`"$INSTALL_DIR/notez" --version`).
+6. Tests: the version string starts with `CARGO_PKG_VERSION`; the
+   fallback path is covered or explained.
+Allowed files: `Cargo.toml`, `Cargo.lock`, `crates/notez-core/Cargo.toml`,
+`crates/notez-cli/Cargo.toml`, `crates/notez-cli/build.rs` (new),
+`crates/notez-cli/src/main.rs` (the version attribute only),
+`CHANGELOG.md` (new), `docs/versioning.md` (new), `install.sh`. The
+ticket ends with the lead presenting `git tag -a v0.1.0` and the push
+command for Andreas; no agent tags.
+
+Original record follows.
+
 Status: Draft, relayed, not confirmed in the lead session. RECORD ONLY.
 Provenance: a cross-session message from the advisor session
 (`repos-f9`) at about 17:20 CEST on 2026-10-07 relaying Andreas: "add a
@@ -617,7 +897,10 @@ only full and collapsed reference links are checked; "no `#` heading"
 means no level-1 heading, blank notes exempt; markdown is never parsed
 with tree-sitter in pass 1. Nothing in the UI uses the module yet.
 
-PASS 2 (In flight on the board, not dispatched; needs the `tree.rs`
+PARKED 2026-10-15 (Andreas: "Linting we can park, as we dont offer a
+way yet to read, write or inspect actual code. Only .md as for now").
+Board back to Draft. Resumes when notez treats non-markdown files as
+notes. The module stays in the tree, unused. PASS 2 (not dispatched; needs the `tree.rs`
 line after NZ-44 and NZ-5) must also take the reviewer's follow-ups:
 (1) `todo_task_line` flags a plain `- [link](x.md)` bullet and `- [`
 lines inside fenced code in `TODO.md`: only flag checkbox-shaped lines
@@ -883,6 +1166,25 @@ and deciding on it as its own ticket once NZ-1 is in use.
 
 #### NZ-5: fuzzy search, tag filter clearing and scope cycling
 
+TRIMMED 2026-10-15 (lead's product review, Andreas "i trust you on
+the rest"): criterion 1 (the fleetz scorer port) is dropped, since
+nothing is ranked and the tree keeps its order, so a score has no
+consumer. What runs: (1) text tokens match by case-insensitive
+subsequence in both views (if a view already does, keep it and say
+so), `#tag` tokens and `notez_core::filter` unchanged, `notez-core`
+not edited; (2) matched characters highlighted in tree rows (todoz
+rows too if the same helper serves); (3) `0` in tree normal mode
+clears `#tag` tokens and keeps the free text; (4) `s` in tree normal
+mode cycles all, scratch, project, global and the NZ-3 header names
+the active scope; (5) an empty result shows a "no matches" row; (6)
+help and footer list `0` and `s`, README key table updated; (7) unit
+tests for match positions, highlight spans, tag clearing, cycle order
+and the empty row; existing filter tests untouched. Allowed files:
+`crates/notez-cli/src/tui/text.rs`, `tui/tree/**`, `tui/todo.rs`,
+`tui/footer.rs`, `tui/help.rs`, `tui/header.rs`, `tui/theme.rs`,
+`tui/mod.rs`, `README.md`. In flight 2026-10-15 from `7cfeb27` on
+`feat/nz-5-fuzzy-search`. The original brief follows for history.
+
 Status: Ready, runs after NZ-3. In the standing scope since 2026-10-06
 with the lead's recommended answers accepted by Andreas then ("tree
 keeps its order when searching, `s` cycles scope in the tree only"),
@@ -941,7 +1243,112 @@ the tree to one section. Is a separate key wanted, and which one? `s` is
 free in the tree.
 (d) Does the todo board need scope cycling, or the tree only?
 
+### NZ-45: storage integration tests for the DESIGN.md scenarios (2026-10-15, In flight)
+
+Board item `PVTI_lAHOCU842c4BmE5ZzhA8UOc`. Asked for by Andreas on
+2026-10-15 ("add integration tests") after the lead found that neither
+crate has a `tests/` directory while `DESIGN.md` says each storage
+scenario "should eventually have an integration test".
+
+Outcome: end-to-end tests of the storage layer against the real
+binary and the real `git`, with two fake homes and a bare remote in
+temp dirs, so the thing the rewrite exists for (portable, synced
+notes) has proof beyond unit tests.
+
+Acceptance criteria:
+
+1. Tests live under `crates/notez-cli/tests/` (binary via
+   `env!("CARGO_BIN_EXE_notez")`) and, where a core boundary is the
+   better seam, `crates/notez-core/tests/`. Every test points `HOME`
+   and `XDG_CONFIG_HOME` at temp dirs, sets a git identity through
+   environment variables, isolates git config
+   (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`), and never touches the
+   developer's `~/notez` or `~/.config/notez`.
+2. Scenario A: a `-p` note written in "laptop" (home `/.../alice`)
+   lands in `<notez_root>/personal/<project>/`, syncs through a bare
+   remote, and appears in "desktop" (home `/.../alice-desk`, project at
+   a different path) after its sync; it is not in the project repo.
+3. Scenario C: a `-l` note lands in `<repo>/.notez/`, that dir is
+   gitignored, and the note does not reach the remote.
+4. Scenario E: two registries map the same project name to different
+   paths; `notez list` (or the aggregate) resolves each machine's path.
+5. Scenario I: a registry entry whose path is missing warns and does
+   not crash; re-attaching at the new path fixes it.
+6. Scenario J: both machines edit the same file without syncing; the
+   second `notez sync` fails with the "resolve conflicts manually"
+   hint, nothing is lost (the file still holds its local content, the
+   remote still holds the other); after a manual resolution both
+   contents coexist and the next sync succeeds.
+7. Deterministic and parallel-safe (own temp dirs per test; use
+   `serial_test` only if something global forces it). Runs in CI as
+   part of `cargo test --workspace` on ubuntu and macos.
+8. No production code change and no manifest change (both crates
+   already have `tempfile` and `serial_test` as dev-dependencies).
+   If a scenario fails because of a product defect, keep the test,
+   mark it `#[ignore = "<reason>"]`, and report it as a finding; never
+   weaken the assertion.
+
+Facts for the worker to verify: `notez-core/src/config/paths.rs`
+reads `XDG_CONFIG_HOME`; `notez_root` in `config.toml` is stored
+tilde-relative and expanded with `dirs::home_dir()` (so `HOME` drives
+it); `commands/sync.rs` commits pending changes then runs `git pull
+--rebase` and `git push`; a non-interactive write path exists through
+quick notes (`notez -p quick words`, `notez -g quick ...`, `notez -l
+quick ...`) so no editor is needed; `notez attach <name> [path]`
+registers a project.
+
+Allowed files: `crates/notez-cli/tests/**`, `crates/notez-core/tests/**`.
+Nothing else; a needed manifest change is a stop-and-report (NZ-17
+owns the manifests this wave).
+
+### NZ-46: refresh DESIGN.md status and stale docs (2026-10-15, Ready)
+
+Board item `PVTI_lAHOCU842c4BmE5ZzhA8URg`. Andreas: "update DESIGN.md
+(and other docs)". Runs after NZ-5 and NZ-17 merge (it needs the
+README and must describe the version policy). `nz-small` is enough.
+
+Outcome: the docs describe the software as it is. `DESIGN.md` Status
+no longer says `edit` and `nav` are stubs; it lists what has landed
+since (tree browser features NZ-1 to NZ-44 in one paragraph, header
+line, markdown and highlighting in the preview, lint module present
+but unused, auto-registration from `7cfeb27`); the "Non-markdown files
+and a richer reader" idea records the 2026-10-15 decision that the
+preview may become a file reader (toggleable) and that linting waits
+for non-markdown notes; `README.md` gets the version line from NZ-17
+and any key table NZ-5 left out; `docs/multi-user-sync.md` and the
+`handover-2026-09-02-small-machine.md` get a one-line "historical"
+note at the top if they are stale. Allowed files: `DESIGN.md`,
+`README.md`, `docs/multi-user-sync.md`,
+`docs/handover-2026-09-02-small-machine.md`. Docs-only: link and
+content review, no code checks.
+
+### NZ-47: dates as a first-class part of a note (2026-10-15, Draft, design only)
+
+Board item `PVTI_lAHOCU842c4BmE5ZzhA8UTg`. Andreas, 2026-10-15: dates
+are "a big and important addition, concerning both pinz notes and what
+could be adjacent to a calendar TUI, slack bots and more. should be an
+integral part of a notez note .md document". DESIGN.md already calls
+the date encoding "the crux" for todos.
+
+Outcome of this ticket: `docs/design-nz47-dates.md`, written by the
+lead, covering: what a date on a note means (created, due, event,
+reminder), where it lives in the `.md` (frontmatter for notes, an
+inline token for `TODO.md` lines, or one of them for both), how it
+round-trips through nvim and the CLI untouched, what `notez-core`
+exposes (a parsed field on the note and task models), what the first
+consumers are (tree sort and filter, todoz due marker, a `notez due`
+or `notez agenda` listing), how Pinz pins and a calendar TUI would
+read the same field, and the epoz compatibility rule from NZ-17. Ends
+with a recommendation and open questions for Andreas. No code until he
+approves; any `notez-core` change needs his explicit yes.
+
 ### NZ-42: todoz navigation like the tree browser (2026-10-09, Draft)
+
+NARROWED 2026-10-15 (Andreas "42: ok?" to the lead's proposal): `/`
+fuzzy search in todoz reusing NZ-5's matcher and highlight, plus the
+reload-on-change behaviour from NZ-34. No `0`/`s` jumps, no pane-focus
+keys. Brief to be written after NZ-5 lands and the NZ-43 brainstorm
+has happened.
 
 Outcome: the navigation mechanics Andreas wants in todoz. Candidates, to be
 narrowed by the lead after NZ-41 and NZ-5 are merged: fuzzy search on `/`
@@ -1059,8 +1466,30 @@ answers the questions listed on it, and names which to run.
 
 ## Next step
 
-Written 2026-10-10 15:05 CEST by lead `f25c8d27`; updated at the stop
-(see the last paragraph of this section and In flight).
+Written 2026-10-15 by lead `8a79e020` after Andreas's answers to the
+product review (see Authorized by the owner, 2026-10-15).
+
+Wave 1, in flight from `7cfeb27`: NZ-5 (tree line, owns README),
+NZ-45 (tests only), NZ-17 (manifests, build.rs, changelog). Each gets
+its own `nz-reviewer`; merges one at a time under the delegation;
+after each merge the lead runs the checks on `main`, waits for green
+CI, marks Done and removes the worktree. After NZ-17 merges the lead
+presents `git tag -a v0.1.0 -m "notez 0.1.0" && git push origin
+v0.1.0` for Andreas.
+
+Then, in this order: the NZ-43 brainstorm with Andreas (todoz preview
+pane: what it shows, width budget) once NZ-5 is on `main`; NZ-46 docs
+refresh (`nz-small`, after NZ-5 and NZ-17); NZ-32 on the tree line;
+NZ-11 alone (it touches `tree/render.rs`, `todo.rs`, `footer.rs`);
+NZ-42 narrowed (`tui/todo.rs`, can run beside a tree ticket that does
+not touch `todo.rs`); NZ-30 outline on the tree line; NZ-30 pass 2
+if any. The lead writes `docs/design-nz47-dates.md` between
+dispatches and brings it to Andreas; no code from it. Parked: NZ-28
+pass 2, NZ-29 (closed "not now"). Drafts that do not run: NZ-18
+(brainstorm first, when Andreas names it), NZ-43 until its brainstorm.
+
+The 2026-10-10 queue text follows for the per-ticket procedure, which
+is unchanged.
 
 Queue, as confirmed by Andreas on 2026-10-10 ("order is fine", then
 the three confirmations at 14:05); NZ-44 and NZ-6 are done. Next, on
