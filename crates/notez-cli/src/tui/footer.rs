@@ -239,9 +239,28 @@ pub fn line(table: &[KeyHint], mode: Mode, on: &[Toggle], width: usize) -> Line<
     render(table, &select(table, mode, on, width))
 }
 
-/// Columns taken by `spans`.
+/// Display columns taken by `spans`.
 pub fn span_cols(spans: &[Span]) -> usize {
-    spans.iter().map(|s| s.content.chars().count()).sum()
+    spans.iter().map(Span::width).sum()
+}
+
+/// The longest prefix of `text` that fits in `max_cols` display columns. Cuts
+/// only between graphemes, so a wide char is never half drawn and a combining
+/// mark stays with its base. Newlines are dropped, as ratatui drops them when
+/// drawing a span.
+pub fn clip_to_cols(text: &str, max_cols: usize) -> String {
+    let span = Span::raw(text);
+    let mut out = String::new();
+    let mut used = 0;
+    for grapheme in span.styled_graphemes(Style::default()) {
+        let cols = Span::raw(grapheme.symbol).width();
+        if used + cols > max_cols {
+            break;
+        }
+        used += cols;
+        out.push_str(grapheme.symbol);
+    }
+    out
 }
 
 /// One footer line: `lead` (a prompt, legend, command line or warning) first,
