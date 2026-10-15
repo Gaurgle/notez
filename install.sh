@@ -50,6 +50,7 @@ if command -v codesign &>/dev/null; then
 else
     echo "  ${GREEN}ok${RESET} skipped (no codesign)"
 fi
+echo "  ${GREEN}ok${RESET} version: $("$INSTALL_DIR/notez" --version)"
 
 # Aliases resolved by argv-0 dispatch in crates/notez-cli/src/main.rs.
 # Keep this list in sync with `alias_command` there.

@@ -2,6 +2,11 @@
 resolver = "2"
 members = ["crates/notez-core", "crates/notez-cli"]
 
+# Single source of truth for the version of every crate. Policy:
+# docs/versioning.md.
+[workspace.package]
+version = "0.1.0"
+
 # Shared release profile for every workspace member.
 [profile.release]
 lto = true
