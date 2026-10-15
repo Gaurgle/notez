@@ -4,15 +4,16 @@ use super::*;
 
 // --- Visibility & filtering ---
 
-/// The rows the expansion state shows, in tree order. A section the view
-/// scope hides (see [`apply_scope`]) shows no row at all.
+/// The rows the expansion state shows, in tree order. A row the view scope
+/// hides (see [`apply_scope`]) shows neither itself nor any row under it.
 pub(super) fn get_visible_nodes(nodes: &[TreeNode]) -> Vec<usize> {
     let mut visible = Vec::new();
     for (idx, node) in nodes.iter().enumerate() {
+        if node.hidden {
+            continue;
+        }
         if node.depth == 0 {
-            if !node.hidden {
-                visible.push(idx);
-            }
+            visible.push(idx);
             continue;
         }
         let mut ancestor_expanded = true;
@@ -32,13 +33,14 @@ pub(super) fn get_visible_nodes(nodes: &[TreeNode]) -> Vec<usize> {
 }
 
 /// Keep-mask for the filter: a node matches on name (text tokens as fuzzy
-/// subsequences, see [`text::filter_matches`]) + flags, and every match
-/// pulls in its ancestor chain so results keep their tree context.
-pub(super) fn compute_filter_keep(nodes: &[TreeNode], f: &Filter) -> Vec<bool> {
+/// subsequences, see [`text::filter_matches`]) + flags + `@type` tokens
+/// (see [`TreeFilter::matches`]), and every match pulls in its ancestor
+/// chain so results keep their tree context.
+pub(super) fn compute_filter_keep(nodes: &[TreeNode], f: &TreeFilter) -> Vec<bool> {
     let n = nodes.len();
     let mut keep = vec![false; n];
     for (i, node) in nodes.iter().enumerate() {
-        if text::filter_matches(f, &node.name, node.flags) {
+        if f.matches(node) {
             keep[i] = true;
         }
     }
@@ -61,7 +63,7 @@ pub(super) fn compute_filter_keep(nodes: &[TreeNode], f: &Filter) -> Vec<bool> {
 /// Visible-list builder shared by the render pass and the key handler so
 /// cursor positions always match the rendered rows.
 pub(super) fn compute_visible(nodes: &[TreeNode], search_buffer: &str) -> Vec<usize> {
-    let f = filter::parse(search_buffer);
+    let f = parse_filter(search_buffer);
     let mut v = get_visible_nodes(nodes);
     if f.is_empty() {
         return v;
@@ -73,7 +75,7 @@ pub(super) fn compute_visible(nodes: &[TreeNode], search_buffer: &str) -> Vec<us
 
 /// The filter buffer `0` leaves: `buffer` without its `#tag` tokens (as
 /// `notez_core::filter::parse` reads them, any token starting with `#`),
-/// the free text kept in its order, single-spaced.
+/// the free text and `@type` tokens kept in their order, single-spaced.
 pub(super) fn clear_tag_tokens(buffer: &str) -> String {
     buffer
         .split_whitespace()
@@ -95,7 +97,7 @@ pub(super) fn no_rows_text(
     if nodes.is_empty() || !visible.is_empty() {
         return None;
     }
-    Some(if filter::parse(search_buffer).is_empty() {
+    Some(if parse_filter(search_buffer).is_empty() {
         format!("nothing in the {} scope: s shows the next", scope.label())
     } else {
         text::NO_MATCHES.to_string()
@@ -129,7 +131,7 @@ mod tests {
     fn filter_keeps_matches_and_ancestors() {
         let s = spec("/r", "S", &["dir/target.md", "dir/other.md"]);
         let (nodes, _) = build_forest(&[s]);
-        let f = filter::parse("target");
+        let f = parse_filter("target");
         let keep = compute_filter_keep(&nodes, &f);
         let kept: Vec<&str> = nodes
             .iter()
@@ -211,6 +213,34 @@ mod tests {
             no_rows_text(&nodes, &visible, "zzz", ViewScope::Global).as_deref(),
             Some("no matches")
         );
+    }
+
+    #[test]
+    fn a_type_token_filters_by_type_and_ands_with_text() {
+        let mut sections = project_sections();
+        sections[0]
+            .files
+            .push(PathBuf::from("/n/personal/proj/TODO.md"));
+        let (mut nodes, _) = build_forest(&sections);
+        apply_scope(&mut nodes, &sections, ViewScope::All);
+        let shown = |nodes: &[TreeNode], buffer: &str| -> Vec<String> {
+            compute_visible(nodes, buffer)
+                .into_iter()
+                .filter(|&i| !nodes[i].is_dir)
+                .map(|i| nodes[i].path.display().to_string())
+                .collect()
+        };
+        for node in &mut nodes {
+            node.expanded = true;
+        }
+        assert_eq!(shown(&nodes, "@todo"), ["/n/personal/proj/TODO.md"]);
+        assert_eq!(shown(&nodes, "@public b"), ["/p/notez/plans/b.md"]);
+        assert!(shown(&nodes, "@public zzz").is_empty());
+    }
+
+    #[test]
+    fn zero_keeps_the_type_tokens() {
+        assert_eq!(clear_tag_tokens("@todo #prio buy @nope"), "@todo buy @nope");
     }
 
     #[test]

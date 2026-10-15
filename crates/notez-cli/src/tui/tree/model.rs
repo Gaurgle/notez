@@ -22,10 +22,14 @@ pub(super) struct TreeNode {
     pub(super) tag_root: usize,
     /// Index of the [`SectionSpec`] this row belongs to.
     pub(super) section: usize,
-    /// On a section row: the view scope `s` picked leaves the section out
-    /// (see [`apply_scope`]), so neither it nor any row under it is
-    /// visible. Always false on other rows.
+    /// The view scope `s` picked leaves this row out (see [`apply_scope`]),
+    /// so neither it nor any row under it is visible. A location stop marks
+    /// section rows only; a type stop also marks the rows of no matching
+    /// type that hold no matching row.
     pub(super) hidden: bool,
+    /// The note's [`DocType`] bits (see [`assign_doc_types`]); 0 on a
+    /// folder or section row.
+    pub(super) doc_types: u8,
 }
 
 /// What the event loop browses, kept together so a rebuild can replace it:
@@ -220,12 +224,14 @@ pub(super) fn build_forest(sections: &[SectionSpec]) -> (Vec<TreeNode>, Vec<Path
             tag_root: root_idx,
             section: section_idx,
             hidden: false,
+            doc_types: 0,
         });
         emit_children(&tmp, &spec.root, 1, wrapper_idx, root_idx, &mut nodes);
         for node in &mut nodes[wrapper_idx..] {
             node.section = section_idx;
         }
     }
+    assign_doc_types(&mut nodes, sections);
 
     (nodes, tag_roots)
 }
@@ -269,6 +275,7 @@ fn emit_children(
             tag_root,
             section: 0,
             hidden: false,
+            doc_types: 0,
         });
         emit_children(sub, &path, depth + 1, idx, tag_root, nodes);
     }
@@ -290,6 +297,7 @@ fn emit_children(
             tag_root,
             section: 0,
             hidden: false,
+            doc_types: 0,
         });
     }
 }

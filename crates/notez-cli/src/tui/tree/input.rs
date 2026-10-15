@@ -101,7 +101,7 @@ pub(super) fn event_loop(
 
         // Auto-expand directories that contain filter matches whenever the
         // filter changes; matches inside collapsed dirs would stay hidden.
-        let f = filter::parse(&search_buffer);
+        let f = parse_filter(&search_buffer);
         if !f.is_empty() && search_buffer != prev_filter_buffer {
             let keep = compute_filter_keep(nodes, &f);
             for (i, k) in keep.iter().enumerate() {
@@ -1325,6 +1325,11 @@ pub(super) fn event_loop(
                 // The cursor stays on its row when the next scope shows it.
                 let cursor = visible.get(selected).copied();
                 forest.set_scope(forest.scope.next());
+                // Back on all, the filter's `@type` tokens go too; a
+                // filter without one is left as typed.
+                if forest.scope == ViewScope::All {
+                    search_buffer = clear_type_tokens(&search_buffer);
+                }
                 drop_hidden_marks(&mut marks, &forest.nodes);
                 let shown = compute_visible(&forest.nodes, &search_buffer);
                 let pos = cursor

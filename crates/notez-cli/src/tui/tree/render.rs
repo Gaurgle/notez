@@ -165,7 +165,7 @@ pub(super) fn list_lines(
     search_buffer: &str,
 ) -> Vec<Line<'static>> {
     let later = later_siblings(nodes, visible);
-    let f = filter::parse(search_buffer);
+    let f = parse_filter(search_buffer).filter;
     visible
         .iter()
         .map(|&idx| {
@@ -594,7 +594,8 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("y", "confirm", "move to another scope: yes, move it", theme::RED, Group::Edit, CONFIRMING_MOVE, Slot::Priority(1), None),
     key("n/esc", "cancel", "move to another scope: cancel (any other key too), nothing moves", theme::PEACH, Group::Edit, CONFIRMING_MOVE, Slot::Priority(2), None),
     key("/", "filter", "filter: fuzzy text (flz finds fleetz, matches lit) and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
-    key("0", "no #tags", "clear the filter's #tag tokens, keep its text", theme::YELLOW, Group::Filter, BROWSE, Slot::Priority(10), None),
+    key("@type", "type", "filter: @todo, @private, @public, @global, @docs, @scratch, @pinz (Pinz, none yet) show that type; several @ OR together", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
+    key("0", "no #tags", "clear the filter's #tag tokens, keep its text and @type tokens (edit the filter, or s back to all, to drop those)", theme::YELLOW, Group::Filter, BROWSE, Slot::Priority(10), None),
     key("enter", "keep", "filter: keep the filter, back to the list", theme::GREEN, Group::Filter, FILTERING, Slot::Priority(1), None),
     key("esc", "clear", "filter: clear it and close", theme::PEACH, Group::Filter, FILTERING, Slot::Priority(2), None),
     key("\u{2190}/\u{2192}", "cursor", "filter: move the cursor", theme::TEXT, Group::Filter, FILTERING, Slot::Priority(3), None),
@@ -602,7 +603,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("esc", "clear", "clear marks; with none, clear the filter",theme::PEACH, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BROWSE, Slot::Priority(3), Some(Toggle::Focus)),
-    key("s", "scopes", "show the next scope: all, scratch, project, global (the header names it)", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(10), None),
+    key("s", "scopes", "show the next scope: all, scratch, project, global, then the types private, public, docs, todo (the header names it; @type tokens narrow it further, and back on all they are dropped)", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(10), None),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
@@ -1229,6 +1230,7 @@ mod tests {
             tag_root: 0,
             section: 0,
             hidden: false,
+            doc_types: 0,
         }
     }
 

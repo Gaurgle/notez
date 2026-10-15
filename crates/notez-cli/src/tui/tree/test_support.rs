@@ -70,6 +70,37 @@ pub(super) fn project_sections() -> Vec<SectionSpec> {
     ]
 }
 
+/// One section of every kind opened in that project, the personal, public
+/// and scratch ones and the global store each with a `TODO.md` and a plain
+/// note, the global store with a `_todos` category, plus another project's
+/// public section.
+pub(super) fn every_kind() -> Vec<SectionSpec> {
+    let mut sections = vec![
+        scoped(
+            "/n/personal/proj",
+            Scope::Personal,
+            false,
+            &["p.md", "TODO.md"],
+        ),
+        scoped("/p/notez", Scope::Public, false, &["u.md", "TODO.md"]),
+        scoped("/p/docs", Scope::Public, true, &["c.md"]),
+        scoped("/p/.notez", Scope::Local, false, &["l.md", "TODO.md"]),
+        scoped(
+            "/n",
+            Scope::Global,
+            false,
+            &["g.md", "TODO.md", "_todos/work/TODO.md", "_todos/work/w.md"],
+        ),
+    ];
+    for spec in &mut sections {
+        spec.is_current = spec.project.is_some();
+    }
+    let mut other = scoped("/o/notez", Scope::Public, false, &["o.md"]);
+    other.project = Some("other".to_string());
+    sections.push(other);
+    sections
+}
+
 pub(super) fn row(nodes: &[TreeNode], path: &str) -> usize {
     nodes
         .iter()

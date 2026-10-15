@@ -288,14 +288,26 @@ must all match. `#tag` words filter by tag as before: several of them must
 all match, and one word such as `#13` matches tag 1 or tag 3. The tree keeps
 its order while filtering, and a filter that matches nothing shows a single
 `no matches` row. In the tree, `0` drops the `#tag` words from the filter
-and keeps its text, and `s` cycles the view through four scopes: all,
+and keeps its text, and `s` cycles the view scope: first the locations all,
 scratch (the current repository's `.notez/`), project (the current
 repository's personal, public and docs sections) and global (the vault's
-global notes). A note or folder created or moved into a section the scope
-hides switches the view to a scope that shows it, and marks in hidden
-sections are dropped. The header names the active scope before the note count;
-`f` still focuses a single section inside any scope, and the todo board has
-no scope cycle.
+global notes), then the document types private, public, docs and todo
+described below. A note or folder created or moved where the scope hides it,
+in a hidden section or as a row a type stop leaves out, switches the view to
+a location that shows it, and marks on hidden rows are dropped. The header
+names the active scope before the note count; `f` still focuses a single section inside any
+scope, and the todo board has no scope cycle.
+
+**Document types.** In the tree, the filter also takes `@type` words:
+`@todo` (every `TODO.md` and the `_todos` store), `@private` (personal
+sections), `@public`, `@global`, `@docs`, `@scratch` and `@pinz` (reserved
+for Pinz, it matches nothing yet). Several of them match any of their types,
+and together they must match along with the text and `#tag` words; an
+unknown `@word` is plain text. Sections with no row of the type are hidden.
+The type stops of `s` get there with one key and no typing, and `@type`
+words narrow whatever `s` shows:
+`@public` on the project scope shows the project's public notes. `0` keeps
+the `@type` words; edit the filter or cycle `s` back to all to drop them.
 
 **Panes.** The tree's list and preview are two panes with a split you can
 move: `<` and `>` narrow and widen the list by 5 points, `=` resets it to
