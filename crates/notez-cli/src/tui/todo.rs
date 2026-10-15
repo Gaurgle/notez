@@ -182,9 +182,9 @@ fn status_line(
 /// The warning prefix (" ! ") and the warning text, truncated so the right
 /// part and the quit hint still fit with at least one space before them.
 fn warning_lead(warning: &str, right_cols: usize, width: usize) -> Vec<Span<'static>> {
-    let max_chars =
+    let max_cols =
         width.saturating_sub(WARNING_PREFIX.len() + right_cols + QUIT_HINT_RESERVED_COLS + 1);
-    let text: String = warning.chars().take(max_chars).collect();
+    let text = footer::clip_to_cols(warning, max_cols);
     vec![
         Span::styled(
             WARNING_PREFIX,
@@ -200,7 +200,7 @@ const WARNING_PREFIX: &str = " ! ";
 /// whole warning would not fit with it, since the warning matters more.
 fn warning_right(warning: &str, right: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     let needed = WARNING_PREFIX.len()
-        + warning.chars().count()
+        + Span::raw(warning).width()
         + span_cols(&right)
         + QUIT_HINT_RESERVED_COLS
         + 1;
@@ -2467,6 +2467,41 @@ mod tests {
         // A short warning is shown whole, exactly as `footer_warning` built it.
         let line = status_line(warning_lead(short, 0, 100), false, Mode::Normal, &[], Vec::new(), 100);
         assert!(text_of(&line).starts_with(" ! pull failed "));
+    }
+
+    #[test]
+    fn warning_with_wide_and_combining_text_keeps_the_quit_hint_on_its_column() {
+        let warnings = [
+            "pull failed for /Users/\u{5b89}\u{5fb7}\u{70c8}/\u{7b14}\u{8bb0}/\u{65e5}\u{8bb0}.md \u{1f4a5}\u{1f525} retry later",
+            "\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}",
+            "cafe\u{301} nai\u{308}ve re\u{301}sume\u{301} e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}",
+        ];
+        for warning in warnings {
+            for width in 12usize..=80 {
+                for scroll in [None, Some(" 3/36 ")] {
+                    let right =
+                        warning_right(warning, scroll.map(Span::raw).into_iter().collect(), width);
+                    let lead = warning_lead(warning, span_cols(&right), width);
+                    let shown = lead[1].content.to_string();
+                    assert!(warning.starts_with(&shown));
+                    assert!(
+                        !warning[shown.len()..].starts_with(['\u{301}', '\u{308}']),
+                        "width {width}: combining mark split from its base in {shown:?}"
+                    );
+                    let line = status_line(lead, false, Mode::Normal, &[], right, width);
+                    assert!(line.width() <= width, "width {width}: {:?}", text_of(&line));
+                    let q = line.spans.iter().rposition(|s| s.content == "q").unwrap();
+                    let q_col: usize = line.spans[..q].iter().map(Span::width).sum();
+                    assert_eq!(
+                        q_col,
+                        width - QUIT_HINT_RESERVED_COLS,
+                        "width {width}: {:?}",
+                        text_of(&line)
+                    );
+                    assert_eq!(line.spans[q + 1].content, "uit", "width {width}");
+                }
+            }
+        }
     }
 
     #[test]

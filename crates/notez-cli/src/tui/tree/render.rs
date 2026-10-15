@@ -686,15 +686,37 @@ pub(super) fn view_all_lit(nodes: &[TreeNode]) -> bool {
 const WARNING_PREFIX_COLS: usize = 3;
 
 /// Lays out the warning footer for `width` columns: returns the warning text,
-/// truncated by chars if needed, and the padding that puts the quit hint on the
-/// same column as the hints footer (`footer::QUIT_HINT_RESERVED_COLS` from the
-/// right edge, the column `footer::quit_column` gives). At least one space
-/// always separates text and hint.
+/// truncated by display columns if needed (`footer::clip_to_cols`), and the
+/// padding that puts the quit hint on the same column as the hints footer
+/// (`footer::QUIT_HINT_RESERVED_COLS` from the right edge, the column
+/// `footer::quit_column` gives). At least one space always separates text and
+/// hint.
 pub(super) fn warning_layout(warning: &str, width: usize) -> (String, usize) {
-    let max_chars = width.saturating_sub(WARNING_PREFIX_COLS + QUIT_HINT_RESERVED_COLS + 1);
-    let text: String = warning.chars().take(max_chars).collect();
-    let used = WARNING_PREFIX_COLS + text.chars().count() + QUIT_HINT_RESERVED_COLS;
+    let max_cols = width.saturating_sub(WARNING_PREFIX_COLS + QUIT_HINT_RESERVED_COLS + 1);
+    let text = footer::clip_to_cols(warning, max_cols);
+    let used = WARNING_PREFIX_COLS + Span::raw(text.as_str()).width() + QUIT_HINT_RESERVED_COLS;
     (text, width.saturating_sub(used))
+}
+
+/// The warning footer line for `width` columns: the " ! " prefix, the warning
+/// as `warning_layout` cuts and pads it, then the `TREE_KEYS` quit hint drawn
+/// by `footer::hint_spans`, so it looks and lines up like the hints footer.
+pub(super) fn warning_line(warning: &str, width: usize) -> Line<'static> {
+    let (text, padding) = warning_layout(warning, width);
+    let quit = TREE_KEYS
+        .iter()
+        .find(|k| k.slot == Slot::Quit)
+        .expect("TREE_KEYS has a quit key");
+    let mut spans = vec![
+        Span::styled(
+            " ! ",
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(text, Style::default().fg(theme::YELLOW)),
+        Span::raw(" ".repeat(padding)),
+    ];
+    spans.extend(footer::hint_spans(quit, false));
+    Line::from(spans)
 }
 
 #[cfg(test)]
@@ -752,8 +774,54 @@ mod tests {
         assert_eq!(padding, 1);
         assert_eq!(WARNING_PREFIX_COLS + text.chars().count() + padding, 24 - 4);
 
+        // Display columns since NZ-11: the 2-column emoji cannot fit 3 columns.
         let (cut, _) = warning_layout("ab\u{1f4a5}cd", 3 + 3 + 1 + 4);
-        assert_eq!(cut, "ab\u{1f4a5}");
+        assert_eq!(cut, "ab");
+    }
+
+    /// Wide and combining-character warnings used by the display-width tests.
+    const WIDE_WARNINGS: [&str; 3] = [
+        "pull failed for /Users/\u{5b89}\u{5fb7}\u{70c8}/\u{7b14}\u{8bb0}/\u{65e5}\u{8bb0}.md \u{1f4a5}\u{1f525} retry later",
+        "\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}\u{1f4a5}",
+        "cafe\u{301} nai\u{308}ve re\u{301}sume\u{301} e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}",
+    ];
+
+    /// Display width, quit-hint column and warning text of `warning_line`,
+    /// checking that the quit hint is drawn whole.
+    fn warning_footer_cols(warning: &str, width: usize) -> (usize, usize, String) {
+        let line = warning_line(warning, width);
+        let q = line.spans.iter().rposition(|s| s.content == "q").unwrap();
+        assert_eq!(line.spans[q + 1].content, "uit", "width {width}");
+        assert_eq!(q + 2, line.spans.len(), "width {width}");
+        let q_col = line.spans[..q].iter().map(Span::width).sum();
+        (line.width(), q_col, line.spans[1].content.to_string())
+    }
+
+    #[test]
+    fn warning_layout_measures_display_columns_for_wide_and_combining_text() {
+        for warning in WIDE_WARNINGS {
+            for width in 12usize..=80 {
+                let (cols, q_col, text) = warning_footer_cols(warning, width);
+                assert!(cols <= width, "width {width}: {cols} cols for {text:?}");
+                assert_eq!(
+                    q_col,
+                    footer::quit_column(width, 0),
+                    "width {width}: {text:?}"
+                );
+                assert!(warning.starts_with(&text));
+                let rest = &warning[text.len()..];
+                assert!(
+                    !rest.starts_with(['\u{301}', '\u{308}']),
+                    "width {width}: combining mark split from its base in {text:?}"
+                );
+            }
+        }
+        // A wide char that would cross into the gap before the hint is left
+        // out whole, never half drawn.
+        let (cut, padding) = warning_layout("ab\u{1f4a5}cd", 3 + 3 + 1 + 4);
+        assert_eq!((cut.as_str(), padding), ("ab", 2));
+        let (cut, padding) = warning_layout("ab\u{1f4a5}cd", 3 + 4 + 1 + 4);
+        assert_eq!((cut.as_str(), padding), ("ab\u{1f4a5}", 1));
     }
 
     #[test]

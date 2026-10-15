@@ -554,24 +554,7 @@ pub(super) fn event_loop(
                         );
                         browse_footer(&keys, marks.len(), mode, &toggles, width)
                     }
-                    StatusSlot::Warning(warning) => {
-                        let (text, padding) = warning_layout(warning, area.width as usize);
-                        Line::from(vec![
-                            Span::styled(
-                                " ! ",
-                                Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(text, Style::default().fg(theme::YELLOW)),
-                            Span::raw(" ".repeat(padding)),
-                            Span::styled(
-                                "q",
-                                Style::default()
-                                    .fg(theme::PEACH)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled("uit ", Style::default().fg(theme::OVERLAY)),
-                        ])
-                    }
+                    StatusSlot::Warning(warning) => warning_line(warning, area.width as usize),
                     StatusSlot::Hints => {
                         let mode = footer_mode(
                             rename_buffer.is_some(),
