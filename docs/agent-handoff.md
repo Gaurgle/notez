@@ -1608,6 +1608,49 @@ read the same field, and the epoz compatibility rule from NZ-17. Ends
 with a recommendation and open questions for Andreas. No code until he
 approves; any `notez-core` change needs his explicit yes.
 
+### NZ-51: TODO.md in the inspector renders like standalone todoz (2026-10-15, Draft)
+
+Asked for by Andreas at the end of 2026-10-15: "todoz in inspector
+should have same rendering/look the same as the todoz stand alone.
+the graphics differ, i believe." Not investigated yet, on his
+instruction ("dont look into it now, add it as a task").
+
+Outcome to confirm when picked up: a `TODO.md` shown in the tree
+browser's preview pane draws its rows the way the todoz board does
+(checkbox glyphs and states, tag dots and colours, depth indent,
+header rows), instead of the generic markdown rendering. Likely
+shape: the preview detects a todo file (same rule as NZ-24's icon)
+and renders it through the todoz row drawing from `tui/todo.rs`,
+extracted into a shared helper if it is not already one. First step
+is a short comparison of the two renderings (screenshot or test
+buffer) to list the differences. Files, probably: `tui/tree/preview.rs`,
+`tui/todo.rs` (extract only), `tui/markdown.rs` (bypass for todo
+files). Numbers NZ-49 and NZ-50 stay reserved for the `agenda` and
+write-path tickets named in Next step.
+
+### NZ-52: todoz discovers TODO.md stores the way notez discovers repos (2026-10-15, Draft)
+
+Asked for by Andreas at the end of 2026-10-15: "look into to have
+todoz TUI see files, as we worked on today. it does not scan for
+(todoz) files as notez scans for notez." Not investigated yet, on
+his instruction.
+
+Outcome to confirm when picked up: `todoz` sees every `TODO.md` the
+tree browser sees. `7cfeb27` made every notez command auto-register a
+repo that contains `notez/` or `.notez/`; the tree browser then lists
+all registered projects and their stores. The todo board
+(`notez_core::todo::load_board`) builds from the registry and the
+global `_todos/`, so the questions are: does it run the same
+auto-registration path; does it include each project's personal,
+public and scratch `TODO.md` the way the tree does (NZ-13 unified
+view); and does it pick up a `TODO.md` in a repo that has no
+`notez/` or `.notez/` dir yet (probably not today, and whether it
+should is Andreas's call). First step: a short investigation note
+listing what todoz loads versus what the tree lists on his machine,
+then a brief. Files, probably: `crates/notez-core/src/todo/mod.rs`
+(`load_board`), `crates/notez-cli/src/main.rs` (registration hook),
+`commands/todo.rs`. A `notez-core` change needs his yes.
+
 ### NZ-48: notez-core frontmatter and dates, read-only (2026-10-15, Ready)
 
 Board item `PVTI_lAHOCU842c4BmE5ZzhA-tKk`. Authorized by Andreas
@@ -1833,6 +1876,12 @@ new confirmation.
    editable, no git from notez in `~/pinz-board`, length warning
    with a proposed threshold); needs Andreas's approval of the brief
    and the Pinz-side "keep unknown keys" change before code.
+7. Added at the stop, Drafts, position in the queue is Andreas's
+   call (the lead suggests NZ-52 early, since it is about seeing
+   your files, and NZ-51 beside NZ-43): NZ-51 `TODO.md` in the
+   inspector renders like standalone todoz; NZ-52 todoz discovers
+   `TODO.md` stores the way notez discovers repos. Both start with a
+   short investigation, not code.
 
 Per ticket the procedure is unchanged (see the 2026-10-10 paragraph
 below): branch and worktree from current `main`, `nz-worker`, a
