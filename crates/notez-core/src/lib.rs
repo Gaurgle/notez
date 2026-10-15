@@ -16,4 +16,4 @@ pub mod todo;
 pub mod util;
 
 pub use crate::config::{Config, NotezMetadata, ProjectRegistry};
-pub use crate::core::{Note, Project, Scope};
+pub use crate::core::{Note, NoteDate, Project, Scope};

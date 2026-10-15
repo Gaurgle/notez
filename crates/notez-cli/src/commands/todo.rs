@@ -119,6 +119,7 @@ fn build_board(scope: Scope, config: &Config) -> Result<(Vec<Task>, BoardContext
         collapsed: false,
         is_code_todo: false,
         flags: 0,
+        due: None,
     }];
     items.extend(todo::load_single_todo(&path, &name));
 
@@ -137,6 +138,7 @@ fn build_board(scope: Scope, config: &Config) -> Result<(Vec<Task>, BoardContext
             collapsed: false,
             is_code_todo: true,
             flags: 0,
+            due: None,
         });
         items.extend(code_todos);
     }
@@ -259,6 +261,7 @@ fn scan_code_todos() -> Vec<Task> {
             collapsed: false,
             is_code_todo: true,
             flags: 0,
+            due: None,
         });
     }
 
