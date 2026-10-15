@@ -151,7 +151,7 @@ The aggregated tree is the browser's default view: bare `notez` (also `notez tre
 4. Loads `~/notez/` itself for global notes (quick notes, daily logs, `_todos/<category>/TODO.md`)
 5. Builds the tree as before, but with no filesystem symlinks involved
 
-A project whose `local_path` does not exist on this machine renders as dimmed with a "(not attached)" marker, so the user knows the metadata exists but the source is unreachable. Notes for that project are not shown.
+A project whose `local_path` does not exist on this machine is omitted from the tree, and `notez list` shows it as `(not found)`.
 
 ### CLI and desktop read the same board
 
@@ -212,6 +212,9 @@ could carry a **created date** (already implicit in filenames/mtime) and,
 more importantly, an optional **deadline and/or event date**. A calendar
 view would then link documents to dates - see what's due, what was created
 when, and what events are coming up - across scopes and projects.
+
+The current design for dates is in
+[docs/design-nz47-dates.md](docs/design-nz47-dates.md).
 
 **Surface / home for it:** the todoz **preview pane** (the selected-todo
 detail card added in the Melt UI refresh) is the natural place to set and
@@ -281,6 +284,10 @@ Open questions when this is picked up:
   LSP work (`docs/design-nz28-linting.md`, `docs/design-nz29-lsp.md`).
 - epoz depends on `notez-core` by pinned rev, so any change to what counts
   as a note must stay compatible with it.
+
+Decided 2026-10-15 (owner): the preview may become a file reader, as a
+toggleable view. The symbol outline (NZ-30) stays planned. Linting in the
+preview (NZ-28) waits until notez treats non-markdown files as notes.
 
 ### Desktop app (moved to epoz)
 
@@ -393,6 +400,10 @@ also scaffolds `<path>/notez/` so the public store exists from day one.
 
 ## Test scenarios
 
+Scenarios A, C, E, I and J have integration tests in
+`crates/notez-cli/tests/storage_scenarios.rs` (merged 2026-10-15); the rest
+are still prose.
+
 A representative matrix to validate behavior end-to-end. These are not unit
 tests; they exercise multi-machine, multi-user, multi-project realities the
 storage layer has to handle. Each scenario lists the setup and the
@@ -425,7 +436,8 @@ desktop. She has run `notez attach` inside the project on each machine.
 Action: on laptop, `cd ~/repos/shared-repo-1 && notez -p add "API redesign idea"`
 
 Verify:
-- File lands at `/Users/alice/notez/personal/shared-repo-1/<date>-api-redesign-idea.md`.
+- File lands at `/Users/alice/notez/personal/shared-repo-1/api-redesign-idea.md` (undated:
+  only quick notes get a date prefix).
 - `~/notez/personal/shared-repo-1/` is tracked in Alice's notez repo.
 - After `notez sync` on laptop and again on desktop, the file appears at
   `/Users/alice-desk/notez/personal/shared-repo-1/...` (note the different
@@ -526,7 +538,8 @@ Action: Alice moves `~/repos/shared-repo-1/` to `~/Code/work/shared-repo-1/`
 on laptop. The registry still points at the old path.
 
 Verify:
-- `notez tree` warns about the missing project but does not crash.
+- `notez list` marks the project `(not found)` and the tree omits its repo
+  stores until it is re-attached, but nothing crashes.
 - `notez attach --path ~/Code/work/shared-repo-1 shared-repo-1` updates
   the registry to the new path.
 - After that, everything resolves correctly again.
@@ -564,18 +577,29 @@ that spins up tempdir fixtures simulating two machines and two users.
 
 ## Status
 
-This document describes the target design. Initial implementation focuses on:
-
-1. Cargo.toml and module skeleton
-2. Config and registry types with TOML round-trip tests
-3. Core abstractions: Scope, Project, NoteSource
-4. Commands: `add`, `log`, `mkdir`, `attach`, `detach`, `list` end-to-end
-5. Stubs for `tree`, `todo`, `edit`, `search`, `nav`, `sync` (return not-implemented)
-6. Panic-safe TUI entry/leave helpers (carried from notez-cli)
+This document describes the target design. The initial skeleton (config and registry types,
+Scope/Project/NoteSource, the `add`/`log`/`mkdir`/`attach`/`detach`/`list`
+commands, panic-safe TUI helpers) landed in 2026-05.
 
 Progress since: the storage layer, migration, desktop app (Epoz Desktop),
 todoz TUI (2026-07-05, dirty-source saves), full-text search, project docs
 sources, and the tree-browser TUI (2026-07-06, dirty-only `.tags` writes)
-are done. Every legacy notez-cli surface is now ported; `edit` and `nav`
-remain stubs. Next per the umbrella plan: ticketz TUI, fleetz-core, the
-epoz umbrella shell.
+are done. Every legacy notez-cli surface is now ported, including `edit`
+and `nav`, which are no longer stubs.
+
+Since the first tree browser, the browser can create, rename, delete and
+move notes, and lists, creates, renames, deletes and moves folders (NZ-14).
+Multi-select with `Space` gives bulk delete, move and scope change (NZ-16).
+Browsing gained a fuzzy `/` filter, `0` to clear the tag words and `s` to
+cycle the view scope, a header status line (sync state, dirty count, note
+counts), and reload on demand and on file change.
+The preview pane renders markdown (tables and footnotes included) and
+highlights code with tree-sitter, with a language badge on its border. A lint
+module exists but its diagnostics are not shown on screen yet.
+
+Sync and project handling also changed: leaving an interactive session exits
+quietly when the remote is offline, and repos containing `notez/` or
+`.notez/` are registered automatically. The workspace is versioned 0.1.0
+(2026-10-15) with [CHANGELOG.md](CHANGELOG.md), which has the full list, and
+[docs/versioning.md](docs/versioning.md). For current work see
+`docs/agent-handoff.md`.

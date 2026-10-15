@@ -1,3 +1,5 @@
+Historical (written 2026-09-02); current design in DESIGN.md.
+
 # Handover: bring the small machine in line with the big one
 
 Date: 2026-09-02. Written on the big machine (`/Users/andreasroos`) for the
