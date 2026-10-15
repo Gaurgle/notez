@@ -25,7 +25,7 @@ use notez_core::util::tilde;
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
-use super::{VimCommandMode, VimKey, theme};
+use super::{VimCommandMode, VimKey, text, theme};
 
 const BOARD: &[Mode] = &[Mode::Normal, Mode::Focus];
 const BOARD_AND_TAG: &[Mode] = &[Mode::Normal, Mode::Focus, Mode::Tag];
@@ -321,14 +321,23 @@ fn compute_visible(items: &[Task], search_buffer: &str) -> Vec<usize> {
     v
 }
 
+/// The single row the board shows instead of an empty list when the filter
+/// `search_buffer` hides every item: [`text::NO_MATCHES`]. `None` while a
+/// row is visible, with no filter, or on a board with no items.
+fn no_matches_row(items: &[Task], visible: &[usize], search_buffer: &str) -> Option<&'static str> {
+    (!items.is_empty() && visible.is_empty() && !filter::parse(search_buffer).is_empty())
+        .then_some(text::NO_MATCHES)
+}
+
 /// Per-item keep mask: an item is kept when it matches directly or any
 /// descendant matches, and every match pulls in its ancestor chain (parent
-/// todos and the section header) so results keep their context.
+/// todos and the section header) so results keep their context. Text
+/// tokens match as fuzzy subsequences (see [`text::filter_matches`]).
 fn compute_filter_keep(items: &[Task], f: &Filter) -> Vec<bool> {
     let n = items.len();
     let mut keep = vec![false; n];
     for (i, item) in items.iter().enumerate() {
-        if !item.is_header && f.matches(&item.text, item.flags) {
+        if !item.is_header && text::filter_matches(f, &item.text, item.flags) {
             keep[i] = true;
         }
     }
@@ -527,20 +536,44 @@ fn dot_field_cols() -> usize {
 /// the dot field (with the hover preview of `hover_flag`), the tree
 /// drawing in the tree's dim colour, then the header label, or the
 /// checkbox and text of a todo, wrapping long todos under their text.
+/// Nothing is highlighted: the rows as drawn with no filter.
 fn board_rows(
     items: &[Task],
     visible: &[usize],
     hover_flag: Option<(usize, u8)>,
     list_width: u16,
 ) -> Vec<Text<'static>> {
+    board_rows_matching(items, visible, hover_flag, list_width, "")
+}
+
+/// [`board_rows`] with the characters of each todo's text that the text
+/// tokens of the filter `search_buffer` matched in [`theme::filter_match`],
+/// on every line of a wrapped todo. Section headers are never matched, so
+/// they are never lit.
+fn board_rows_matching(
+    items: &[Task],
+    visible: &[usize],
+    hover_flag: Option<(usize, u8)>,
+    list_width: u16,
+    search_buffer: &str,
+) -> Vec<Text<'static>> {
     let later = later_siblings(items, visible);
     let branch_style = Style::default().fg(theme::SURFACE);
+    let f = filter::parse(search_buffer);
     visible
         .iter()
         .enumerate()
         .map(|(pos, &idx)| {
             let item = &items[idx];
             let branch = branch_prefix(items, idx, &later);
+            let matched = if item.is_header {
+                Vec::new()
+            } else {
+                text::filter_match_positions(&f, &item.text)
+            };
+            let lit = |piece: &str, start: usize, style: Style| {
+                text::highlight_spans(piece, start, &matched, style, theme::filter_match())
+            };
             if item.is_header {
                 let path_display = item
                     .source
@@ -562,7 +595,7 @@ fn board_rows(
             if item.is_code_todo {
                 let mut spans = flags_slots(0);
                 spans.push(Span::styled(branch, branch_style));
-                spans.push(Span::styled(item.text.clone(), Style::default().fg(theme::OVERLAY)));
+                spans.extend(lit(&item.text, 0, Style::default().fg(theme::OVERLAY)));
                 return Text::from(Line::from(spans));
             }
             let (mark, mark_color, bracket_color, style) = match item.state {
@@ -600,7 +633,7 @@ fn board_rows(
             first_line.push(Span::styled("] ", Style::default().fg(bracket_color)));
 
             if text_width == 0 || item.text.chars().count() <= text_width {
-                first_line.push(Span::styled(item.text.clone(), style));
+                first_line.extend(lit(&item.text, 0, style));
                 return Text::from(Line::from(first_line));
             }
             let has_visible_child = visible
@@ -626,18 +659,22 @@ fn board_rows(
                     split_at
                 };
                 let (chunk, rest) = remaining.split_at(split_at);
-                let chunk = Span::styled(chunk.to_string(), style);
+                // `remaining` is always a suffix of the text.
+                let chunk = lit(chunk, item.text.len() - remaining.len(), style);
                 match first.take() {
                     Some(mut spans) => {
-                        spans.push(chunk);
+                        spans.extend(chunk);
                         lines.push(Line::from(spans));
                     }
-                    None => lines.push(Line::from(vec![
-                        Span::raw(field_blank.clone()),
-                        Span::styled(cont.clone(), branch_style),
-                        Span::raw(checkbox_blank.clone()),
-                        chunk,
-                    ])),
+                    None => {
+                        let mut spans = vec![
+                            Span::raw(field_blank.clone()),
+                            Span::styled(cont.clone(), branch_style),
+                            Span::raw(checkbox_blank.clone()),
+                        ];
+                        spans.extend(chunk);
+                        lines.push(Line::from(spans));
+                    }
                 }
                 remaining = rest.trim_start();
             }
@@ -772,7 +809,14 @@ fn event_loop(
                 visible_for_mouse = visible.clone();
 
                 // The list sits inside the frame's borders and padding.
-                let rows = board_rows(&items, &visible, hover_flag, area.width.saturating_sub(4));
+                let rows = board_rows_matching(
+                    &items,
+                    &visible,
+                    hover_flag,
+                    area.width.saturating_sub(4),
+                    &search_buffer,
+                );
+                let no_matches = no_matches_row(&items, &visible, &search_buffer);
                 row_counts_for_mouse = rows.iter().map(|r| r.height() as u16).collect();
                 let list_items =
                     board_items(rows, &visible, state.selected(), drag_start, drag_target);
@@ -853,7 +897,7 @@ fn event_loop(
                     ));
                     if search_buffer.is_empty() {
                         filter_spans.push(Span::styled(
-                            "  text + #tag or click a dot",
+                            "  fuzzy text + #tag or click a dot",
                             Style::default().fg(Color::Rgb(80, 80, 95)),
                         ));
                     }
@@ -925,7 +969,17 @@ fn event_loop(
                 ));
                 frame.render_widget(Paragraph::new(divider_line), divider_rect);
 
-                frame.render_stateful_widget(List::new(list_items), list_area, &mut state);
+                if let Some(text) = no_matches {
+                    frame.render_widget(
+                        Paragraph::new(Line::from(Span::styled(
+                            format!("  {text}"),
+                            Style::default().fg(theme::OVERLAY),
+                        ))),
+                        list_area,
+                    );
+                } else {
+                    frame.render_stateful_widget(List::new(list_items), list_area, &mut state);
+                }
 
                 // Status bar.
                 let width = chunks[1].width as usize;
@@ -1892,6 +1946,66 @@ mod tests {
         let items = vec![header("apple SECTION"), task("banana", 0, 0)];
         let v = compute_visible(&items, "apple");
         assert!(v.is_empty());
+    }
+
+    #[test]
+    fn the_filter_finds_todos_by_subsequence() {
+        let items = vec![
+            header("A"),
+            task("try fleetz", 0, 0),
+            task("banana", 0, FLAG_PRIO),
+        ];
+        assert_eq!(compute_visible(&items, "flz"), vec![0, 1]);
+        assert_eq!(compute_visible(&items, "bnn #prio"), vec![0, 2]);
+        assert!(compute_visible(&items, "flz #prio").is_empty());
+    }
+
+    #[test]
+    fn a_filter_that_hides_every_todo_shows_one_no_matches_row() {
+        let items = vec![header("A"), task("apple", 0, 0)];
+        let hidden = compute_visible(&items, "zzz");
+        assert_eq!(no_matches_row(&items, &hidden, "zzz"), Some("no matches"));
+        let shown = compute_visible(&items, "apl");
+        assert_eq!(no_matches_row(&items, &shown, "apl"), None);
+        assert_eq!(no_matches_row(&[], &[], "zzz"), None, "an empty board");
+        assert_eq!(no_matches_row(&items, &[], ""), None, "no filter");
+    }
+
+    #[test]
+    fn matched_characters_are_lit_on_every_line_of_a_todo() {
+        let items = vec![
+            header("A"),
+            task("fleetz", 0, 0),
+            task("a fleet of z", 0, 0),
+        ];
+        let lit = theme::filter_match();
+        let lit_text = |rows: &[Text<'static>], row: usize| -> String {
+            rows[row]
+                .lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .filter(|s| s.style.fg == lit.fg && s.style.add_modifier.contains(Modifier::BOLD))
+                .map(|s| s.content.to_string())
+                .collect()
+        };
+        let visible = compute_visible(&items, "flz");
+        assert_eq!(visible, vec![0, 1, 2]);
+        let rows = board_rows_matching(&items, &visible, None, 80, "flz");
+        assert_eq!(lit_text(&rows, 0), "", "headers are never lit");
+        assert_eq!(lit_text(&rows, 1), "flz");
+        assert_eq!(lit_text(&rows, 2), "flz");
+        // Wrapped onto several lines, each line lights its own matches.
+        let narrow = board_rows_matching(&items, &visible, None, 20, "flz");
+        assert!(narrow[2].lines.len() > 1, "{:?}", narrow[2]);
+        assert_eq!(lit_text(&narrow, 2), "flz");
+        let last = narrow[2].lines.last().unwrap();
+        assert!(last
+            .spans
+            .iter()
+            .any(|s| s.content == "z" && s.style.fg == lit.fg));
+        // No filter: the rows as before, nothing lit.
+        let plain = board_rows(&items, &visible, None, 80);
+        assert_eq!(lit_text(&plain, 1), "");
     }
 
     #[test]

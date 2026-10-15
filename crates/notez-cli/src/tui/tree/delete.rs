@@ -586,6 +586,7 @@ mod tests {
             nodes,
             tag_roots: roots,
             initial,
+            scope: ViewScope::All,
         };
         let selected =
             forest.rebuild_after_delete(vec![spec("/r", "S", after)], Path::new(deleted), search);
@@ -688,6 +689,7 @@ mod tests {
             nodes,
             tag_roots: roots,
             initial,
+            scope: ViewScope::All,
         };
 
         let after = [
