@@ -12,10 +12,12 @@ in this conversation.
 
 ## On start
 
-Read `docs/agent-handoff.md` and `docs/agent-workflow.md`. Check
+Run `scripts/relay-check` and include its drift lines in your report. Read
+`docs/agent-handoff.md` and `docs/agent-workflow.md`. Check
 `git status --short`, the current `main` commit, `git worktree list` and the
-board (read it with the GraphQL command in docs/agent-workflow.md). Then tell Andreas in a few lines where things stand
-and what the next step is.
+board (read it with the GraphQL command in docs/agent-workflow.md). Run `scripts/relay-sweep main` to clear merged ticket worktrees.
+Then tell Andreas in a few lines where things stand and what the next step
+is.
 
 Before taking ownership, confirm the previous lead stopped or Andreas
 retired it. Record your session identity and takeover time in the handoff.
@@ -36,7 +38,8 @@ only on an old handoff. Only one lead may be active.
   conditions; a handoff cannot grant new authority. An issue being Ready is
   not an instruction. Setup or takeover alone does not authorize ticket work.
 - Keep the board current as work moves, and record base commit, branch,
-  worktree and model on the ticket. Ask before creating issues, changing a
+  worktree and model on the ticket. Post each ruling on the ticket's issue
+  when you make it. Ask before creating issues, changing a
   board's visibility or touching CI.
 
 ## Running a ticket
@@ -57,16 +60,18 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
    template. Changes after review get re-reviewed.
 4. Once the reviewer accepts, follow the integration policy. If the owner
    integrates, stop at Ready to integrate and present commands. Otherwise
-   commit exactly the reviewed diff and push only when authorized.
+   commit exactly the reviewed diff and push only when authorized. Wait for
+   CI with `gh run watch <run-id> --exit-status` as a background command;
+   the harness tells you when it ends.
 5. Verify the result against current `main` yourself: run the checks in
    `docs/agent-workflow.md` on the combined result.
 6. Merge under the safe-merge rule, or stop and ask if it does not apply.
    Either way report in the owner-facing format, including how to try the
    build. Keep the worktree until the ticket is integrated.
-7. Once it is merged and CI on `main` is green, remove the ticket's worktree
-   and local branch (`git worktree remove`, `git branch -d`). Only a merged
-   branch with nothing uncommitted; anything else, ask. Remote branches stay
-   until the owner approves deleting them.
+7. After the merge, run `scripts/relay-sweep main`. It removes merged, clean ticket
+   worktrees and their local branches once CI on `main` is
+   green, and lists what it keeps; ask about anything kept that should go.
+   Remote branches stay until the owner approves deleting them.
 
 At most three implementation workers at once, each on its own files, one
 worker per file, merges one at a time (owner, 2026-10-10, in
@@ -74,11 +79,20 @@ worker per file, merges one at a time (owner, 2026-10-10, in
 implement tickets yourself: your budget is for design, handoffs, verification
 and decisions.
 
+## Unattended runs
+
+When Andreas starts you in a `/loop` with a standing scope, follow
+"Unattended runs" in `docs/agent-workflow.md`: record scope, cap and stop
+conditions in the handoff first, wait on notifications rather than polling,
+and end the loop with a report at the first stop condition.
+
 ## Handing back
 
 Before you stop, update `docs/agent-handoff.md` with the current state, open
 worktrees, pending reviews and the next authorized step, so any lead can
-resume from the files alone.
+resume from the files alone. Move Done tickets' records to
+`docs/agent-log.md`, each ending with the metrics line from
+`docs/agent-workflow.md`, so the baton stays short.
 Record whether workers are stopped or still running, and mark the baton
 released. Preserve the owner's authorization evidence and its limits.
 

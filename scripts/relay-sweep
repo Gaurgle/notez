@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Removes Relay ticket worktrees under .claude/worktrees/ whose branch is
+# merged into origin/<integration branch>, then deletes that local branch.
+#
+# Leaves alone: worktrees with uncommitted or untracked changes, unmerged
+# branches, anything outside .claude/worktrees/, and every remote branch.
+# Refuses to remove anything while the latest CI run on the integration
+# branch is not green, unless --skip-ci-check is given (for a repo whose
+# workflow records that it has no CI).
+#
+# Merged means reachable from origin/<branch>: Relay merges with merge
+# commits, so a squash-merged branch never counts and is reported instead.
+#
+# Usage: scripts/relay-sweep [--dry-run] [--skip-ci-check] [integration-branch]
+
+set -euo pipefail
+
+dry_run=false
+skip_ci=false
+branch=main
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=true ;;
+    --skip-ci-check) skip_ci=true ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) echo "relay-sweep: unknown option $arg" >&2; exit 2 ;;
+    *) branch=$arg ;;
+  esac
+done
+
+# The main checkout, even when run from inside a ticket worktree.
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+cd "$root"
+target="origin/$branch"
+
+git fetch --quiet origin "$branch"
+
+if ! $skip_ci; then
+  ci=$(gh run list --branch "$branch" --limit 1 --json status,conclusion \
+    --jq '.[0] | if . == null then "none" else "\(.status)/\(.conclusion)" end' \
+    2>/dev/null) || ci=unavailable
+  if [ "$ci" != "completed/success" ]; then
+    echo "CI on $branch is '$ci', not green: listing only, removing nothing."
+    dry_run=true
+  fi
+fi
+
+git worktree prune
+
+removed=0
+kept=0
+# Porcelain output: a "worktree <path>" line, later a "branch refs/heads/<b>"
+# line, and a blank line between entries.
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*) path=${line#worktree } ; ref= ;;
+    "branch "*) ref=${line#branch refs/heads/} ;;
+    "")
+      current=$path
+      path=
+      case "$current" in "$root/.claude/worktrees/"*) ;; *) continue ;; esac
+      name=${current#"$root/"}
+      if [ -z "$ref" ]; then
+        echo "keep   $name: detached HEAD"; kept=$((kept + 1)); continue
+      fi
+      if [ -n "$(git -C "$current" status --porcelain)" ]; then
+        echo "keep   $name ($ref): uncommitted changes"; kept=$((kept + 1)); continue
+      fi
+      if ! git merge-base --is-ancestor "$ref" "$target"; then
+        echo "keep   $name ($ref): not merged into $target"; kept=$((kept + 1)); continue
+      fi
+      if $dry_run; then
+        echo "would  remove $name, delete branch $ref"
+        continue
+      fi
+      git worktree remove "$current"
+      # -D is safe here: merge-base above proved $ref is in $target, while -d
+      # would compare against a possibly stale local $branch and refuse.
+      git branch -D --quiet "$ref"
+      echo "removed $name, deleted branch $ref"
+      removed=$((removed + 1))
+      ;;
+  esac
+done < <(git worktree list --porcelain; echo)
+
+echo "relay-sweep: $removed removed, $kept kept."

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Reports how this repo's Relay files stand against the Relay skill. Report
+# only: it never edits. Run by the lead on start (Claude or Codex).
+#
+# Checks: the template version stamped in docs/agent-workflow.md against the
+# skill's VERSION (with the changelog entries marked [migrate] since then),
+# that the Relay scripts are present, leftover {{placeholders}}, and the
+# handoff's length. A cloud session without the skill still gets the
+# repo-side checks.
+#
+# Usage: scripts/relay-check [path-to-relay-skill]
+
+set -uo pipefail
+
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+cd "$root"
+
+skill=${1:-}
+if [ -z "$skill" ]; then
+  for dir in "$HOME/.claude/skills/relay" "$HOME/claude-config/skills/relay"; do
+    if [ -f "$dir/VERSION" ]; then skill=$dir; break; fi
+  done
+fi
+
+stamp=$(sed -n 's/.*<!-- relay-template: \([0-9][0-9.]*\).*-->.*/\1/p' \
+  docs/agent-workflow.md 2>/dev/null | head -1)
+deviations=$(sed -n 's/.*<!-- relay-template: .*local-deviations: \(.*\) -->.*/\1/p' \
+  docs/agent-workflow.md 2>/dev/null | head -1)
+
+echo "Template in this repo: ${stamp:-none (copied before versioning)}"
+[ -n "$deviations" ] && echo "Deliberate local deviations: $deviations"
+
+if [ -z "$skill" ]; then
+  echo "Relay skill not visible here (cloud session?): version not compared."
+else
+  current=$(tr -d '[:space:]' < "$skill/VERSION")
+  echo "Relay skill: $current"
+  if [ "${stamp:-0}" = "$current" ]; then
+    echo "Up to date."
+  else
+    echo "Changes since ${stamp:-the first version} that instances should adopt:"
+    # Sections are "## <version> (<date>)"; print [migrate] lines of every
+    # section newer than the stamp.
+    awk -v have="${stamp:-0}" '
+      function newer(a, b,   x, y, i, n) {
+        n = split(a, x, "."); split(b, y, ".")
+        for (i = 1; i <= 3; i++) {
+          if (x[i] + 0 > y[i] + 0) return 1
+          if (x[i] + 0 < y[i] + 0) return 0
+        }
+        return 0
+      }
+      /^## [0-9]/ { show = newer($2, have); version = $2; next }
+      show && /\[migrate\]/ { print "  " version ": " $0 }
+    ' "$skill/CHANGELOG.md"
+    echo "Migrating is a change the owner asks for; this check only reports."
+  fi
+fi
+
+for script in scripts/relay-sweep scripts/relay-check; do
+  [ -x "$script" ] || echo "Missing or not executable: $script"
+done
+
+leftovers=$(grep -l '{{' docs/agent-workflow.md docs/agent-handoff.md AGENTS.md \
+  .claude/agents/*.md 2>/dev/null)
+[ -n "$leftovers" ] && echo "Unfilled {{placeholders}} in: $leftovers"
+
+if [ -f docs/agent-handoff.md ]; then
+  lines=$(wc -l < docs/agent-handoff.md | tr -d ' ')
+  echo "Handoff: $lines lines$([ "$lines" -gt 150 ] && echo ' (over 150: move finished tickets to docs/agent-log.md)')"
+fi
+exit 0

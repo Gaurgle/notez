@@ -30,9 +30,10 @@ only the allowed files.
 - Verify the reported problem before fixing it. Report contradicting evidence.
 - For a behavior change, write the regression test first and see it fail
   against the old behavior.
-- If Superpowers or similar task skills are available, use relevant design,
-  test-first or debugging guidance within this ticket's scope. Do not launch
-  another agent workflow or delegate; Relay owns dispatch and review.
+- Use the task skills when they fit (test-driven-development,
+  systematic-debugging, verification-before-completion), within this
+  ticket's scope. Do not launch another agent workflow or delegate; Relay
+  owns dispatch and review.
 - If the ticket names locked tests (spec-first), make them pass without
   changing them. A locked test that looks wrong means stop and report.
 - Deliver the smallest change that satisfies the acceptance criteria. No

@@ -6,7 +6,8 @@ Local-first notes and todos: `crates/notez-core` (engine), `crates/notez-cli`
 changes here must stay compatible with it.
 Design and scope model: `DESIGN.md`.
 Agent work runs on Relay: `docs/agent-workflow.md` (roles, checks, safe-merge),
-`docs/agent-handoff.md` (the baton), `.claude/agents/nz-*.md`.
+`docs/agent-handoff.md` (the baton), `docs/agent-log.md` (finished tickets),
+`.claude/agents/nz-*.md`, and `scripts/relay-check` / `scripts/relay-sweep`.
 
 <!-- house-rules:start v1 -->
 ## House rules

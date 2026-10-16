@@ -1,3 +1,4 @@
+<!-- relay-template: 0.4.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 # Agent workflow (Relay)
 
 How agents work on notez. This file is vendor-neutral: Claude reads it
@@ -29,6 +30,10 @@ integrate `abf1c81e`, Done `82c5faed`.
 ## Owner-approved integration policy
 
 Owner integrates; the lead presents commands and stops at Ready to integrate. Relay setup grants no commit, push or merge permission. The repo ships direct to `main` with no PR. CI (`.github/workflows/ci.yml`) builds and tests on ubuntu and macos on every push and pull request except docs-only changes, so a push to `main` triggers a run, but nothing here is delegated until the owner records it in `docs/agent-handoff.md`.
+
+The live delegation is the latest dated entry under "Authorized by the owner"
+in `docs/agent-handoff.md`. Where it and this section differ, the narrower one
+applies and the lead asks the owner to reconcile them.
 
 Integration branch: `main`. This records an owner decision;
 creating Relay files does not grant authority. If permission for an operation
@@ -69,10 +74,11 @@ one worker per file (`tui/tree.rs` is always one worker), and merges into
 `main` one at a time. Implementation and review are always separate
 sessions, even on the same model.
 
-## Task method and Superpowers
+## Task method and task skills
 
 Relay governs authority, roles, durable state and integration. A task method
-such as Superpowers may guide discovery, design, planning, testing or
+such as the task skills (brainstorming, writing-plans, test-driven-development,
+systematic-debugging) may guide discovery, design, planning, testing or
 debugging inside that structure. Use the lightest path that fits:
 
 - **Spike:** answer a narrow feasibility question with a small, disposable
@@ -84,14 +90,13 @@ debugging inside that structure. Use the lightest path that fits:
   the approved design and plan in the repository's chosen documents, then
   link them from the relevant tickets. Keep one durable source of truth.
 
-Superpowers' brainstorming, planning, test-first and debugging practices may
-be used when relevant. Approval of a design or plan accepts that artifact; it
+Those skills may be used when relevant. Approval of a design or plan accepts that artifact; it
 does not authorize ticket execution beyond the owner's named tickets or
 standing scope. Existing Relay authorization still governs execution.
 
-When Relay is active, the lead is the only dispatcher. Do not run
-Superpowers' subagent-driven implementation workflow alongside Relay's worker
-and reviewer assignments. Workers remain unable to delegate. The Relay
+When Relay is active, the lead is the only dispatcher. Do not run another
+subagent-driven implementation workflow alongside Relay's worker and reviewer
+assignments. Workers remain unable to delegate. The Relay
 reviewer remains required even if another skill offers a review step.
 
 ## Models
@@ -129,13 +134,47 @@ validation cycles on the same blocker, escalate instead of widening scope.
    commands. Otherwise, within the policy above, commit exactly the reviewed
    diff, push the branch (CI runs), verify the combined result with current
    `main`, then merge under the safe-merge rule. If the
-   integration branch moves, revalidate.
+   integration branch moves, revalidate. Wait for CI with
+   `gh run watch <run-id> --exit-status` as a background command, so the
+   harness reports when it ends; never poll in a loop of short sleeps.
 7. Keep the worktree until the ticket is integrated or explicitly discarded.
-   After the merge, once CI on `main` is green, the lead
-   removes the worktree and the local branch (`git worktree remove`, then
-   `git branch -d`, which refuses an unmerged branch). A worktree with
-   uncommitted changes is never removed without asking. Deleting remote
-   branches needs the owner's approval.
+   The lead runs `scripts/relay-sweep main` on start and after every merge. It removes a
+   ticket's worktree and local branch only when the branch is merged into
+   `origin/main`, the worktree is clean and the latest CI on
+   `main` is green; it lists everything it keeps and why.
+   Anything it keeps that should go is a question for the owner. Deleting
+   remote branches needs the owner's approval.
+
+## Records
+
+`docs/agent-handoff.md` is the baton: current lead, owner authority, work in
+flight, open decisions and the next step. Keep it short; a new lead reads all
+of it. When a ticket is Done, move its record to `docs/agent-log.md` and end
+it with one metrics line:
+
+```text
+<ticket>: review <accepted first | changes n>; fix cycles <n>; owner decisions <n>; worker <min>; review <min>; usage <read | not read>
+```
+
+Post every ruling on a ticket (scope, design or test decisions) as a comment
+on its issue when it is made, not only in the handoff.
+
+## Unattended runs (the owner switches them on)
+
+The owner may run the lead as a loop: `/loop` with no interval in the lead
+session, plus a standing scope such as "work through the Ready tickets in plan
+order". Before the first round, record in the handoff the scope, date, a cap
+(tickets or hours) and any extra stop conditions. Each round the lead
+reconciles live state, runs the sweeper, integrates what is ready under the
+safe-merge rule, dispatches the next ticket in scope and updates the handoff.
+
+Wait for workers and reviewers through the harness's completion notices and
+for CI through a background `gh run watch`; the loop's own fallback wakeup is
+long (20 minutes or more). The loop ends, with an owner-facing report, when
+the scope or cap is reached, a safe-merge condition fails or is unclear,
+acceptance needs the owner's judgment, a blocker survives two fix cycles, CI
+on `main` is red, or the model's usage limit is near. A loop
+grants no authority the policy above does not.
 
 ## Safe-merge rule
 
@@ -154,18 +193,18 @@ merge a ticket branch into `main` and push when all hold:
 - Acceptance does not rest on the owner's judgment. Interaction, layout and
   look need him to try the branch build first.
 
+Merge with `git merge --no-ff` so one ticket is one revertable unit. Stage
+only the ticket's files, never `git add -A`. After the push, confirm CI on
+`main`; if it is red, revert the merge, push the revert and
+report within the owner's recorded integration authority. If a condition
+fails or is unclear, stop at Ready to integrate and ask.
+
 Read CI with `gh run list --branch <branch> --limit 3` and `gh run watch`.
 A run is green when every job without `continue-on-error` succeeds; the
 `lint` job never blocks. A push that changes only `*.md` or `docs/**`
 starts no run; then check that the latest run's head SHA is the last
 commit touching code, and treat the CI conditions as met for a docs-only
 ticket.
-
-Merge with `git merge --no-ff` so one ticket is one revertable unit. Stage
-only the ticket's files, never `git add -A`. After the push, confirm CI on
-`main`; if it is red, revert the merge, push the revert and
-report within the owner's recorded integration authority. If a condition
-fails or is unclear, stop at Ready to integrate and ask.
 
 Commit coordination docs directly only if the integration policy explicitly
 permits it; otherwise follow the repo's PR flow or present commands. Workers

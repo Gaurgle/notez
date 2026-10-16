@@ -33,7 +33,10 @@ checkout, commit or format the tree.
   the code or test that shows it.
 - Contracts, failure paths and state ownership. For async or event-driven
   changes, trace both completion orders and a late or failed result.
-- Regression coverage: would the new test have failed on the base?
+- Regression coverage: would the new test have failed on the base? Where it
+  is cheap, prove it: mutate the changed code (revert it or flip one
+  condition) in a scratch copy or with the repo's mutation tool, run the
+  test, and report whether it failed.
 - No existing or locked test was weakened, deleted or disabled.
 - No dependency, CI, schema or format change slipped in.
 
@@ -48,6 +51,8 @@ Acceptance applies only to that revision; later edits require another review.
 
 For each finding give severity, file and symbol, the triggering scenario and
 the required correction. Separate blockers from optional follow-ups. State
-which checks you ran yourself and which evidence you only inspected. If you
-found nothing, say so plainly rather than inventing concerns. No em dashes or
+which checks you ran yourself and which evidence you only inspected. Limit findings to
+correctness, the acceptance criteria and contracts; raise style only where a
+repo rule requires it. If you found nothing, say so plainly rather than
+inventing concerns. No em dashes or
 en dashes.
