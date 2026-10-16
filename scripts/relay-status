@@ -107,7 +107,7 @@ for dir in .claude/worktrees/*/; do
     commits=$(git rev-list --count "origin/$branch..$tip" 2>/dev/null)
     state="${commits:-?} commits"
   fi
-  worktrees="$worktrees $name ${dim}($off$state$dim)$off"
+  worktrees="${worktrees:+$worktrees  }$name ${dim}($off$state$dim)$off"
 done
 
 next=$(awk '/^#+ Next step/ { on = 1; next } /^#+ / { on = 0 }
@@ -115,11 +115,16 @@ next=$(awk '/^#+ Next step/ { on = 1; next } /^#+ / { on = 0 }
   docs/agent-handoff.md 2>/dev/null)
 [ "${#next}" -gt 66 ] && next="${next:0:66}..."
 
-printf '%s╭─%s %sRelay%s %s · %s%s%s (%s) %s─────────────────────────%s\n' \
-  "$accent" "$off" "$b" "$off" "${stamp:-?}" "$b" "$project" "$off" "$prefix" "$accent" "$off"
+# One width for both rules: the title rule is padded to match the bottom one.
+width=64
+title="Relay ${stamp:-?} · $project ($prefix)"
+fill=$(( width - 4 - ${#title} )); [ "$fill" -lt 3 ] && fill=3
+rule() { printf '─%.0s' $(seq 1 "$1"); }
+printf '%s╭─%s %sRelay%s %s · %s%s%s (%s) %s%s%s\n' \
+  "$accent" "$off" "$b" "$off" "${stamp:-?}" "$b" "$project" "$off" "$prefix" "$accent" "$(rule "$fill")" "$off"
 line "Template" "$template"
 line "Lead" "$lead ${dim}${model:+($model)}${off} · $lead_line"
 line "$branch" "$head $sync · $tree · $ci"
-line "Worktrees" "${worktrees:- none}"
+line "Worktrees" "${worktrees:-none}"
 line "Next" "${next:-see docs/agent-handoff.md}"
-printf '%s╰──────────────────────────────────────────────────────────────%s\n' "$accent" "$off"
+printf '%s╰%s%s\n' "$accent" "$(rule $(( width - 1 )))" "$off"
