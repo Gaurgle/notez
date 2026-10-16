@@ -1,4 +1,4 @@
-<!-- relay-template: 0.5.1; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.5.2; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 # Agent workflow (Relay)
 
 How agents work on notez. This file is vendor-neutral: Claude reads it
