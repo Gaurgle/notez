@@ -60,12 +60,15 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
    template. Changes after review get re-reviewed.
 4. Once the reviewer accepts, follow the integration policy. If the owner
    integrates, stop at Ready to integrate and present commands. Otherwise
-   commit exactly the reviewed diff and push only when authorized. Wait for
+   commit exactly the reviewed diff, ending the message with
+   `Refs: <ticket>` (see "Commits and tickets" in `docs/agent-workflow.md`),
+   and push only when authorized. Wait for
    CI with `gh run watch <run-id> --exit-status` as a background command;
    the harness tells you when it ends.
 5. Verify the result against current `main` yourself: run the checks in
    `docs/agent-workflow.md` on the combined result.
 6. Merge under the safe-merge rule, or stop and ask if it does not apply.
+   The merge commit names the ticket; then move its board item to Done.
    Either way report in the owner-facing format, including how to try the
    build. Keep the worktree until the ticket is integrated.
 7. After the merge, run `scripts/relay-sweep main`. It removes merged, clean ticket

@@ -1,4 +1,4 @@
-<!-- relay-template: 0.4.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.5.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 # Agent workflow (Relay)
 
 How agents work on notez. This file is vendor-neutral: Claude reads it
@@ -144,6 +144,18 @@ validation cycles on the same blocker, escalate instead of widening scope.
    `main` is green; it lists everything it keeps and why.
    Anything it keeps that should go is a question for the owner. Deleting
    remote branches needs the owner's approval.
+
+## Commits and tickets
+
+Every commit traces to its ticket, so history, the board and any issue agree
+even before a merge and after a branch is deleted.
+
+- Ticket commit: Conventional Commits subject, a body for the why, and a last
+  line `Refs: <ticket>` (here `NZ-5`).
+- Merge commit: `Merge branch '<branch>' (<ticket>)` as the subject. Board
+  items here are drafts, not issues, so the lead moves them to Done itself.
+- Coordination commits about one ticket (handoff, specs, plans) also end with
+  `Refs: <ticket>`.
 
 ## Records
 
