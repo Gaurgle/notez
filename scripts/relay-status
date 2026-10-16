@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# A short Relay status block for the owner: project, versions, lead and baton,
+# main, worktrees and the next step. Read only, apart from a quiet fetch.
+# Colours and a frame on a terminal; plain text with --plain, when piped, or
+# when NO_COLOR is set.
+#
+# Usage: scripts/relay-status [--plain] [--no-fetch]
+
+set -uo pipefail
+
+plain=false
+fetch=true
+for arg in "$@"; do
+  case "$arg" in
+    --plain) plain=true ;;
+    --no-fetch) fetch=false ;;
+    -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+done
+[ -t 1 ] && [ -z "${NO_COLOR:-}" ] || plain=true
+
+if $plain; then
+  b=; dim=; ok=; warn=; bad=; accent=; off=
+else
+  b=$'\e[1m'; dim=$'\e[2m'; ok=$'\e[32m'; warn=$'\e[33m'; bad=$'\e[31m'
+  accent=$'\e[36m'; off=$'\e[0m'
+fi
+
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") \
+  || { echo "Not a git repository."; exit 1; }
+cd "$root" || exit 1
+[ -f docs/agent-workflow.md ] || { echo "No Relay here: docs/agent-workflow.md is missing."; exit 1; }
+
+project=$(basename "$root")
+coordinator=$(ls .claude/agents/*-coordinator.md 2>/dev/null | head -1)
+lead=$(basename "${coordinator:-?-coordinator.md}" .md)
+prefix=${lead%-coordinator}
+model=$(sed -n 's/^model: *//p' "$coordinator" 2>/dev/null | head -1)
+
+line() { printf '%s│%s %s%-9s%s %s\n' "$accent" "$off" "$dim" "$1" "$off" "$2"; }
+
+# Template: the repo's stamp against the skill's VERSION.
+stamp=$(sed -n 's/.*<!-- relay-template: \([0-9][0-9.]*\).*/\1/p' docs/agent-workflow.md | head -1)
+skill_version=
+for dir in "$HOME/.claude/skills/relay" "$HOME/claude-config/skills/relay"; do
+  [ -f "$dir/VERSION" ] && { skill_version=$(tr -d '[:space:]' < "$dir/VERSION"); break; }
+done
+if [ -z "$stamp" ]; then
+  template="${warn}no version stamp${off} (copied before 0.4.0)"
+elif [ -z "$skill_version" ]; then
+  template="$stamp ${dim}(skill not visible here)${off}"
+elif [ "$stamp" = "$skill_version" ]; then
+  template="$stamp ${ok}up to date${off}"
+else
+  template="${warn}$stamp, skill is $skill_version${off}: run scripts/relay-check"
+fi
+
+# Lead: a running coordinator process is the evidence; the handoff says the rest.
+pids=$(pgrep -f "claude --agent $lead" 2>/dev/null | tr '\n' ' ')
+hit=$(grep -m1 -iE 'released|held since|none yet' docs/agent-handoff.md 2>/dev/null)
+when=$(printf '%s' "$hit" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}( [0-9]{2}:[0-9]{2})?' | head -1)
+case "$(printf '%s' "$hit" | tr '[:upper:]' '[:lower:]')" in
+  *"held since"*) baton="baton held${when:+ since $when}" ;;
+  *released*) baton="baton released${when:+ $when}" ;;
+  *"none yet"*) baton="no lead yet" ;;
+  *) baton= ;;
+esac
+if [ -n "$pids" ]; then
+  lead_line="${ok}running${off} (pid ${pids% }), holds the baton"
+else
+  lead_line="${dim}not running${off}${baton:+ · $baton}"
+fi
+
+# main against origin, the tree, and CI.
+$fetch && GIT_TERMINAL_PROMPT=0 git fetch --quiet origin 2>/dev/null
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)
+head=$(git rev-parse --short HEAD)
+counts=$(git rev-list --left-right --count "HEAD...origin/$branch" 2>/dev/null)
+ahead=${counts%%[[:space:]]*}; behind=${counts##*[[:space:]]}
+if [ -z "$counts" ]; then sync="${dim}no origin/$branch${off}"
+elif [ "$ahead$behind" = "00" ]; then sync="${ok}= origin${off}"
+else sync="${warn}${ahead} ahead, ${behind} behind origin${off}"; fi
+dirty=$(git status --porcelain | wc -l | tr -d ' ')
+[ "$dirty" = 0 ] && tree="${ok}clean${off}" || tree="${warn}$dirty uncommitted${off}"
+ci=$(gh run list --branch "$branch" --limit 1 --json status,conclusion \
+  --jq '.[0] | if . == null then "none" else (.conclusion // .status) end' 2>/dev/null)
+case "$ci" in
+  success) ci="${ok}CI green${off}" ;;
+  failure|cancelled|timed_out) ci="${bad}CI $ci${off}" ;;
+  "") ci="${dim}CI unknown${off}" ;;
+  *) ci="${warn}CI $ci${off}" ;;
+esac
+
+# Ticket worktrees.
+worktrees=
+for dir in .claude/worktrees/*/; do
+  [ -d "$dir" ] || continue
+  name=$(basename "$dir")
+  tip=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+  # Merged means a merge on the integration branch took this tip in; a fresh
+  # branch sitting at its base is also an ancestor, so that test alone lies.
+  if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]; then
+    state="${warn}working${off}"
+  elif git log --merges --format=%P -300 "origin/$branch" 2>/dev/null | grep -q " $tip"; then
+    state="${ok}merged${off}"
+  else
+    commits=$(git rev-list --count "origin/$branch..$tip" 2>/dev/null)
+    state="${commits:-?} commits"
+  fi
+  worktrees="$worktrees $name ${dim}($off$state$dim)$off"
+done
+
+next=$(awk '/^#+ Next step/ { on = 1; next } /^#+ / { on = 0 }
+  on && NF { sub(/^[[:space:]]*[-*0-9.]*[[:space:]]*/, ""); gsub(/\*\*/, ""); print; exit }' \
+  docs/agent-handoff.md 2>/dev/null)
+[ "${#next}" -gt 66 ] && next="${next:0:66}..."
+
+printf '%s╭─%s %sRelay%s %s · %s%s%s (%s) %s─────────────────────────%s\n' \
+  "$accent" "$off" "$b" "$off" "${stamp:-?}" "$b" "$project" "$off" "$prefix" "$accent" "$off"
+line "Template" "$template"
+line "Lead" "$lead ${dim}${model:+($model)}${off} · $lead_line"
+line "$branch" "$head $sync · $tree · $ci"
+line "Worktrees" "${worktrees:- none}"
+line "Next" "${next:-see docs/agent-handoff.md}"
+printf '%s╰──────────────────────────────────────────────────────────────%s\n' "$accent" "$off"

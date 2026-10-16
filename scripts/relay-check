@@ -57,7 +57,7 @@ else
   fi
 fi
 
-for script in scripts/relay-sweep scripts/relay-check; do
+for script in scripts/relay-sweep scripts/relay-check scripts/relay-status; do
   [ -x "$script" ] || echo "Missing or not executable: $script"
 done
 
