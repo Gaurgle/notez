@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Checks the GitHub Project board against the board rules in
+# docs/agent-workflow.md, or prints the next free ticket id. Read only: it
+# never edits the board.
+#
+# The board is named on the second line of docs/agent-workflow.md:
+#   <!-- relay-board: owner=<login> project=<number> prefix=<PREFIX> -->
+# A repo without a board has no such line.
+#
+# Usage: scripts/relay-board check   what breaks the rules, one line each
+#        scripts/relay-board next    the next free ticket id, e.g. FZ-80
+
+set -uo pipefail
+
+statuses="Backlog,Ready,In progress,Review,Ready to integrate,Done"
+
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+cd "$root"
+
+cmd=${1:-check}
+case "$cmd" in
+  check|next) ;;
+  -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "Unknown command: $cmd (check or next)"; exit 1 ;;
+esac
+
+config=$(sed -n 's/.*<!-- relay-board: \(.*\) -->.*/\1/p' \
+  docs/agent-workflow.md 2>/dev/null | head -1)
+if [ -z "$config" ]; then
+  echo "No board: docs/agent-workflow.md has no relay-board line."
+  exit 0
+fi
+owner= project= prefix=
+for kv in $config; do
+  case "$kv" in
+    owner=*) owner=${kv#owner=} ;;
+    project=*) project=${kv#project=} ;;
+    prefix=*) prefix=${kv#prefix=} ;;
+  esac
+done
+if [ -z "$owner" ] || [ -z "$project" ] || [ -z "$prefix" ]; then
+  echo "Incomplete relay-board line: $config"
+  exit 1
+fi
+
+# One row per item: type, number, status, priority, milestone, title.
+items=$(gh project item-list "$project" --owner "$owner" --limit 1000 \
+  --format json --jq '.items[] | [.content.type, (.content.number // "" | tostring),
+    (.status // ""), (.priority // ""), (.milestone.title // ""), .title] | @tsv') \
+  || { echo "Could not read board $owner/$project (gh auth or network)."; exit 1; }
+
+if [ "$cmd" = next ]; then
+  max=$(printf '%s\n' "$items" | cut -f6 \
+    | sed -n "s/^$prefix-\([0-9][0-9]*\)[a-z]\{0,1\}:.*/\1/p" | sort -n | tail -1)
+  echo "$prefix-$(( 10#${max:-0} + 1 ))"
+  exit 0
+fi
+
+fields=$(gh project field-list "$project" --owner "$owner" --format json \
+  --jq '.fields[] | [.name, ([.options[]?.name] | join(","))] | @tsv') \
+  || { echo "Could not read the board's fields."; exit 1; }
+
+findings=$(
+  printf '%s\n' "$fields" | awk -F'\t' -v statuses="$statuses" '
+    { have[$1] = 1; options[$1] = $2 }
+    END {
+      if (options["Status"] != statuses)
+        print "Board: Status options are \"" options["Status"] "\", not \"" statuses "\""
+      if (options["Priority"] != "P0,P1,P2")
+        print "Board: Priority needs the options P0,P1,P2" (have["Priority"] ? " (has \"" options["Priority"] "\")" : " (field missing)")
+      if (!have["Worker"]) print "Board: no Worker field"
+      if (!have["Ticket reviewer"]) print "Board: no Ticket reviewer field"
+    }'
+
+  printf '%s\n' "$items" | awk -F'\t' -v prefix="$prefix" -v statuses="$statuses" '
+    BEGIN {
+      n = split(statuses, s, ","); for (i = 1; i <= n; i++) known[s[i]] = 1
+      active["Ready"] = active["In progress"] = active["Review"] = active["Ready to integrate"] = 1
+      idre = "^" prefix "-[0-9]+[a-z]?: "
+    }
+    $6 == "" { next }
+    {
+      who = ($2 == "" ? "draft" : "#" $2) " " substr($6, 1, 60)
+      if ($1 != "Issue") { drafts++; first = first ? first : $6 }
+      if ($6 !~ idre) print who ": no " prefix "-<n>: id in the title"
+      else { id = $6; sub(/:.*/, "", id); if (seen[id]++) dup[id] = 1 }
+      if ($3 != "" && !known[$3]) print who ": status \"" $3 "\" is not a board status"
+      if (active[$3] && $4 == "") print who ": " $3 " without a priority"
+      if (active[$3] && $5 == "") print who ": " $3 " without a milestone"
+    }
+    END {
+      for (id in dup) print id ": used by " seen[id] " items"
+      if (drafts) print drafts " draft items, not issues (first: " substr(first, 1, 60) ")"
+    }'
+)
+
+total=$(printf '%s\n' "$items" | grep -c .)
+if [ -z "$findings" ]; then
+  echo "Board $owner/$project follows the rules ($total items)."
+else
+  printf '%s\n' "$findings"
+  echo "Board $owner/$project: $(printf '%s\n' "$findings" | grep -c .) findings over $total items."
+fi
+exit 0

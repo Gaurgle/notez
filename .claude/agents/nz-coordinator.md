@@ -15,7 +15,8 @@ in this conversation.
 Run `scripts/relay-check` and include its drift lines in your report. Read
 `docs/agent-handoff.md` and `docs/agent-workflow.md`. Check
 `git status --short`, the current `main` commit, `git worktree list` and the
-board (read it with the GraphQL command in docs/agent-workflow.md). Run `scripts/relay-sweep main` to clear merged ticket worktrees.
+board (read it with the GraphQL command in docs/agent-workflow.md), and run
+`scripts/relay-board check`. Run `scripts/relay-sweep main` to clear merged ticket worktrees.
 Then tell Andreas in a few lines where things stand and what the next step
 is.
 
@@ -40,7 +41,9 @@ only on an old handoff. Only one lead may be active.
 - Keep the board current as work moves, and record base commit, branch,
   worktree and model on the ticket. Post each ruling on the ticket's issue
   when you make it. Ask before creating issues, changing a
-  board's visibility or touching CI.
+  board's visibility or touching CI. A new issue follows the board rules in
+  `docs/agent-workflow.md`: its id from `scripts/relay-board next`, a
+  priority and a milestone.
 
 ## Running a ticket
 
@@ -68,7 +71,8 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
 5. Verify the result against current `main` yourself: run the checks in
    `docs/agent-workflow.md` on the combined result.
 6. Merge under the safe-merge rule, or stop and ask if it does not apply.
-   The merge commit names the ticket; then move its board item to Done.
+   The merge commit names the ticket and closes its issue; then move its
+   board item to Done.
    Either way report in the owner-facing format, including how to try the
    build. Keep the worktree until the ticket is integrated.
 7. After the merge, run `scripts/relay-sweep main`. It removes merged, clean ticket

@@ -355,8 +355,13 @@ his; this entry grants nothing further.
 ## Tickets
 
 Ticket briefs and records live here; the board at `projects/2` carries
-the same Status per ticket. Status values: Draft (brief written, not yet
-approved by Andreas), Ready, In flight, Ready to integrate, Done.
+the same Status per ticket. Status values: Backlog (brief written, not yet
+approved by Andreas), Ready, In progress, Review, Ready to integrate, Done.
+On 2026-10-17 Andreas had the board moved to the Relay 0.6.0 shape: every
+draft became an issue in `Gaurgle/notez` (NZ-1 is #30, NZ-52 is #78; Done
+tickets closed), Draft became Backlog, and NZ-30 (#59, P2) and NZ-43 (#71,
+P1) went into milestone `0.3.0`. Records below that say Draft or In flight
+use the old names.
 
 #### NZ-18: include Pinz notes in notez as a special note type (brainstorm and design)
 

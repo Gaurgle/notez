@@ -1,4 +1,5 @@
-<!-- relay-template: 0.5.2; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.6.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
 How agents work on notez. This file is vendor-neutral: Claude reads it
@@ -6,26 +7,57 @@ through `CLAUDE.md` and `.claude/agents/`, Codex through `AGENTS.md`. It does
 not by itself authorize implementation, dependencies, CI changes or external
 publication. The board is the GitHub Project
 `https://github.com/users/Gaurgle/projects/2` (owner `Gaurgle`, number 2,
-private), one draft item per ticket titled `NZ-n: ...` with a Status
-field (Draft, Ready, In flight, Ready to integrate, Done). It is
-authoritative for live status; `docs/agent-handoff.md` holds the ticket
-briefs, records, in-flight details and the baton, and the two must agree.
+private; the issues in `Gaurgle/notez` are public). It follows "The board"
+below and is authoritative for live status; `docs/agent-handoff.md` holds
+the ticket briefs, records, in-flight details and the baton, and the two
+must agree.
 
-Read it with the GraphQL API, because `gh project item-list` lags behind
-by minutes (rows with a null title are index lag from deleted items):
+Read live status with the GraphQL API, because `gh project item-list` lags
+behind by minutes (rows with a null title are index lag from deleted
+items); `scripts/relay-board` uses `item-list`, so its findings can trail a
+change by that much:
 
 ```sh
-gh api graphql -f query='query { node(id: "PVT_kwHOCU842c4BmE5Z") { ... on ProjectV2 { items(first: 50) { nodes { id content { ... on DraftIssue { title } } fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }'
+gh api graphql -f query='query { node(id: "PVT_kwHOCU842c4BmE5Z") { ... on ProjectV2 { items(first: 100) { nodes { id content { ... on Issue { number title } } fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }'
 ```
 
 The lead keeps each item's Status current as tickets move (owner
-instruction, 2026-10-07, recorded in `docs/agent-handoff.md`). Status
-changes only: creating or deleting items or issues, and changing the
-board's visibility, stay with the owner. Update with `gh project
-item-edit --id <item> --project-id PVT_kwHOCU842c4BmE5Z --field-id
-PVTSSF_lAHOCU842c4BmE5ZzhkvTJM --single-select-option-id <option>`, option
-ids Draft `3d75ddf4`, Ready `9e7798e2`, In flight `b984e77c`, Ready to
-integrate `abf1c81e`, Done `82c5faed`.
+instruction, 2026-10-07, recorded in `docs/agent-handoff.md`). Creating
+issues follows the standing permission recorded there; deleting items or
+issues, and changing the board's visibility, stay with the owner. Update
+with `gh project item-edit --id <item> --project-id PVT_kwHOCU842c4BmE5Z
+--field-id <field> --single-select-option-id <option>`:
+
+- Status field `PVTSSF_lAHOCU842c4BmE5ZzhkvTJM`: Backlog `6e063728`, Ready
+  `ff1a5bb2`, In progress `11d82ec8`, Review `e89d2025`, Ready to integrate
+  `014436b1`, Done `8c8b405f`.
+- Priority field `PVTSSF_lAHOCU842c4BmE5ZzhmEJmM`: P0 `4355330c`, P1
+  `d8dcd0c8`, P2 `b53df485`.
+- Worker and Ticket reviewer are text fields (`--text`).
+
+Milestones are versions (`0.3.0`).
+
+## The board
+
+Every Relay board has the same shape, so tickets read the same in every
+project. The second line of this file names the board for
+`scripts/relay-board`.
+
+- Every ticket is a GitHub issue in this repo, never a draft item, so it has a
+  number, can carry a milestone and closes with `Closes #<n>`.
+- Every title starts with the ticket id: `NZ-<n>: <summary>`, bugs and
+  review follow-ups included. Take the number from `scripts/relay-board
+  next`, never from memory.
+- A letter suffix (`NZ-5a`) marks a planned split of one ticket. A follow-up
+  found later gets a new number and names the original as its parent issue.
+- Status: Backlog, Ready, In progress, Review, Ready to integrate, Done.
+- Fields: Priority (P0, P1, P2), Worker and Ticket reviewer (text: agent,
+  model and effort), and the built-in Milestone. A ticket needs a priority and
+  a milestone before it is Ready.
+
+The lead runs `scripts/relay-board check` on start. It fixes ids and fields on
+the tickets it creates and reports the rest; converting drafts and changing
+the board's fields or statuses are the owner's call.
 
 ## Owner-approved integration policy
 
@@ -151,9 +183,12 @@ Every commit traces to its ticket, so history, the board and any issue agree
 even before a merge and after a branch is deleted.
 
 - Ticket commit: Conventional Commits subject, a body for the why, and a last
-  line `Refs: <ticket>` (here `NZ-5`).
-- Merge commit: `Merge branch '<branch>' (<ticket>)` as the subject. Board
-  items here are drafts, not issues, so the lead moves them to Done itself.
+  line `Refs: <ticket>`: the issue number (`#59`). Commits before
+  2026-10-17 name the board id (`NZ-5`) instead; the ticket's issue has the
+  same id in its title.
+- Merge commit: `Merge branch '<branch>' (<ticket>)` as the subject and
+  `Closes #<n>` in the body, so GitHub closes the issue when the merge
+  reaches `main`. The lead still moves the board item to Done.
 - Coordination commits about one ticket (handoff, specs, plans) also end with
   `Refs: <ticket>`.
 
