@@ -124,6 +124,7 @@ fn main() -> ExitCode {
         Commands::Search { term } | Commands::Findz { term } => {
             commands::search::run(term, &config)
         }
+        Commands::Agenda { days } => commands::agenda::run(days, &config),
         // `decide` turns these into `Action::Browse`; kept so the match stays
         // exhaustive without a panic.
         Commands::Tree | Commands::Treez => browse(
@@ -449,6 +450,7 @@ fn print_help() {
     println!("  {}", mauve.apply_to("Todos"));
     cmd("notez todo", "interactive todo manager (TUI)");
     cmd("notez todo \"item\"", "quick-add a todo");
+    cmd("notez agenda [--days N]", "due and scheduled notes and todos, next N days (7)");
     println!();
 
     println!("  {}", mauve.apply_to("Tree Browser"));
@@ -660,6 +662,15 @@ mod tests {
             parse(&["completions", "zsh"]).unwrap().command,
             Some(Commands::Completions { .. })
         ));
+    }
+
+    #[test]
+    fn agenda_parses_days_with_a_default_of_seven() {
+        let cli = parse(&["agenda", "--days", "3"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 3 })));
+        let cli = parse(&["agenda"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 7 })));
+        assert!(parse(&["agenda", "--days", "-1"]).is_err());
     }
 
     #[test]

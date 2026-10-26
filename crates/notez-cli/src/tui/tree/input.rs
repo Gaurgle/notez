@@ -339,9 +339,17 @@ pub(super) fn event_loop(
                         preview_title_spans =
                             with_section_root(preview_title_spans, &tilde_path(root), title_width);
                         if let Some(suffix) = file_suffix(&node.path, false) {
+                            let today = chrono::Local::now().date_naive();
+                            let shown_path = section_relative_path(&node.path, root);
                             let (left, right) = preview_bottom_titles(
-                                suffix_spans(&suffix, preview.mode),
-                                &section_relative_path(&node.path, root),
+                                preview.footer_spans(
+                                    &suffix,
+                                    &node.path,
+                                    &shown_path,
+                                    today,
+                                    border_width,
+                                ),
+                                &shown_path,
                                 border_width,
                             );
                             bottom_titles.push(left);

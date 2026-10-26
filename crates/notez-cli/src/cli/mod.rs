@@ -95,6 +95,13 @@ pub enum Commands {
         term: String,
     },
 
+    /// Dated notes and due todos across all scopes, overdue first, by day
+    Agenda {
+        /// Days after today to include
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+    },
+
     /// Show directory tree (interactive TUI)
     Tree,
 

@@ -2,6 +2,7 @@
 //! the cache and syntax highlighting.
 
 use super::*;
+use notez_core::core::dates::{NoteDate, NoteDates};
 
 // --- Preview scrolling ---
 
@@ -169,6 +170,61 @@ pub(super) fn suffix_spans(suffix: &FileSuffix, mode: PreviewMode) -> Vec<Span<'
     spans
 }
 
+/// A note's dates as drawn after the suffix on the preview's bottom border,
+/// each followed by a space: `due 2026-10-20` (red when overdue, before
+/// `today`), `on 2026-11-02 14:00` for the event, then `created
+/// 2026-10-01`, dim. When they do not all fit the `width` columns, whole
+/// dates drop from the end: `created` first, then `on`, then `due`; none is
+/// cut.
+pub(super) fn date_spans(
+    dates: &NoteDates,
+    today: chrono::NaiveDate,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let neutral = Style::default().fg(theme::NEUTRAL_SUFFIX);
+    let due_style = |due: NoteDate| {
+        if due.date < today {
+            neutral.fg(theme::RED)
+        } else {
+            neutral
+        }
+    };
+    let mut segments: Vec<(String, Style)> = [
+        dates.due.map(|due| ("due", due, due_style(due))),
+        dates.event.map(|event| ("on", event, neutral)),
+        dates.created.map(|created| ("created", created, theme::dimmed())),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|(word, date, style)| (format!("{word} {}", footer_date(date)), style))
+    .collect();
+    let needed = |segments: &[(String, Style)]| -> usize {
+        segments.iter().map(|(text, _)| text_width(text) + 1).sum()
+    };
+    while needed(&segments) > width {
+        segments.pop();
+    }
+    segments
+        .into_iter()
+        .flat_map(|(text, style)| [Span::styled(text, style), Span::raw(" ")])
+        .collect()
+}
+
+/// The columns [`preview_bottom_titles`] needs for `path` in its shortest
+/// form: the separating space, the padding, and the whole path or `…` and
+/// its last column, whichever is narrower.
+fn shortest_path_title(path: &str) -> usize {
+    1 + 2 + text_width(path).min(2)
+}
+
+/// `2026-10-20`, or `2026-10-20 14:00` with a time.
+fn footer_date(date: NoteDate) -> String {
+    match date.time {
+        Some(time) => format!("{} {}", date.date.format("%Y-%m-%d"), time.format("%H:%M")),
+        None => date.date.format("%Y-%m-%d").to_string(),
+    }
+}
+
 /// The path of `path` relative to its section `root`, as the preview's
 /// bottom border shows it (`ideas/plan.md`); the bare file name for a
 /// note at the root, or for a path outside the root.
@@ -305,11 +361,17 @@ impl PreviewCache {
     }
 }
 
-/// The preview's rendering mode and its cached file lines.
+/// The dates of the last markdown note asked for, keyed like
+/// [`PreviewKey`] by the file as it is on disk, so a draw that changes
+/// nothing reads nothing.
+type DatesCache = Option<((PathBuf, Option<std::time::SystemTime>, u64), NoteDates)>;
+
+/// The preview's rendering mode and its cached file lines and note dates.
 #[derive(Default)]
 pub(super) struct Preview {
     pub(super) mode: PreviewMode,
     cache: PreviewCache,
+    dates: DatesCache,
 }
 
 impl Preview {
@@ -346,6 +408,50 @@ impl Preview {
         let language = key.as_ref().and_then(|key| key.language);
         self.cache
             .get(key, || file_preview_lines(path, rendered, width, language))
+    }
+
+    /// The dates of the markdown note at `path`, read (at most its first
+    /// 4 KiB) only when the file is new to the cache or has changed on disk.
+    /// Other files and unreadable ones have none.
+    pub(super) fn note_dates(&mut self, path: &Path) -> NoteDates {
+        if !is_markdown(path) {
+            return NoteDates::default();
+        }
+        let Ok(meta) = std::fs::metadata(path) else {
+            return NoteDates::default();
+        };
+        let key = (path.to_path_buf(), meta.modified().ok(), meta.len());
+        match &self.dates {
+            Some((cached, dates)) if *cached == key => *dates,
+            _ => {
+                let dates = NoteDates::read(path);
+                self.dates = Some((key, dates));
+                dates
+            }
+        }
+    }
+
+    /// The left bottom-border title of a file row in a border `width`
+    /// columns wide: the [`suffix_spans`], then the note's [`date_spans`]
+    /// in the room left after them and after the shortest form
+    /// [`preview_bottom_titles`] can give the section-relative `shown_path`,
+    /// so dates drop before the path does.
+    pub(super) fn footer_spans(
+        &mut self,
+        suffix: &FileSuffix,
+        path: &Path,
+        shown_path: &str,
+        today: chrono::NaiveDate,
+        width: usize,
+    ) -> Vec<Span<'static>> {
+        let mut spans = suffix_spans(suffix, self.mode);
+        let used: usize = spans.iter().map(Span::width).sum();
+        let room = width
+            .saturating_sub(used)
+            .saturating_sub(shortest_path_title(shown_path));
+        let dates = self.note_dates(path);
+        spans.extend(date_spans(&dates, today, room));
+        spans
     }
 }
 
@@ -1250,5 +1356,168 @@ mod tests {
         );
         let root_span = with_section_root(name(), "~/x", 80).pop().unwrap();
         assert_eq!(root_span.style, theme::dimmed());
+    }
+
+    // --- Note dates on the bottom border (NZ-53) ---
+
+    fn date(s: &str) -> Option<NoteDate> {
+        Some(NoteDate::parse(s).unwrap())
+    }
+
+    fn today() -> chrono::NaiveDate {
+        NoteDate::parse("2026-10-26").unwrap().date
+    }
+
+    fn all_three() -> NoteDates {
+        NoteDates {
+            created: date("2026-10-01"),
+            due: date("2026-10-28"),
+            event: date("2026-11-02T14:00"),
+        }
+    }
+
+    fn dates_text(dates: &NoteDates, width: usize) -> String {
+        text_of(&Line::from(date_spans(dates, today(), width)))
+    }
+
+    #[test]
+    fn each_date_shows_alone_with_its_word() {
+        let only = |field: fn(&mut NoteDates, Option<NoteDate>), value: &str| {
+            let mut dates = NoteDates::default();
+            field(&mut dates, date(value));
+            dates_text(&dates, 80)
+        };
+        assert_eq!(only(|d, v| d.due = v, "2026-10-28"), "due 2026-10-28 ");
+        assert_eq!(only(|d, v| d.event = v, "2026-11-02T14:00"), "on 2026-11-02 14:00 ");
+        assert_eq!(only(|d, v| d.created = v, "2026-10-01"), "created 2026-10-01 ");
+    }
+
+    #[test]
+    fn all_three_dates_show_when_they_fit() {
+        assert_eq!(
+            dates_text(&all_three(), 80),
+            "due 2026-10-28 on 2026-11-02 14:00 created 2026-10-01 "
+        );
+        // Exactly the width they need.
+        assert_eq!(dates_text(&all_three(), 54).len(), 54);
+    }
+
+    #[test]
+    fn a_narrow_border_drops_created_first_then_omits_whole_dates() {
+        assert_eq!(dates_text(&all_three(), 53), "due 2026-10-28 on 2026-11-02 14:00 ");
+        assert_eq!(dates_text(&all_three(), 35), "due 2026-10-28 on 2026-11-02 14:00 ");
+        assert_eq!(dates_text(&all_three(), 34), "due 2026-10-28 ");
+        assert_eq!(dates_text(&all_three(), 14), "");
+    }
+
+    #[test]
+    fn a_narrow_border_drops_on_before_due_even_when_on_alone_would_fit() {
+        let dates = NoteDates {
+            created: None,
+            due: date("2026-10-28T09:00"),
+            event: date("2026-11-02"),
+        };
+        // `due 2026-10-28 09:00 ` is 21 columns, `on 2026-11-02 ` 14.
+        assert_eq!(dates_text(&dates, 35), "due 2026-10-28 09:00 on 2026-11-02 ");
+        assert_eq!(dates_text(&dates, 34), "due 2026-10-28 09:00 ");
+        assert_eq!(dates_text(&dates, 20), "");
+    }
+
+    #[test]
+    fn the_path_keeps_its_shortest_form_and_dates_drop_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("venue.md");
+        std::fs::write(
+            &note,
+            "---\ncreated: 2026-10-01\ndue: 2026-10-28\nevent: 2026-11-02T14:00\n---\n# V\n",
+        )
+        .unwrap();
+        let suffix = file_suffix(&note, false).unwrap();
+        let mut preview = Preview::default();
+        let path = "ideas/venue.md";
+        let titles = |preview: &mut Preview, width: usize| {
+            let (left, right) = preview_bottom_titles(
+                preview.footer_spans(&suffix, &note, path, today(), width),
+                path,
+                width,
+            );
+            (text_of(&left), right.map(|right| text_of(&right)))
+        };
+        // Wide: every date and the whole path.
+        assert_eq!(
+            titles(&mut preview, 100),
+            (
+                " .md due 2026-10-28 on 2026-11-02 14:00 created 2026-10-01 ".to_string(),
+                Some(" ideas/venue.md ".to_string())
+            )
+        );
+        // Due and on fill 40 columns; before NZ-53 F1 they left the path no
+        // room at 43. Now `on` drops and the path shows whole.
+        assert_eq!(
+            titles(&mut preview, 43),
+            (
+                " .md due 2026-10-28 ".to_string(),
+                Some(" ideas/venue.md ".to_string())
+            )
+        );
+        // Every width keeps at least the path's shortest form.
+        // From 10 columns: ` .md ` (5), a space, then ` …d ` (4) with padding.
+        for width in 10..100 {
+            let (_, right) = titles(&mut preview, width);
+            assert!(right.is_some(), "path pushed out at width {width}");
+        }
+    }
+
+    #[test]
+    fn no_dates_draw_nothing() {
+        assert!(date_spans(&NoteDates::default(), today(), 80).is_empty());
+    }
+
+    #[test]
+    fn created_is_dim_due_is_neutral_and_red_once_overdue() {
+        let spans = date_spans(&all_three(), today(), 80);
+        let neutral = Style::default().fg(theme::NEUTRAL_SUFFIX);
+        assert_eq!(spans[0].style, neutral);
+        assert_eq!(spans[2].style, neutral);
+        assert_eq!(spans[4].style, theme::dimmed());
+
+        let overdue = NoteDates {
+            due: date("2026-10-25"),
+            ..NoteDates::default()
+        };
+        let spans = date_spans(&overdue, today(), 80);
+        assert_eq!(spans[0].style.fg, Some(theme::RED));
+        let due_today = NoteDates {
+            due: date("2026-10-26"),
+            ..NoteDates::default()
+        };
+        assert_eq!(date_spans(&due_today, today(), 80)[0].style, neutral);
+    }
+
+    #[test]
+    fn footer_spans_put_the_dates_after_the_suffix_and_read_them_once_per_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("venue.md");
+        std::fs::write(&note, "---\ndue: 2026-10-28\n---\n# Venue\n").unwrap();
+        let mut preview = Preview::default();
+        let suffix = file_suffix(&note, false).unwrap();
+        let text = |preview: &mut Preview| {
+            text_of(&Line::from(preview.footer_spans(&suffix, &note, "venue.md", today(), 80)))
+        };
+        assert_eq!(text(&mut preview), " .md due 2026-10-28 ");
+
+        // Cached: the same file on disk is not read again.
+        let cached = preview.dates.clone();
+        assert_eq!(text(&mut preview), " .md due 2026-10-28 ");
+        assert_eq!(preview.dates, cached);
+
+        // A write (new length) is read again.
+        std::fs::write(&note, "---\nevent: 2026-11-02\n---\n# Venue, moved\n").unwrap();
+        assert_eq!(text(&mut preview), " .md on 2026-11-02 ");
+
+        // A file that is not markdown has no dates.
+        let code = dir.path().join("2026-10-01-tool.rs");
+        std::fs::write(&code, "fn main() {}\n").unwrap();
+        assert_eq!(preview.note_dates(&code), NoteDates::default());
     }
 }

@@ -4,6 +4,7 @@
 //! dispatch lives in `main.rs`.
 
 pub mod add;
+pub mod agenda;
 pub mod attach;
 pub mod completions;
 pub mod detach;
