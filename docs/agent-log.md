@@ -205,6 +205,77 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-53 (#79): notez agenda and the inspector date footer
+
+Consumers 2 and 3 of `docs/design-nz47-dates.md` (planned in the
+handoff as "NZ-49"; the id came from `relay-board next`). Issue
+created by lead `9c5067bf` on 2026-10-26 under the standing board
+permission; P1, milestone 0.3.0. Base `0019c62`, branch
+`feat/nz-53-agenda`, worktree `.claude/worktrees/nz-53`, worker
+`nz-worker` (opus, medium), reviewer `nz-reviewer` (opus, medium).
+
+Outcome: `notez agenda [--days N]` (default 7) lists `due` and `event`
+dates of notes (`collect_all`, daily logs excluded, 4 KiB head read
+once per note) and `Task.due` of unchecked todos, overdue first, then
+one group per day with entries; one plain line and exit 0 when empty.
+The preview's bottom border shows `due`, `on` (event) and `created`
+after the suffix, through a one-entry cache keyed by (path, mtime,
+len); segments drop whole (created, on, due) and the path keeps at
+least its shortest form. Lead rulings: `--json` deferred to NZ-54
+(#80) once Andreas delegated the `serde_json` decision; title is the
+first `#` heading else the file stem; half-done tasks listed; global
+TODO label is `Task.section`; daily-log match on any path component
+accepted; non-UTF-8 titles print with U+FFFD.
+
+Run: the brief named `render.rs` where `tui/tree/input.rs` draws the
+border, so the worker reported with the footer unwired and the lead
+added `input.rs` to its files (lead error, 3 min). Review 1: changes
+requested, blocker `--days` overflow panic, plus lead rulings on path
+priority and the daily-log test. Fix cycle 1 (2.5 min), re-review
+accepted at code hash `c54847c8…`; lead applied the worker's README
+text, accepted at full hash `c4c289e7…`. Commit `ab6748f`, branch CI
+40342554779 green, merged `c226a6c` (`--no-ff`), `main` CI
+40343960031. On the combined tree one pre-existing notez-core test
+(`sync::tests::auto_sync_pushes_offline_commits_once_the_remote_is_reachable`,
+a `git clone` into a temp dir) failed once and passed on three
+reruns; flaky under load, not touched by either ticket.
+
+NZ-53: review changes 1; fix cycles 1; owner decisions 1; worker 14; review 11; usage read (worker 237k tokens, reviewer 84k)
+
+### NZ-42 (#70): todoz reloads when its TODO.md files change
+
+Narrowed 2026-10-15 to `/` fuzzy search plus reload-on-change; on
+dispatch (2026-10-26, lead `9c5067bf`) the code showed todoz's `/`
+already used NZ-5's fuzzy matcher and highlight, so the ticket ran as
+reload-on-change only. P1 and milestone 0.3.0 set by the lead. Base
+`0019c62`, branch `fix/nz-42-todoz-reload`, worktree
+`.claude/worktrees/nz-42`, worker `nz-worker` (opus, medium),
+reviewer `nz-reviewer` (opus, medium). Files `tui/todo.rs`, README.
+
+Outcome: a 2 s idle probe (`event::poll`) of the mtimes of the loaded
+`TODO.md` sources (plus `_todos` on the global board), metadata only,
+never while a prompt, mode, help overlay or drag is open; reload
+keeps cursor (same task by file, section, kind, depth, text), filter,
+folds and focus state; `R` reloads on demand; dirty edits are saved
+before a reload. Lead rulings: single-scope boards re-read per section
+(`load_single_todo`), code TODOs rescanned only on restart; the tree's
+probe helpers duplicated (15 lines) rather than widening visibility.
+After review: a file that changed on disk while it holds unsaved
+edits is never saved over automatically; the footer asks for `R`, and
+a clean change waits while any file is held; the snapshot updates
+only after a successful reload so a failed save retries.
+
+Run: worker 9 min, review 1 accepted at `14796897…` with four
+follow-ups; lead took two before merge (fix cycle 3 min), re-review
+accepted at `ccfdae2a…` (mutation-tested). Commit `cb185fc`, branch
+CI 40341267013 green, merged `cd62547`, `main` CI 40342378322 green,
+remote branch deleted. Follow-ups on #70: status message replaces the
+whole footer until a key; duplicate parent rows can swap fold state;
+misleading message after a partial save failure; no lasting sign the
+board is out of date while a file is held.
+
+NZ-42: review accepted first; fix cycles 1; owner decisions 0; worker 12; review 9; usage read (worker 246k tokens, reviewer 116k)
+
 ### NZ-32: filter by document type
 
 Status: Ready, runs after NZ-5 (it extends the filter NZ-5 reworks).
@@ -1624,3 +1695,160 @@ worker, one merge chain on `main` at a time.
 Andreas installs when he chooses (`./install.sh`, his to run). His
 installed binary predates today's merges (NZ-3 header line, NZ-28 pass
 1 which shows nothing yet).
+
+## Moved from the handoff on 2026-10-26
+
+Parked and finished ticket records moved verbatim by lead `9c5067bf` to keep the handoff short. NZ-18, NZ-28 and NZ-29 stay Backlog on the board; their issues (#47, #57, #58) carry the same text. NZ-42 is Done (record above under Finished tickets).
+
+### NZ-18 (#47): include Pinz notes in notez as a special note type (brainstorm and design)
+
+Status: Draft, RECORD ONLY. Relayed on 2026-10-08 at about 10:50 CEST by
+the advisor session (`repos-f9`) with Andreas's words: "we need to
+brainstorm, think and find a way to include Pinz notes within Notez. as a
+special type of note." Not authorized to run: the standing scope does not
+cover it and Andreas has not named it in a lead session. Board item
+`PVTI_lAHOCU842c4BmE5Zzg_WCBU` created by the advisor session, Status
+Draft; the lead only keeps its Status current.
+
+This is a DESIGN ticket first. Its output is an approved design note under
+`docs/`; no code until Andreas approves the design, and any `notez-core`
+change needs his explicit approval (epoz pins the crate by rev).
+
+Facts, as relayed and spot-checked by the lead against `~/Repos/pinz`
+(crates `pinz-core` and `pinz-tui` exist; README line 21: "Your pins live
+in a second repo of your own, not in this one: `~/pinz-board` by default,
+or wherever `$PINZ_HOME` points"): pins are one file per pin in their own
+git repo `~/pinz-board`; boards are directories, plus a last-world file;
+Pinz has its own pull, commit and push (`pinz-core/src/sync.rs`) and a
+board lock; its README says it deliberately does not ride on notes repos,
+because an auto-push would sweep up unrelated work. Any design keeps
+Pinz's isolation and sync rules intact.
+
+Questions the design must answer:
+
+1. Is a Pinz pin a note in the notez vault, a view onto `~/pinz-board`
+   that notez reads without owning, or an import?
+2. How it appears in the tree browser and the NZ-13 unified view: a new
+   scope badge or a note type marker; reading only?
+3. Who writes: read-only in notez first, edit through Pinz only?
+4. Sync and conflicts: notez must never commit into `~/pinz-board`.
+5. The file format, and whether `notez-core` changes at all or the CLI
+   reads it.
+6. Tags, rename, move, delete and multi-select (NZ-14 to NZ-16) on a
+   Pinz item: allowed or blocked?
+7. epoz impact.
+
+Method: design-heavy work. The lead runs the `superpowers:brainstorming`
+skill with Andreas in the lead session, one question at a time, ending in
+a short design note under `docs/` that the ticket links; implementation
+tickets follow only from the approved note. Proposed order: after NZ-14 to
+NZ-16, since it touches the same browser code; Andreas can pull it
+forward.
+
+### NZ-28 (#57): linting in the preview (design)
+
+Status: Draft, design first (Andreas 17:20 CEST). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIJE`. Design note written by the lead:
+`docs/design-nz28-linting.md` (tree-sitter syntax diagnostics plus
+in-process markdown checks, gutter marks, footer count, an `!` issue
+overlay; no external tools). Andreas on 2026-10-08 21:30 CEST: "perhaps
+28 & 29?", read with the working rule as: go ahead as designed; he
+overrules after reading the note or trying the build. Status: Ready,
+runs after NZ-5, as ONE ticket in two passes.
+
+PASS 1 DONE 2026-10-10: merged into `main` as `4841211` (worker commit
+`3646b95`, review accepted at hash `5bc463df…`). `tui/lint.rs` (787
+lines, 27 tests), `highlight::parse` added, `pub mod lint;`. Lead
+decisions taken with the working rule: `TODO.md` task lines accept
+`[ ]`, `[/]`, `[x]`, `[X]` (matches `notez-core` todo states); `..`
+link targets are never probed (no vault root in pass 1; pass 2 may pass
+one); exactly two trailing spaces after text (hard break) are exempt;
+only full and collapsed reference links are checked; "no `#` heading"
+means no level-1 heading, blank notes exempt; markdown is never parsed
+with tree-sitter in pass 1. Nothing in the UI uses the module yet.
+
+PARKED 2026-10-15 (Andreas: "Linting we can park, as we dont offer a
+way yet to read, write or inspect actual code. Only .md as for now").
+Board back to Draft. Resumes when notez treats non-markdown files as
+notes. The module stays in the tree, unused. PASS 2 (not dispatched; needs the `tree.rs`
+line after NZ-44 and NZ-5) must also take the reviewer's follow-ups:
+(1) `todo_task_line` flags a plain `- [link](x.md)` bullet and `- [`
+lines inside fenced code in `TODO.md`: only flag checkbox-shaped lines
+and skip code blocks; (2) `fence_is_closed` accepts a closing fence
+indented four or more spaces (or behind a `> ` inside a top-level
+fence): compare the closing indent with the opening container prefix;
+(3) `render_markdown` turns a lone `\r` into `\n` before parsing while
+`lint` counts lines as `str::lines` does, so the line map must use one
+line definition; (4) decide whether `N issues` counts diagnostics or
+lines (several can share a line); (5) share one pulldown `Options`
+constant between `markdown.rs` and `lint.rs`; (6) images are not
+checked for missing targets (matches the design wording).
+
+Brief (from the design note; the worker verifies the code facts):
+
+1. Pass 1, `tui/lint.rs` (new): `pub struct Diagnostic { line: usize
+   (0-based source line), severity: Severity (Warning, Error), message:
+   String }`, `pub fn lint(path: &Path, text: &str, language:
+   Option<Language>) -> Vec<Diagnostic>` sorted by line. Sources: (a)
+   tree-sitter `ERROR` and `MISSING` nodes from a parse with the NZ-27
+   grammar when `language` is `Some` (one diagnostic per node, message
+   `syntax error` or `missing <kind>`, Error); (b) markdown checks when
+   the language is Markdown, built on the pulldown events: heading
+   level jump (`#` to `###`), duplicate heading text, unterminated
+   fence, relative link whose target file does not exist (resolved
+   against `path`'s directory), reference link without a definition,
+   trailing whitespace, a `TODO.md` task line not matching `- [ ]` or
+   `- [x]`, no `#` heading in the note (all Warning). Each check is one
+   function listed in a table so single checks can be turned off in
+   code. Files over 1 MiB return no diagnostics. Tests per check (one
+   positive, one negative), per language for the syntax source, and a
+   bounded-time guard.
+2. Pass 2, integration: `tui/markdown.rs` keeps a source line map
+   (rendered line index to source line) so marks land on the right
+   rendered line; a gutter mark `▲` in a warning colour (`theme`,
+   existing palette) at the start of a line with a diagnostic, in both
+   rendered and raw view; the footer file type segment gains `<n>
+   issues` (nothing at zero); `!` opens an issue list overlay (reusing
+   the help overlay drawing): `line: message` sorted, `j`/`k` move,
+   `Enter` scrolls the preview to that line and closes, `Esc` closes;
+   `!` in the key table (help "issues"), footer hint low priority
+   shown only when there are issues. Lint runs with the preview cache
+   (same key) so it costs nothing per frame. README paragraph.
+3. Not in scope: external tools, auto-fix, vault-wide lint, config
+   files.
+
+Allowed files: `crates/notez-cli/src/tui/lint.rs` (new), `tui/mod.rs`,
+`tui/markdown.rs`, `tui/highlight.rs` (expose a parse or error-node
+walk), `tui/tree.rs`, `tui/footer.rs`, `tui/help.rs`, `tui/theme.rs`,
+`README.md`. No new dependency, no notez-core change. One review of the
+whole diff. Reviewer probes: a relative link check must never touch
+files outside the vault or repo (no network, no absolute paths
+followed); overlay keys inert elsewhere; line map correctness after
+wrapping; performance on a 500 KB note.
+
+### NZ-29 (#58): LSP in the preview (design)
+
+Status: Draft, design first (Andreas 17:20 CEST). Board item
+`PVTI_lAHOCU842c4BmE5Zzg_ZIK8`. Design note written by the lead:
+`docs/design-nz29-lsp.md`, recommending NOT to embed LSP in a
+read-only preview and to build a symbol outline from tree-sitter
+instead. Andreas on 2026-10-08 21:30 CEST: "perhaps 28 & 29?", read
+with the working rule as leave to follow the recommendation: NZ-29
+stays Draft as the LSP record (closed as "not now" unless he objects
+after reading the note) and the work runs as NZ-30 below. Original
+questions: what a
+read-only preview gains from a language server (hover, diagnostics,
+symbols), which servers and how they are found, process lifetime
+inside a TUI, and whether this belongs in the notes browser at all
+versus opening the file in the editor. The lead recommends deciding
+this after NZ-27 and NZ-28 have been used. Needs Andreas's approval of
+the design before code.
+
+### NZ-42 (#70): todoz navigation like the tree browser (2026-10-09, Draft)
+
+NARROWED 2026-10-15 (Andreas "42: ok?" to the lead's proposal): `/`
+fuzzy search in todoz reusing NZ-5's matcher and highlight, plus the
+reload-on-change behaviour from NZ-34. No `0`/`s` jumps, no pane-focus
+keys. Brief to be written after NZ-5 lands and the NZ-43 brainstorm
+has happened.
+
