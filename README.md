@@ -86,7 +86,13 @@ without input it compares the modified times of the section roots and the
 open folders with its last look (no file is read) and reloads on any
 change, saying `reloaded (files changed)`. It does not look while a
 prompt, a mode, the help or a split drag is open, and a change inside a
-closed folder waits for the next reload. The todo board has no reload.
+closed folder waits for the next reload. The todo board reloads the same
+way: `R` saves any unsaved edits, then reads its `TODO.md` files again,
+keeping the cursor row, folds, focus and the filter, and after 2 seconds
+idle it compares the modified times of the files it shows (and, on the
+global board, the `_todos` folder) and reloads on any change, except when
+a changed file has unsaved edits on the board: then it leaves the board
+alone and the footer asks for `R`.
 
 A row starts with a one-column gutter (the mark of a marked row), then a
 tag field of five dots, one per tag in their fixed order (1 to 5), so the

@@ -8,8 +8,9 @@
 //! dirty in the returned [`BoardOutcome`]; files the user never touched are
 //! never rewritten (rewriting drops any non-todo text in them).
 
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
@@ -83,6 +84,7 @@ const TODO_KEYS: &[KeyHint] = &[
     key("click bar", "filter", "click the filter bar to filter, a dot to filter by that tag", theme::SAPPHIRE, Group::Filter, BOARD, Slot::HelpOnly, None),
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BOARD, Slot::Priority(5), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
+    key("R", "reload", "reload the board from disk, saving unsaved edits first (it also reloads by itself, within 2 s of idle, when a shown TODO.md changes, unless it has unsaved edits here)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BOARD, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BOARD, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -237,7 +239,7 @@ pub fn run_board(
 ) -> Result<BoardOutcome> {
     let prose_sources = detect_prose_sources(&items);
     let mut terminal = super::enter().context("failed to enter TUI")?;
-    let result = event_loop(&mut terminal, items, ctx, config, &prose_sources);
+    let result = event_loop(&mut terminal, items, ctx, config, prose_sources);
     super::leave().context("failed to leave TUI")?;
     result
 }
@@ -715,13 +717,269 @@ fn board_items(
         .collect()
 }
 
+// --- Reload (`R` and the file-change probe) ---
+//
+// The probe mirrors the tree's (`tree::model`); its helpers are private to
+// that module, so the three small ones are duplicated here.
+
+/// How long the event loop waits for input before it probes the disk.
+const PROBE_INTERVAL: Duration = Duration::from_secs(2);
+
+/// The modified time of each probed path; `None` when it could not be read
+/// (the path is gone or unreadable).
+type ProbeSnapshot = HashMap<PathBuf, Option<SystemTime>>;
+
+/// The paths the probe stats: every distinct `TODO.md` on the board (a
+/// header's source counts, so an empty category's missing file is watched
+/// for its creation), plus `todos_dir` (`<notez_root>/_todos` on the global
+/// board), whose own time changes when a category folder is added or
+/// removed. Code TODOs are never probed. A project `TODO.md` that is not on
+/// the board yet shows on the next reload (`R`, or one the probe triggers).
+fn probe_paths(items: &[Task], todos_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = items
+        .iter()
+        .filter(|t| !t.is_code_todo)
+        .map(|t| t.source.clone())
+        .chain(todos_dir.map(Path::to_path_buf))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+/// The modified time of each of `paths`, from `metadata`: one `stat` per
+/// path, no file is opened or read.
+fn probe_snapshot(paths: &[PathBuf]) -> ProbeSnapshot {
+    paths
+        .iter()
+        .map(|p| (p.clone(), std::fs::metadata(p).and_then(|m| m.modified()).ok()))
+        .collect()
+}
+
+/// Whether `new` shows a change against `old`: a path probed in both whose
+/// modified time differs, which covers a file that appeared or vanished. A
+/// path in only one of them is a new baseline, not a change.
+fn probe_changed(old: &ProbeSnapshot, new: &ProbeSnapshot) -> bool {
+    new.iter()
+        .any(|(path, time)| old.get(path).is_some_and(|before| before != time))
+}
+
+/// What an idle probe asks the event loop to do.
+#[derive(Debug, PartialEq, Eq)]
+enum ProbeStep {
+    /// Nothing on the board changed on disk.
+    Unchanged,
+    /// Clean files changed and no unsaved edit is at risk: save the dirty
+    /// files and reload. The change stays pending in the snapshot until the
+    /// caller takes a fresh one after the reload succeeds, so a failed save
+    /// is retried by the next probe.
+    Reload,
+    /// A file with unsaved edits here changed on disk, now or earlier: an
+    /// automatic save would overwrite that outside edit, so nothing is saved
+    /// or reloaded until `R`. Lists the files newly found so, for the footer;
+    /// empty when they were reported before.
+    Hold(Vec<PathBuf>),
+}
+
+/// Compare `reading` with the snapshot `last` and decide what to do.
+/// Paths new to the probe become baselines. A dirty path that changed is
+/// taken into `last` and added to `held`, so it is reported once and a
+/// later change to it is still seen; while any held path is dirty, no
+/// change reloads by itself. The caller clears `held` whenever a reload
+/// clears `dirty`.
+fn probe_step(
+    last: &mut ProbeSnapshot,
+    reading: ProbeSnapshot,
+    dirty: &HashSet<PathBuf>,
+    held: &mut HashSet<PathBuf>,
+) -> ProbeStep {
+    let changed = probe_changed(last, &reading);
+    let mut newly_held: Vec<PathBuf> = Vec::new();
+    for (path, time) in reading {
+        match last.get(&path) {
+            None => {
+                last.insert(path, time);
+            }
+            Some(before) if *before != time && dirty.contains(&path) => {
+                held.insert(path.clone());
+                newly_held.push(path.clone());
+                last.insert(path, time);
+            }
+            Some(_) => {}
+        }
+    }
+    newly_held.sort();
+    if !changed {
+        ProbeStep::Unchanged
+    } else if !newly_held.is_empty() || held.iter().any(|p| dirty.contains(p)) {
+        ProbeStep::Hold(newly_held)
+    } else {
+        ProbeStep::Reload
+    }
+}
+
+/// The footer message for files [`ProbeStep::Hold`] newly found.
+fn held_message(paths: &[PathBuf]) -> String {
+    let names: Vec<String> = paths.iter().map(|p| tilde::contract(p)).collect();
+    format!(
+        "{} changed on disk, unsaved edits here: R to save and reload",
+        names.join(", ")
+    )
+}
+
+/// Whether the idle probe may run: no prompt, mode, help overlay or mouse
+/// drag is open. Focus is a view, not an input mode, so it does not block.
+fn probe_allowed(flags: &InputFlags, help_open: bool, dragging: bool) -> bool {
+    let InputFlags {
+        confirm_delete,
+        flag_mode,
+        search_mode,
+        edit_mode,
+        subtask_mode,
+        category_mode,
+        input_mode,
+        vim_active,
+        focus_active: _,
+    } = *flags;
+    !(confirm_delete
+        || flag_mode
+        || search_mode
+        || edit_mode
+        || subtask_mode
+        || category_mode
+        || input_mode
+        || vim_active
+        || help_open
+        || dragging)
+}
+
+/// The board as it is on disk now. The global board is listed again from
+/// the registry, as after `N`; a single-scope board keeps its synthesized
+/// header and code TODOs and reads each section's file again.
+fn board_from_disk(items: &[Task], global: bool, config: &Config) -> Vec<Task> {
+    if global {
+        let registry = ProjectRegistry::load().unwrap_or_default();
+        todo::load_board(config, &registry)
+    } else {
+        reload_sections(items, todo::load_single_todo)
+    }
+}
+
+/// `items` with every file-backed section's rows replaced by what `load`
+/// reads for that header's source and section. Headers and code TODOs stay.
+fn reload_sections(items: &[Task], load: impl Fn(&Path, &str) -> Vec<Task>) -> Vec<Task> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        if item.is_header && !item.is_code_todo {
+            out.push(item.clone());
+            out.extend(load(&item.source, &item.section));
+        } else if item.is_header || item.is_code_todo {
+            out.push(item.clone());
+        }
+    }
+    out
+}
+
+/// What identifies a row across a reload: its file, section, kind, depth
+/// and text. Indices shift when rows are added elsewhere; these do not.
+fn same_row(a: &Task, b: &Task) -> bool {
+    a.is_header == b.is_header
+        && a.is_code_todo == b.is_code_todo
+        && a.source == b.source
+        && a.section == b.section
+        && a.depth == b.depth
+        && a.text == b.text
+}
+
+/// The visible position the cursor goes to after a reload: the row that was
+/// selected (`old_real`, at visible position `old_sel`) when `new_items`
+/// still has it visible (the nearest match by index when the text repeats),
+/// else the same position clamped to the visible rows. `None` on an empty
+/// board.
+fn keep_row(
+    old_items: &[Task],
+    old_real: Option<usize>,
+    old_sel: usize,
+    new_items: &[Task],
+    new_visible: &[usize],
+) -> Option<usize> {
+    if new_visible.is_empty() {
+        return None;
+    }
+    let kept = old_real.and_then(|real| {
+        let row = old_items.get(real)?;
+        new_visible
+            .iter()
+            .enumerate()
+            .filter(|&(_, &i)| same_row(&new_items[i], row))
+            .min_by_key(|&(_, &i)| i.abs_diff(real))
+            .map(|(pos, _)| pos)
+    });
+    Some(kept.unwrap_or(old_sel.min(new_visible.len() - 1)))
+}
+
+/// Give each header and parent in `new` the fold state its match in `old`
+/// had, so a reload never opens or closes what the user left. Rows new to
+/// the board keep the loader's state.
+fn carry_collapsed(old: &[Task], new: &mut [Task]) {
+    for item in new.iter_mut().filter(|t| t.is_header || t.has_subtasks) {
+        if let Some(before) = old.iter().find(|o| same_row(o, item)) {
+            item.collapsed = before.collapsed;
+        }
+    }
+}
+
+/// Focus mode's saved header fold states, re-indexed from `old` to `new`.
+/// A header that is gone drops out.
+fn remap_pre_focus(old: &[Task], pre_focus: &[(usize, bool)], new: &[Task]) -> Vec<(usize, bool)> {
+    pre_focus
+        .iter()
+        .filter_map(|&(idx, collapsed)| {
+            let header = old.get(idx)?;
+            let at = new.iter().position(|n| same_row(n, header))?;
+            Some((at, collapsed))
+        })
+        .collect()
+}
+
+/// Reload the board in place. Dirty edits are written first through `save`
+/// and `dirty` cleared; if that fails nothing is reloaded and the message
+/// is returned. Then `fresh` lists the board again, and the fold state, the
+/// focus restore list and the cursor carry over (the filter `search_buffer`
+/// is the caller's and stays).
+fn reload_board(
+    items: &mut Vec<Task>,
+    dirty: &mut HashSet<PathBuf>,
+    state: &mut ListState,
+    pre_focus_collapsed: &mut Vec<(usize, bool)>,
+    search_buffer: &str,
+    save: impl FnOnce(&[Task], &HashSet<PathBuf>) -> std::io::Result<()>,
+    fresh: impl FnOnce(&[Task]) -> Vec<Task>,
+) -> std::result::Result<(), String> {
+    if !dirty.is_empty() {
+        save(items, dirty).map_err(|e| format!("save failed, not reloaded: {e}"))?;
+        dirty.clear();
+    }
+    let old_visible = compute_visible(items, search_buffer);
+    let old_sel = state.selected().unwrap_or(0);
+    let old_real = old_visible.get(old_sel).copied();
+
+    let mut new_items = fresh(items);
+    carry_collapsed(items, &mut new_items);
+    *pre_focus_collapsed = remap_pre_focus(items, pre_focus_collapsed, &new_items);
+    let new_visible = compute_visible(&new_items, search_buffer);
+    state.select(keep_row(items, old_real, old_sel, &new_items, &new_visible));
+    *items = new_items;
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 fn event_loop(
     terminal: &mut super::TuiTerminal,
     mut items: Vec<Task>,
     ctx: &BoardContext,
     config: &Config,
-    prose_sources: &HashSet<PathBuf>,
+    mut prose_sources: HashSet<PathBuf>,
 ) -> Result<BoardOutcome> {
     use super::text::{next_char_boundary, prev_char_boundary};
 
@@ -768,6 +1026,14 @@ fn event_loop(
     // in memory until the board saves on exit, so only creating a category,
     // which writes files, marks it stale; plain navigation never runs git.
     let mut vault_dirty = header::vault_dirty_count(config.notez_root_path(), ctx.sync);
+    // A one-off footer message (a reload's outcome); each key press clears it.
+    let mut status_message: Option<String> = None;
+    let todos_dir = ctx.global.then(|| config.notez_root_path().join("_todos"));
+    // The file-change probe's last reading, taken fresh after every reload.
+    let mut probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
+    // Dirty files the probe saw change on disk: no automatic reload until
+    // a reload (`R`) saves over them and clears `dirty`.
+    let mut held: HashSet<PathBuf> = HashSet::new();
 
     loop {
         todo::derive_parent_states(&mut items);
@@ -1087,7 +1353,7 @@ fn event_loop(
                     // A dirty file with non-todo text loses that text on
                     // save; keep the warning up so the loss is never silent.
                     let prose_warn =
-                        prose_warning_sections(&items, &dirty, prose_sources);
+                        prose_warning_sections(&items, &dirty, &prose_sources);
                     let warning = footer_warning(ctx.warning.as_deref(), &prose_warn);
                     let right = if scroll_info.is_empty() {
                         Vec::new()
@@ -1095,6 +1361,10 @@ fn event_loop(
                         vec![Span::styled(scroll_info, Style::default().fg(theme::OVERLAY))]
                     };
                     match warning {
+                        _ if status_message.is_some() => Line::from(Span::styled(
+                            format!(" {}", status_message.as_deref().unwrap_or_default()),
+                            Style::default().fg(theme::PEACH),
+                        )),
                         Some(text) => {
                             let right = warning_right(&text, right, width);
                             let lead = warning_lead(&text, span_cols(&right), width);
@@ -1111,7 +1381,73 @@ fn event_loop(
             })
             .context("failed to draw")?;
 
-        let ev = event::read().context("failed to read event")?;
+        // Wait for input. Each `PROBE_INTERVAL` without any, probe the disk
+        // unless a prompt, mode, the help overlay or a drag is open; only a
+        // change ends the wait without an event, to reload and redraw.
+        let flags = InputFlags {
+            confirm_delete,
+            flag_mode,
+            search_mode,
+            edit_mode,
+            subtask_mode,
+            category_mode,
+            input_mode,
+            vim_active: vim.active,
+            focus_active,
+        };
+        let can_probe = probe_allowed(&flags, help.open, drag_candidate.is_some());
+        enum Wake {
+            Input(Event),
+            Reload,
+            Redraw,
+        }
+        let wake = loop {
+            if event::poll(PROBE_INTERVAL).context("failed to poll for events")? {
+                break Wake::Input(event::read().context("failed to read event")?);
+            }
+            if !can_probe {
+                continue;
+            }
+            let reading = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
+            match probe_step(&mut probe, reading, &dirty, &mut held) {
+                ProbeStep::Reload => break Wake::Reload,
+                // The board stays as it is; only the footer message changes.
+                ProbeStep::Hold(newly) if !newly.is_empty() => {
+                    status_message = Some(held_message(&newly));
+                    break Wake::Redraw;
+                }
+                ProbeStep::Hold(_) | ProbeStep::Unchanged => {}
+            }
+        };
+        let ev = match wake {
+            Wake::Input(ev) => ev,
+            Wake::Redraw => continue,
+            Wake::Reload => {
+                match reload_board(
+                    &mut items,
+                    &mut dirty,
+                    &mut state,
+                    &mut pre_focus_collapsed,
+                    &search_buffer,
+                    todo::save_todos_for,
+                    |old| board_from_disk(old, ctx.global, config),
+                ) {
+                    Ok(()) => {
+                        vault_dirty.mark_stale();
+                        prose_sources = detect_prose_sources(&items);
+                        probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
+                        held.clear();
+                        hover_flag = None;
+                        if status_message.is_none() {
+                            status_message = Some("reloaded (files changed)".to_string());
+                        }
+                    }
+                    // The change stays pending in `probe`; the next probe retries.
+                    Err(message) => status_message = Some(message),
+                }
+                continue;
+            }
+        };
 
         // Mouse: scroll, dot clicks, click-to-collapse, drag-to-reorder.
         if let Event::Mouse(mouse) = ev {
@@ -1255,6 +1591,8 @@ fn event_loop(
             continue;
         }
 
+        status_message = None;
+
         if confirm_delete {
             if matches!(key.code, KeyCode::Char('y') | KeyCode::Enter) {
                 let vis = compute_visible(&items, &search_buffer);
@@ -1373,6 +1711,8 @@ fn event_loop(
                             vault_dirty.mark_stale();
                             let registry = ProjectRegistry::load().unwrap_or_default();
                             items = todo::load_board(config, &registry);
+                            probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
+                            held.clear();
                             input_buffer.clear();
                             cursor_pos = 0;
                             category_mode = false;
@@ -1770,6 +2110,26 @@ fn event_loop(
                 cursor_pos = 0;
             }
 
+            KeyCode::Char('R') => match reload_board(
+                &mut items,
+                &mut dirty,
+                &mut state,
+                &mut pre_focus_collapsed,
+                &search_buffer,
+                todo::save_todos_for,
+                |old| board_from_disk(old, ctx.global, config),
+            ) {
+                Ok(()) => {
+                    vault_dirty.mark_stale();
+                    prose_sources = detect_prose_sources(&items);
+                    probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
+                    held.clear();
+                    hover_flag = None;
+                    status_message = Some("reloaded".to_string());
+                }
+                Err(message) => status_message = Some(message),
+            },
+
             KeyCode::Char('J') => {
                 if real_idx < items.len()
                     && !items[real_idx].is_header
@@ -1848,7 +2208,7 @@ mod tests {
     use super::*;
     use notez_core::tags::{FLAG_BLOCKED, FLAG_IMPORTANT, FLAG_PRIO};
     use ratatui::widgets::StatefulWidget;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn esc_clears_the_filter_and_otherwise_does_nothing() {
@@ -2559,5 +2919,330 @@ mod tests {
             })
             .collect();
         assert_eq!(headings, Group::ALL.to_vec());
+    }
+
+    // --- Reload (`R` and the file-change probe) ---
+
+    fn in_file(mut t: Task, source: &str, section: &str) -> Task {
+        t.source = PathBuf::from(source);
+        t.section = section.to_string();
+        t
+    }
+
+    fn code_todo(text: &str, source: &str) -> Task {
+        Task {
+            is_code_todo: true,
+            ..in_file(task(text, 0, 0), source, "code")
+        }
+    }
+
+    #[test]
+    fn probe_paths_are_the_distinct_todo_files_plus_the_categories_dir() {
+        let items = vec![
+            in_file(header("A"), "/n/TODO.md", "global"),
+            in_file(task("one", 0, 0), "/n/TODO.md", "global"),
+            in_file(task("two", 0, 0), "/n/TODO.md", "global"),
+            // An empty category: only its header carries the path.
+            in_file(header("WORK"), "/n/_todos/work/TODO.md", "work"),
+            code_todo("main.rs:3 fix", "src/main.rs"),
+        ];
+        assert_eq!(
+            probe_paths(&items, None),
+            vec![PathBuf::from("/n/TODO.md"), PathBuf::from("/n/_todos/work/TODO.md")],
+            "deduped, headers count, code TODOs are never probed"
+        );
+        let todos = PathBuf::from("/n/_todos");
+        assert_eq!(
+            probe_paths(&items, Some(&todos)),
+            vec![
+                PathBuf::from("/n/TODO.md"),
+                PathBuf::from("/n/_todos"),
+                PathBuf::from("/n/_todos/work/TODO.md"),
+            ],
+        );
+    }
+
+    #[test]
+    fn probe_sees_a_changed_vanished_or_created_file_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.md");
+        let b = dir.path().join("b.md");
+        std::fs::write(&a, "- [ ] a\n").unwrap();
+        let paths = vec![a.clone(), b.clone()];
+        let first = probe_snapshot(&paths);
+        assert!(!probe_changed(&first, &probe_snapshot(&paths)));
+
+        std::fs::write(&b, "- [ ] b\n").unwrap();
+        let created = probe_snapshot(&paths);
+        assert!(probe_changed(&first, &created), "a file that appeared");
+        assert!(!probe_changed(&created, &probe_snapshot(&paths)), "reported once");
+
+        std::fs::remove_file(&a).unwrap();
+        assert!(probe_changed(&created, &probe_snapshot(&paths)), "a file that vanished");
+
+        let only_b = probe_snapshot(std::slice::from_ref(&b));
+        assert!(!probe_changed(&only_b, &created), "a newly probed path is a baseline");
+    }
+
+    #[test]
+    fn probe_runs_only_while_no_input_mode_is_open() {
+        let none = InputFlags::default();
+        assert!(probe_allowed(&none, false, false));
+        assert!(
+            probe_allowed(&InputFlags { focus_active: true, ..none }, false, false),
+            "focus is a view, not an input mode"
+        );
+        let open = [
+            InputFlags { confirm_delete: true, ..none },
+            InputFlags { flag_mode: true, ..none },
+            InputFlags { search_mode: true, ..none },
+            InputFlags { edit_mode: true, ..none },
+            InputFlags { subtask_mode: true, ..none },
+            InputFlags { category_mode: true, ..none },
+            InputFlags { input_mode: true, ..none },
+            InputFlags { vim_active: true, ..none },
+        ];
+        for flags in open {
+            assert!(!probe_allowed(&flags, false, false), "{flags:?}");
+        }
+        assert!(!probe_allowed(&none, true, false), "help overlay open");
+        assert!(!probe_allowed(&none, false, true), "mouse drag in progress");
+    }
+
+    #[test]
+    fn single_board_reload_rereads_each_section_and_keeps_code_todos() {
+        let code_header = Task {
+            is_header: true,
+            ..code_todo("code TODOs", "")
+        };
+        let items = [
+            in_file(header("proj (local)"), "/p/TODO.md", "proj"),
+            in_file(task("old", 0, 0), "/p/TODO.md", "proj"),
+            code_header,
+            code_todo("main.rs:3 fix", "src/main.rs"),
+        ];
+        let fresh = reload_sections(&items, |path, section| {
+            assert_eq!((path, section), (Path::new("/p/TODO.md"), "proj"));
+            vec![
+                in_file(task("new one", 0, 0), "/p/TODO.md", "proj"),
+                in_file(task("new two", 0, 0), "/p/TODO.md", "proj"),
+            ]
+        });
+        let texts: Vec<&str> = fresh.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts, ["proj (local)", "new one", "new two", "code TODOs", "main.rs:3 fix"]);
+    }
+
+    #[test]
+    fn reload_keeps_the_selected_task_by_source_and_text() {
+        let old = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("x", 0, 0), "/a.md", "a"),
+            in_file(task("y", 0, 0), "/a.md", "a"),
+        ];
+        // Someone added a row above `y`.
+        let new = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("x", 0, 0), "/a.md", "a"),
+            in_file(task("w", 0, 0), "/a.md", "a"),
+            in_file(task("y", 0, 0), "/a.md", "a"),
+        ];
+        let new_vis = vec![0, 1, 2, 3];
+        assert_eq!(keep_row(&old, Some(2), 2, &new, &new_vis), Some(3));
+        // Same text in another file is a different task.
+        let other = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("y", 0, 0), "/b.md", "b"),
+        ];
+        assert_eq!(keep_row(&old, Some(2), 2, &other, &[0, 1]), Some(1), "falls back");
+    }
+
+    #[test]
+    fn reload_falls_back_to_the_nearest_visible_row_when_the_task_is_gone() {
+        let old = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("x", 0, 0), "/a.md", "a"),
+            in_file(task("y", 0, 0), "/a.md", "a"),
+            in_file(task("z", 0, 0), "/a.md", "a"),
+        ];
+        let new = vec![in_file(header("A"), "/a.md", "a"), in_file(task("x", 0, 0), "/a.md", "a")];
+        assert_eq!(keep_row(&old, Some(3), 3, &new, &[0, 1]), Some(1), "clamped to the last row");
+        assert_eq!(keep_row(&old, Some(1), 1, &new, &[0, 1]), Some(1));
+        assert_eq!(keep_row(&old, Some(2), 2, &[], &[]), None, "empty board");
+        assert_eq!(keep_row(&[], None, 0, &new, &[0, 1]), Some(0));
+    }
+
+    #[test]
+    fn reload_saves_dirty_edits_first_and_keeps_view_state() {
+        let mut items = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("parent", 0, 0), "/a.md", "a"),
+            in_file(task("kid", 1, 0), "/a.md", "a"),
+            in_file(header("B"), "/b.md", "b"),
+            in_file(task("b1", 0, 0), "/b.md", "b"),
+        ];
+        items[1].has_subtasks = true;
+        items[1].collapsed = true;
+        items[3].collapsed = true;
+        let mut dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let mut state = ListState::default();
+        state.select(Some(2)); // visible: A, parent, B -> B
+        let mut pre_focus = vec![(0, false), (3, false)];
+        let mut saved: Vec<PathBuf> = Vec::new();
+
+        // The fresh board gained a row in A, so B moved down one; the
+        // loader's own fold state (all open) must not win.
+        let fresh = {
+            let mut f = items.clone();
+            f.insert(3, in_file(task("new", 0, 0), "/a.md", "a"));
+            for t in &mut f {
+                t.collapsed = false;
+            }
+            f
+        };
+        let result = reload_board(
+            &mut items,
+            &mut dirty,
+            &mut state,
+            &mut pre_focus,
+            "",
+            |_, d| {
+                saved.extend(d.iter().cloned());
+                Ok(())
+            },
+            |_| fresh,
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(saved, vec![PathBuf::from("/a.md")], "the dirty file is saved first");
+        assert!(dirty.is_empty(), "memory matches disk after the reload");
+        assert_eq!(items.len(), 6);
+        assert!(items[1].collapsed, "the parent stays folded");
+        assert!(items[4].is_header && items[4].collapsed, "B stays folded");
+        assert_eq!(compute_visible(&items, ""), vec![0, 1, 3, 4]);
+        assert_eq!(state.selected(), Some(3), "still on B");
+        assert_eq!(pre_focus, vec![(0, false), (4, false)], "focus restore follows B");
+    }
+
+    #[test]
+    fn reload_does_not_run_when_the_save_fails() {
+        let mut items = vec![in_file(header("A"), "/a.md", "a"), in_file(task("x", 0, 0), "/a.md", "a")];
+        let before = items.clone();
+        let mut dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let mut state = ListState::default();
+        state.select(Some(1));
+        let result = reload_board(
+            &mut items,
+            &mut dirty,
+            &mut state,
+            &mut Vec::new(),
+            "",
+            |_, _| Err(std::io::Error::other("disk full")),
+            |_| panic!("must not reload after a failed save"),
+        );
+        let err = result.unwrap_err();
+        assert!(err.contains("disk full") && err.contains("not reloaded"), "{err}");
+        assert_eq!(dirty.len(), 1, "the edits stay pending");
+        assert_eq!(items.iter().map(|t| &t.text).collect::<Vec<_>>(), before.iter().map(|t| &t.text).collect::<Vec<_>>());
+        assert_eq!(state.selected(), Some(1));
+    }
+
+    #[test]
+    fn reload_with_nothing_dirty_does_not_save() {
+        let mut items = vec![in_file(header("A"), "/a.md", "a")];
+        let result = reload_board(
+            &mut items,
+            &mut HashSet::new(),
+            &mut ListState::default(),
+            &mut Vec::new(),
+            "",
+            |_, _| panic!("nothing to save"),
+            |old| old.to_vec(),
+        );
+        assert_eq!(result, Ok(()));
+    }
+
+    fn at(secs: u64) -> Option<SystemTime> {
+        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+    }
+
+    fn snap(entries: &[(&str, Option<SystemTime>)]) -> ProbeSnapshot {
+        entries.iter().map(|&(p, t)| (PathBuf::from(p), t)).collect()
+    }
+
+    #[test]
+    fn a_changed_dirty_file_holds_the_reload_and_is_reported_once() {
+        let mut last = snap(&[("/a.md", at(1)), ("/b.md", at(1))]);
+        let dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let mut held = HashSet::new();
+
+        let reading = snap(&[("/a.md", at(2)), ("/b.md", at(1))]);
+        assert_eq!(
+            probe_step(&mut last, reading.clone(), &dirty, &mut held),
+            ProbeStep::Hold(vec![PathBuf::from("/a.md")]),
+            "no save, no reload: the outside edit and the unsaved one both survive"
+        );
+        assert_eq!(last[Path::new("/a.md")], at(2), "the held path's change is taken in");
+        assert_eq!(
+            probe_step(&mut last, reading, &dirty, &mut held),
+            ProbeStep::Unchanged,
+            "the next probe does not report it again"
+        );
+        let later = snap(&[("/a.md", at(3)), ("/b.md", at(1))]);
+        assert_eq!(
+            probe_step(&mut last, later, &dirty, &mut held),
+            ProbeStep::Hold(vec![PathBuf::from("/a.md")]),
+            "a later change to the same file is noticed"
+        );
+    }
+
+    #[test]
+    fn a_clean_change_never_auto_saves_over_a_held_file() {
+        let mut last = snap(&[("/a.md", at(1)), ("/b.md", at(1))]);
+        let dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let mut held = HashSet::new();
+        probe_step(&mut last, snap(&[("/a.md", at(2)), ("/b.md", at(1))]), &dirty, &mut held);
+
+        // b changes; reloading would save a over its outside edit.
+        let reading = snap(&[("/a.md", at(2)), ("/b.md", at(2))]);
+        assert_eq!(probe_step(&mut last, reading, &dirty, &mut held), ProbeStep::Hold(vec![]));
+        assert_eq!(last[Path::new("/b.md")], at(1), "b stays pending for the reload `R` does");
+    }
+
+    #[test]
+    fn a_changed_clean_file_reloads_and_stays_pending_until_the_reload_succeeds() {
+        let mut last = snap(&[("/a.md", at(1)), ("/b.md", at(1))]);
+        let dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let mut held = HashSet::new();
+        let reading = snap(&[("/a.md", at(1)), ("/b.md", at(2)), ("/new.md", at(5))]);
+
+        assert_eq!(probe_step(&mut last, reading.clone(), &dirty, &mut held), ProbeStep::Reload);
+        assert_eq!(last[Path::new("/b.md")], at(1), "not taken in before the reload");
+        assert_eq!(last[Path::new("/new.md")], at(5), "a newly probed path is a baseline");
+        // The save failed, so the caller did not refresh: the next probe retries.
+        assert_eq!(probe_step(&mut last, reading, &dirty, &mut held), ProbeStep::Reload);
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn an_unchanged_reading_is_quiet() {
+        let mut last = snap(&[("/a.md", at(1)), ("/gone.md", None)]);
+        let reading = snap(&[("/a.md", at(1)), ("/gone.md", None)]);
+        let dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        assert_eq!(
+            probe_step(&mut last, reading, &dirty, &mut HashSet::new()),
+            ProbeStep::Unchanged
+        );
+    }
+
+    #[test]
+    fn the_hold_message_names_the_files_and_the_way_out() {
+        let msg = held_message(&[PathBuf::from("/x/TODO.md")]);
+        assert_eq!(msg, "/x/TODO.md changed on disk, unsaved edits here: R to save and reload");
+    }
+
+    #[test]
+    fn reload_key_is_listed_for_the_board() {
+        let r = TODO_KEYS.iter().find(|k| k.key == "R").expect("R in TODO_KEYS");
+        assert_eq!(r.group, Group::View);
+        assert_eq!(r.modes, BOARD);
     }
 }
