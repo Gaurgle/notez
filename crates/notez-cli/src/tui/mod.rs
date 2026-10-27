@@ -15,6 +15,7 @@ pub mod lint;
 pub mod markdown;
 pub mod move_path;
 pub mod panes;
+pub mod sync;
 pub mod tags;
 pub mod text;
 pub mod theme;

@@ -1,6 +1,7 @@
 //! The one-line header above the panes in the tree browser and the todo
-//! board. Left: the view's title and path. Right: the vault's sync state as
-//! the session opened, its count of uncommitted files and the view's counts.
+//! board. Left: the view's title and path. Right: the vault's sync state (as
+//! the session opened, or after an in-session sync, see `tui::sync`), its
+//! count of uncommitted files and the view's counts.
 //!
 //! Nothing here reaches the network. The sync state comes from the pull that
 //! ran before the TUI opened ([`SyncState::after_open`]); the dirty count is
@@ -38,6 +39,9 @@ pub enum SyncState {
     Off,
     /// The vault is not a git repository: no sync or dirty segment.
     NotRepo,
+    /// A sync started in the session (`g`) is running; its result replaces
+    /// this when it ends. [`Self::classify`] never returns it.
+    Syncing,
 }
 
 /// What a local look at the vault's repository found. No network.
@@ -95,6 +99,7 @@ impl SyncState {
             Self::NoUpstream => ("no upstream", theme::OVERLAY),
             Self::Stopped => ("pull stopped", theme::RED),
             Self::Off => ("sync off", theme::OVERLAY),
+            Self::Syncing => ("syncing", theme::SAPPHIRE),
             Self::NotRepo => return None,
         };
         Some(Span::styled(text, Style::default().fg(color)))
@@ -176,6 +181,13 @@ impl<F: FnMut() -> Option<usize>> DirtyCount<F> {
             self.count = (self.probe)();
             self.stale = false;
         }
+        self.count
+    }
+
+    /// The last count, without running `probe` even when stale. For while
+    /// a sync runs git in the vault: a `git status` then could hold
+    /// `index.lock` just as the sync needs it.
+    pub fn cached(&self) -> Option<usize> {
         self.count
     }
 }
@@ -426,6 +438,38 @@ mod tests {
             let span = line.spans.iter().find(|s| s.content == label).unwrap();
             assert_eq!(span.style.fg, Some(color), "{state:?}");
         }
+    }
+
+    #[test]
+    fn a_running_sync_shows_syncing_and_no_pull_result_classifies_as_it() {
+        let line = line(&header(SyncState::Syncing, Some(3)), 100);
+        let shown = text(&line);
+        assert!(
+            shown.ends_with("syncing · 3 uncommitted · 42 notes "),
+            "{shown:?}"
+        );
+        let span = line.spans.iter().find(|s| s.content == "syncing").unwrap();
+        assert_eq!(span.style.fg, Some(theme::SAPPHIRE));
+        let stopped = AutoSync::Stopped("conflict".into());
+        for pull in [None, Some(AutoSync::Idle), Some(AutoSync::Done), Some(stopped)] {
+            for r in [repo(true, true, true), repo(true, true, false), repo(true, false, false)] {
+                assert_ne!(SyncState::classify(pull.as_ref(), r), SyncState::Syncing);
+            }
+        }
+    }
+
+    #[test]
+    fn the_cached_dirty_count_never_runs_git() {
+        let calls = Cell::new(0);
+        let mut dirty = DirtyCount::new(|| {
+            calls.set(calls.get() + 1);
+            Some(7)
+        });
+        assert_eq!(dirty.cached(), None, "nothing counted yet");
+        assert_eq!(dirty.get(), Some(7));
+        dirty.mark_stale();
+        assert_eq!(dirty.cached(), Some(7), "stale, but no count while syncing");
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]

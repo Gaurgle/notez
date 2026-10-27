@@ -622,6 +622,65 @@ fn reload_view_at(
     Ok(row.filter(|&r| forest.nodes[r].path == cursor))
 }
 
+// --- Mid-session sync (`g`) ---
+
+/// Write the tag maps quit would write (see [`exit_tag_maps`]) now, before
+/// a sync commits, and move the baseline forward so quit does not write
+/// them again: the saved maps become the loaded ones, every row's origin
+/// its path, and the retired and carried lists empty. A failed save moves
+/// nothing and returns the footer message; saving the same maps again on
+/// quit is harmless.
+pub(super) fn flush_tag_maps(
+    forest: &mut Forest,
+    retired: &mut Vec<(PathBuf, String)>,
+    carried: &mut Vec<CarriedTags>,
+) -> std::result::Result<(), String> {
+    let changed = exit_tag_maps(forest, retired, carried);
+    for (root, map) in &changed {
+        note_tags::save_tags(root, map).map_err(|e| {
+            format!("saving tags in {} failed, not synced: {e}", root.display())
+        })?;
+    }
+    for (root, map) in changed {
+        if let Some(i) = forest.tag_roots.iter().position(|r| *r == root) {
+            forest.initial[i] = map;
+        }
+    }
+    for node in forest.nodes.iter_mut().filter(|n| !n.is_dir) {
+        node.origin = node.path.clone();
+    }
+    retired.clear();
+    carried.clear();
+    Ok(())
+}
+
+/// After a sync moved `HEAD`, take the tag maps on disk as the new
+/// baseline: a pull may have brought another machine's tags. A row whose
+/// tags still match the old baseline (and that was not renamed) shows the
+/// disk's; a row tagged here since is kept, so quit writes that edit on
+/// top of the pulled map instead of reverting it.
+pub(super) fn refresh_tag_baseline(forest: &mut Forest) {
+    let disk: Vec<HashMap<String, u8>> = forest
+        .tag_roots
+        .iter()
+        .map(|r| note_tags::load_tags(r))
+        .collect();
+    for node in forest.nodes.iter_mut() {
+        if node.is_dir || node.origin != node.path {
+            continue;
+        }
+        let Some(key) = rel_key(&forest.tag_roots[node.tag_root], &node.path) else {
+            continue;
+        };
+        let base = forest.initial[node.tag_root].get(&key).copied().unwrap_or(0);
+        if node.flags == base {
+            node.flags = disk[node.tag_root].get(&key).copied().unwrap_or(0);
+        }
+    }
+    forest.initial = disk;
+    derive_dir_flags(&mut forest.nodes);
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_support::*;
@@ -1445,6 +1504,71 @@ mod tests {
             probe_changed(&base, &probe_snapshot(&paths)),
             "a change under the link's target is seen"
         );
+    }
+
+    #[test]
+    fn a_flush_saves_the_tag_edits_and_quit_does_not_write_them_again() {
+        let (_dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections(&roots));
+        let root = roots[0].1.clone();
+        let a = row(&forest.nodes, root.join("ideas/a.md").to_str().unwrap());
+        forest.nodes[a].flags = FLAG_PRIO;
+        let mut retired = vec![(root.clone(), "gone.md".to_string())];
+        let mut carried = Vec::new();
+        assert_eq!(exit_tag_maps(&forest, &retired, &carried).len(), 1);
+
+        flush_tag_maps(&mut forest, &mut retired, &mut carried).unwrap();
+
+        let on_disk = note_tags::load_tags(&root);
+        assert_eq!(on_disk.get("ideas/a.md"), Some(&FLAG_PRIO));
+        assert!(retired.is_empty() && carried.is_empty());
+        assert!(
+            exit_tag_maps(&forest, &retired, &carried).is_empty(),
+            "nothing left for quit to write"
+        );
+        // A later edit is still reported against the moved baseline.
+        forest.nodes[a].flags = FLAG_PRIO | FLAG_IMPORTANT;
+        let later = exit_tag_maps(&forest, &retired, &carried);
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].1.get("ideas/a.md"), Some(&(FLAG_PRIO | FLAG_IMPORTANT)));
+    }
+
+    #[test]
+    fn after_a_pull_the_disk_tags_are_the_baseline_and_local_edits_stay() {
+        let (_dir, roots) = temp_tree();
+        let mut forest = forest_of(list_sections(&roots));
+        let root = roots[0].1.clone();
+        let a = row(&forest.nodes, root.join("ideas/a.md").to_str().unwrap());
+        let b = row(&forest.nodes, root.join("ideas/b.md").to_str().unwrap());
+        // Tagged here while the sync ran.
+        forest.nodes[a].flags = FLAG_IMPORTANT;
+        // The pull brought another machine's tag on b and c.
+        let mut pulled = HashMap::new();
+        pulled.insert("ideas/b.md".to_string(), FLAG_PRIO);
+        pulled.insert("c.md".to_string(), FLAG_PRIO);
+        note_tags::save_tags(&root, &pulled).unwrap();
+
+        refresh_tag_baseline(&mut forest);
+
+        assert_eq!(forest.nodes[a].flags, FLAG_IMPORTANT, "the local edit stays");
+        assert_eq!(forest.nodes[b].flags, FLAG_PRIO, "the pulled tag shows");
+        let quit = exit_tag_maps(&forest, &[], &[]);
+        assert_eq!(quit.len(), 1);
+        let map = &quit[0].1;
+        assert_eq!(map.get("ideas/a.md"), Some(&FLAG_IMPORTANT));
+        assert_eq!(map.get("ideas/b.md"), Some(&FLAG_PRIO), "quit keeps the pulled tag");
+        assert_eq!(map.get("c.md"), Some(&FLAG_PRIO));
+    }
+
+    #[test]
+    fn g_is_a_help_only_browse_key_that_reaches_the_list_with_the_preview_focused() {
+        let rows: Vec<usize> = (0..TREE_KEYS.len()).filter(|&i| TREE_KEYS[i].key == "g").collect();
+        assert_eq!(rows.len(), 1);
+        let g = &TREE_KEYS[rows[0]];
+        assert_eq!((g.group, g.modes, g.slot), (Group::View, BROWSE, Slot::HelpOnly));
+        assert!(help::rows(TREE_KEYS).contains(&help::Row::Key(rows[0])));
+        assert_eq!(preview_focus_key(KeyCode::Char('g'), 10), PreviewFocusKey::Pass);
+        assert!(!Panes::default().handle_key(KeyCode::Char('g'), 100));
     }
 
     #[test]

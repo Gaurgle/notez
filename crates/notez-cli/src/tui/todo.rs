@@ -26,6 +26,7 @@ use notez_core::util::tilde;
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
+use super::sync::VaultSync;
 use super::{VimCommandMode, VimKey, text, theme};
 
 const BOARD: &[Mode] = &[Mode::Normal, Mode::Focus];
@@ -85,6 +86,7 @@ const TODO_KEYS: &[KeyHint] = &[
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BOARD, Slot::Priority(5), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the board from disk, saving unsaved edits first (it also reloads by itself, within 2 s of idle, when a shown TODO.md changes, unless it has unsaved edits here)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
+    key("g", "sync", "sync the vault now, as quitting does: save edits, commit, pull, push (in the background; the header shows syncing, then the result, and the board reloads if a shown TODO.md changed)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BOARD, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BOARD, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -238,10 +240,53 @@ pub fn run_board(
     config: &Config,
 ) -> Result<BoardOutcome> {
     let prose_sources = detect_prose_sources(&items);
+    // The in-session sync (`g`). It is waited for only after the TUI has
+    // left, on every path out, so a hung network never freezes raw mode.
+    let mut vault_sync = VaultSync::new(config.notez_root_path(), ctx.sync);
     let mut terminal = super::enter().context("failed to enter TUI")?;
-    let result = event_loop(&mut terminal, items, ctx, config, prose_sources);
-    super::leave().context("failed to leave TUI")?;
+    let result = event_loop(&mut terminal, items, ctx, config, prose_sources, &mut vault_sync);
+    // A quit that waited for a sync has already left the TUI.
+    let left = if crossterm::terminal::is_raw_mode_enabled().unwrap_or(true) {
+        super::leave().context("failed to leave TUI")
+    } else {
+        Ok(())
+    };
+    vault_sync.finish();
+    left?;
     result
+}
+
+/// Whether quit may go ahead, or the footer message to go back to the board
+/// with. A running sync is waited for outside the TUI (so a hung network
+/// leaves a usable terminal, not raw mode); if this sync or one that ended
+/// unprobed (`sync_pulled`) moved `HEAD` and changed a file with unsaved
+/// edits here, see [`pulled_over_edits`], the TUI is entered again.
+fn quit_after_sync(
+    terminal: &mut super::TuiTerminal,
+    vault_sync: &mut VaultSync,
+    sync_pulled: &mut bool,
+    probe: &mut ProbeSnapshot,
+    dirty: &HashSet<PathBuf>,
+    held: &mut HashSet<PathBuf>,
+) -> Result<Option<String>> {
+    let left = vault_sync.running();
+    if left {
+        super::leave().context("failed to leave TUI")?;
+        if let Some(done) = vault_sync.finish() {
+            *sync_pulled |= done.moved;
+        }
+    }
+    let moved = std::mem::take(sync_pulled);
+    let paths: Vec<PathBuf> = dirty.iter().cloned().collect();
+    let reading = if moved { probe_snapshot(&paths) } else { ProbeSnapshot::new() };
+    let newly = pulled_over_edits(moved, probe, reading, dirty, held);
+    if newly.is_empty() {
+        return Ok(None);
+    }
+    if left {
+        *terminal = super::enter().context("failed to re-enter TUI")?;
+    }
+    Ok(Some(held_message(&newly)))
 }
 
 /// Source files whose current on-disk content contains lines the parser
@@ -818,6 +863,35 @@ fn probe_step(
     }
 }
 
+/// At quit, after waiting for a sync: the files with unsaved edits here
+/// that the sync's pull changed on disk (`moved`: it moved `HEAD`), whose
+/// time in `reading` differs from the probe baseline `last`. Saving those
+/// would write a board parsed before the pull over the pulled file, and the
+/// exit sync would push the revert, so quit goes back to the board with
+/// [`held_message`] instead. As in [`probe_step`], each is taken into
+/// `last` and `held`, so it is reported once and a second quit saves.
+fn pulled_over_edits(
+    moved: bool,
+    last: &mut ProbeSnapshot,
+    reading: ProbeSnapshot,
+    dirty: &HashSet<PathBuf>,
+    held: &mut HashSet<PathBuf>,
+) -> Vec<PathBuf> {
+    if !moved {
+        return Vec::new();
+    }
+    let mut newly_held: Vec<PathBuf> = Vec::new();
+    for (path, time) in reading {
+        if dirty.contains(&path) && last.get(&path).is_some_and(|before| *before != time) {
+            held.insert(path.clone());
+            newly_held.push(path.clone());
+            last.insert(path, time);
+        }
+    }
+    newly_held.sort();
+    newly_held
+}
+
 /// The footer message for files [`ProbeStep::Hold`] newly found.
 fn held_message(paths: &[PathBuf]) -> String {
     let names: Vec<String> = paths.iter().map(|p| tilde::contract(p)).collect();
@@ -980,6 +1054,7 @@ fn event_loop(
     ctx: &BoardContext,
     config: &Config,
     mut prose_sources: HashSet<PathBuf>,
+    vault_sync: &mut VaultSync,
 ) -> Result<BoardOutcome> {
     use super::text::{next_char_boundary, prev_char_boundary};
 
@@ -1034,11 +1109,20 @@ fn event_loop(
     // Dirty files the probe saw change on disk: no automatic reload until
     // a reload (`R`) saves over them and clears `dirty`.
     let mut held: HashSet<PathBuf> = HashSet::new();
+    // A sync moved `HEAD` and the probe has not looked since: quit checks
+    // the dirty files before saving over them.
+    let mut sync_pulled = false;
 
     loop {
         todo::derive_parent_states(&mut items);
         todo::derive_header_flags(&mut items);
-        let vault_dirty_files = vault_dirty.get();
+        // No `git status` while a sync runs git in the vault.
+        let vault_dirty_files = if vault_sync.running() {
+            vault_dirty.cached()
+        } else {
+            vault_dirty.get()
+        };
+        let sync_state = vault_sync.state();
 
         terminal
             .draw(|frame| {
@@ -1110,7 +1194,7 @@ fn event_loop(
                     &header::Header {
                         title: &ctx.title,
                         path: &ctx.path_display,
-                        sync: ctx.sync,
+                        sync: sync_state,
                         dirty: vault_dirty_files,
                         counts: header::todo_counts(todo_count, done_count),
                     },
@@ -1401,22 +1485,43 @@ fn event_loop(
             Reload,
             Redraw,
         }
+        // A running sync shortens the wait so its result shows promptly and
+        // holds the probe off; once it ends the probe runs at once, so files
+        // the pull changed reload (or hold) as any outside change does.
         let wake = loop {
-            if event::poll(PROBE_INTERVAL).context("failed to poll for events")? {
+            let wait = vault_sync.poll_interval(PROBE_INTERVAL);
+            if event::poll(wait).context("failed to poll for events")? {
                 break Wake::Input(event::read().context("failed to read event")?);
             }
-            if !can_probe {
+            let finished = vault_sync.take_finished();
+            if let Some(done) = &finished {
+                status_message = Some(done.message());
+                vault_dirty.mark_stale();
+                sync_pulled |= done.moved;
+            }
+            if vault_sync.running() || !can_probe {
+                if finished.is_some() {
+                    break Wake::Redraw;
+                }
                 continue;
             }
+            sync_pulled = false;
             let reading = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
             match probe_step(&mut probe, reading, &dirty, &mut held) {
                 ProbeStep::Reload => break Wake::Reload,
                 // The board stays as it is; only the footer message changes.
                 ProbeStep::Hold(newly) if !newly.is_empty() => {
-                    status_message = Some(held_message(&newly));
+                    let hold = held_message(&newly);
+                    status_message = Some(match finished {
+                        Some(done) => format!("{}; {hold}", done.message()),
+                        None => hold,
+                    });
                     break Wake::Redraw;
                 }
                 ProbeStep::Hold(_) | ProbeStep::Unchanged => {}
+            }
+            if finished.is_some() {
+                break Wake::Redraw;
             }
         };
         let ev = match wake {
@@ -1583,6 +1688,12 @@ fn event_loop(
                 .modifiers
                 .contains(crossterm::event::KeyModifiers::CONTROL)
         {
+            if let Some(hold) =
+                quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
+            {
+                status_message = Some(hold);
+                continue;
+            }
             break;
         }
 
@@ -1914,7 +2025,15 @@ fn event_loop(
         }
 
         match vim.handle_key(key) {
-            VimKey::Command(cmd) if VimCommandMode::is_quit(&cmd) => break,
+            VimKey::Command(cmd) if VimCommandMode::is_quit(&cmd) => {
+                if let Some(hold) =
+                    quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
+                {
+                    status_message = Some(hold);
+                    continue;
+                }
+                break;
+            }
             VimKey::Command(_) | VimKey::Consumed => continue,
             VimKey::NotConsumed => {}
         }
@@ -1924,7 +2043,15 @@ fn event_loop(
         let real_idx = visible.get(vis_sel).copied().unwrap_or(0);
 
         match key.code {
-            KeyCode::Char('q') => break,
+            KeyCode::Char('q') => {
+                if let Some(hold) =
+                    quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
+                {
+                    status_message = Some(hold);
+                    continue;
+                }
+                break;
+            }
             KeyCode::Esc => browse_escape(&mut search_buffer),
 
             KeyCode::Char('j') | KeyCode::Down => {
@@ -2110,6 +2237,18 @@ fn event_loop(
                 cursor_pos = 0;
             }
 
+            KeyCode::Char('g') => {
+                let started = match vault_sync.refusal() {
+                    Some(why) => Err(why.message().to_string()),
+                    None => save_before_sync(&items, &mut dirty, &mut held, &mut probe, todo::save_todos_for)
+                        .and_then(|()| vault_sync.start().map_err(|why| why.message().to_string())),
+                };
+                status_message = Some(match started {
+                    Ok(()) => "syncing the vault".to_string(),
+                    Err(message) => message,
+                });
+            }
+
             KeyCode::Char('R') => match reload_board(
                 &mut items,
                 &mut dirty,
@@ -2170,6 +2309,28 @@ fn event_loop(
     }
 
     Ok(BoardOutcome { items, dirty })
+}
+
+/// Before `g`'s sync: write the dirty files through `save`, as quit would,
+/// so the sync commits them. Then `dirty` and `held` clear and the saved
+/// files' new times go into the probe's reading `probe`, so the save does
+/// not read as an outside change. A failed save changes nothing and
+/// returns the footer message.
+fn save_before_sync(
+    items: &[Task],
+    dirty: &mut HashSet<PathBuf>,
+    held: &mut HashSet<PathBuf>,
+    probe: &mut ProbeSnapshot,
+    save: impl FnOnce(&[Task], &HashSet<PathBuf>) -> std::io::Result<()>,
+) -> std::result::Result<(), String> {
+    if dirty.is_empty() {
+        return Ok(());
+    }
+    save(items, dirty).map_err(|e| format!("save failed, not synced: {e}"))?;
+    let saved: Vec<PathBuf> = dirty.drain().collect();
+    probe.extend(probe_snapshot(&saved));
+    held.clear();
+    Ok(())
 }
 
 /// j/k step that, in focus mode, closes the section being left and opens
@@ -3244,5 +3405,97 @@ mod tests {
         let r = TODO_KEYS.iter().find(|k| k.key == "R").expect("R in TODO_KEYS");
         assert_eq!(r.group, Group::View);
         assert_eq!(r.modes, BOARD);
+    }
+
+    #[test]
+    fn sync_key_is_listed_once_for_the_board_and_in_its_help() {
+        let rows: Vec<usize> = (0..TODO_KEYS.len()).filter(|&i| TODO_KEYS[i].key == "g").collect();
+        assert_eq!(rows.len(), 1);
+        let g = &TODO_KEYS[rows[0]];
+        assert_eq!((g.group, g.modes, g.slot), (Group::View, BOARD, Slot::HelpOnly));
+        assert!(help::rows(TODO_KEYS).contains(&help::Row::Key(rows[0])));
+    }
+
+    #[test]
+    fn the_sync_saves_dirty_edits_first_and_the_save_is_not_an_outside_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.md");
+        std::fs::write(&a, "# TODO\n").unwrap();
+        let items = vec![in_file(header("A"), a.to_str().unwrap(), "a")];
+        let mut probe = probe_snapshot(&[a.clone()]);
+        let mut dirty: HashSet<PathBuf> = [a.clone()].into_iter().collect();
+        let mut held: HashSet<PathBuf> = [a.clone()].into_iter().collect();
+        let mut saved = Vec::new();
+
+        let result = save_before_sync(&items, &mut dirty, &mut held, &mut probe, |_, d| {
+            saved.extend(d.iter().cloned());
+            let file = std::fs::File::options().write(true).open(&a)?;
+            file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(42))
+        });
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(saved, vec![a.clone()]);
+        assert!(dirty.is_empty() && held.is_empty());
+        let reading = probe_snapshot(&[a.clone()]);
+        assert!(!probe_changed(&probe, &reading), "our own save does not reload");
+    }
+
+    #[test]
+    fn quit_after_a_sync_that_pulled_over_unsaved_edits_goes_back_to_the_board() {
+        let dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let base = snap(&[("/a.md", at(1)), ("/b.md", at(1))]);
+        let pulled_a = snap(&[("/a.md", at(2))]);
+
+        // The sync moved HEAD and A, edited here, changed on disk: hold.
+        let mut probe = base.clone();
+        let mut held = HashSet::new();
+        assert_eq!(
+            pulled_over_edits(true, &mut probe, pulled_a.clone(), &dirty, &mut held),
+            vec![PathBuf::from("/a.md")]
+        );
+        assert!(held.contains(Path::new("/a.md")));
+        assert_eq!(probe[Path::new("/a.md")], at(2), "a second quit saves over it, knowingly");
+        assert!(
+            pulled_over_edits(true, &mut probe, pulled_a.clone(), &dirty, &mut held).is_empty(),
+            "reported once"
+        );
+
+        // HEAD did not move: an outside change is NZ-42's business, not quit's.
+        let mut probe = base.clone();
+        assert!(pulled_over_edits(false, &mut probe, pulled_a, &dirty, &mut HashSet::new()).is_empty());
+        assert_eq!(probe, base);
+
+        // The pull left A alone: quit goes ahead.
+        let mut probe = base.clone();
+        let same = snap(&[("/a.md", at(1))]);
+        assert!(pulled_over_edits(true, &mut probe, same, &dirty, &mut HashSet::new()).is_empty());
+
+        // Only a clean file changed: nothing unsaved is at risk.
+        let mut probe = base.clone();
+        let pulled_b = snap(&[("/a.md", at(1)), ("/b.md", at(2))]);
+        assert!(pulled_over_edits(true, &mut probe, pulled_b, &dirty, &mut HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn a_failed_save_starts_no_sync_and_keeps_the_edits_dirty() {
+        let mut dirty: HashSet<PathBuf> = [PathBuf::from("/a.md")].into_iter().collect();
+        let result = save_before_sync(
+            &[],
+            &mut dirty,
+            &mut HashSet::new(),
+            &mut ProbeSnapshot::new(),
+            |_, _| Err(std::io::Error::other("disk full")),
+        );
+        let err = result.unwrap_err();
+        assert!(err.contains("disk full") && err.contains("not synced"), "{err}");
+        assert_eq!(dirty.len(), 1);
+        let nothing = save_before_sync(
+            &[],
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            &mut ProbeSnapshot::new(),
+            |_, _| panic!("nothing to save"),
+        );
+        assert_eq!(nothing, Ok(()));
     }
 }
