@@ -205,6 +205,42 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-51 (#77): TODO.md in the notez inspector renders like standalone todoz
+
+Asked for by Andreas on 2026-10-15 and again on 2026-10-27 after the
+NZ-43 try ("the [ ] are translated to actual boxes, rather than being
+ascii"). Run by lead `0bafc905` on 2026-10-27 (P1, 0.3.0, board item
+`PVTI_lAHOCU842c4BmE5ZzhBAXLs`), brief and lead decisions in the issue
+body. Branch `feat/nz-51-inspector-todo-rows`, worktree
+`.claude/worktrees/NZ-51`, base `16c7a7d`.
+
+First worker run stopped on ENOSPC (35 GB of session scratch under
+`/private/tmp/claude-501`); the lead cleared its own session's
+scratch build copies, Andreas the rest. Lead ruling (a): one-line
+`tree/input.rs` change passes the node's `DocType::Todo` bit into the
+preview. Second worker run (opus, medium, about 11 min, 121k tokens):
+new `tui/todo_rows.rs` with the board's per-row drawing moved out of
+`todo.rs::board_rows_matching` (pure move, byte-identical snapshot
+test captured before the move), `Preview::file_lines_for` drawing runs
+of checkbox lines as board rows with items from `load_single_todo` and
+other runs through `render_markdown`, `PreviewKey.todo`, `is_todo_note`
+in `doc_type.rs`, README. Reviewer (opus, about 7 min, 70k tokens)
+accepted first pass: pure move confirmed, snapshot proven against the
+base, six mutants killed; diff sha1 `63548dd...`. Committed as
+`5229193`, branch CI `40523374775` green, lead checks green. Andreas
+tried it and accepted for now ("it still gotta long way to go").
+Merged `--no-ff` as `3c3c762` (Closes #77), checks green, pushed;
+CI on `main` run `40524947003`.
+
+Follow-ups on #77: a checkbox line inside a fenced code block splits
+the fence; markdown spanning runs restarts per run; the file is read
+twice. Open design question from Andreas for the next pass: what
+defines a todoz todo (a header or marker?) so the inspector renders
+exactly as intended, and whether to borrow the board's whole preview
+from the todoz code.
+
+NZ-51: review accepted first; fix cycles 0; owner decisions 1; worker 11; review 7; usage read (worker 121k tokens, reviewer 70k; a first run of 69k lost to ENOSPC)
+
 ### NZ-56 (#82): sync the vault from inside the TUI with one key
 
 Cut by lead `b5670714` on 2026-10-27 from Andreas's "add all these as
