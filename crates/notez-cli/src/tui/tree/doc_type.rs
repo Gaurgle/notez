@@ -154,6 +154,12 @@ fn is_todo(node: &TreeNode, spec: &SectionSpec) -> bool {
                 && node.path.starts_with(spec.root.join("_todos"))))
 }
 
+/// Whether `node` is a todo document by [`is_todo`]'s rule, as
+/// [`assign_doc_types`] recorded it in [`TreeNode::doc_types`].
+pub(super) fn is_todo_note(node: &TreeNode) -> bool {
+    node.doc_types & DocType::Todo.bit() != 0
+}
+
 /// Set [`TreeNode::doc_types`] on every note from its section and itself.
 /// Folders and section rows get none, so a type matches them only as the
 /// ancestors of a matching note (as text tokens do), and a type filter
@@ -301,6 +307,29 @@ mod tests {
         assert_eq!(notes("@docs"), ["/p/docs/c.md"]);
         assert_eq!(notes("@scratch"), ["/p/.notez/TODO.md", "/p/.notez/l.md"]);
         assert!(notes("@pinz").is_empty());
+    }
+
+    #[test]
+    fn the_todo_notes_are_the_todo_type_rows() {
+        let sections = every_kind();
+        let (nodes, _) = build_forest(&sections);
+        let mut todo: Vec<String> = nodes
+            .iter()
+            .filter(|n| is_todo_note(n))
+            .map(|n| n.path.display().to_string())
+            .collect();
+        todo.sort();
+        assert_eq!(
+            todo,
+            [
+                "/n/TODO.md",
+                "/n/_todos/work/TODO.md",
+                "/n/_todos/work/w.md",
+                "/n/personal/proj/TODO.md",
+                "/p/.notez/TODO.md",
+                "/p/notez/TODO.md"
+            ]
+        );
     }
 
     #[test]
