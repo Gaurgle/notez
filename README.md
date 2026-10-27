@@ -48,6 +48,20 @@ notez agenda
 without opening it. Saves rewrite only the files you actually edited, and the
 footer warns if a `TODO.md` contains non-todo text a save would drop.
 
+**The todoz preview.** A right pane shows the selected todo's `TODO.md`
+rendered as markdown, scrolled to the todo, whose rows are highlighted; its
+bottom border shows the todo's due date (red when overdue). A section header
+shows its file with nothing highlighted, and a file that is missing or cannot
+be read shows one line saying so. The pane is read-only. It is open at start
+in a terminal 120 columns or wider and folded below; `p` shows or hides it,
+and says `too narrow for a preview` when the board cannot hold both panes.
+The pane keys are the tree's: `<` / `>` resize, `=` resets the split, `1` /
+`2` focus the list or the preview (`2` on the focused preview folds it),
+`tab` switches, and the grip on the border drags. With the preview focused,
+`j`/`k` and PgDn/PgUp scroll it; the wheel scrolls whichever pane is under
+the pointer. It shows the file as saved, so edits not yet saved appear after
+the next save or reload.
+
 **notez search** (alias `findz`) is case-insensitive full-text search across
 every note source: global root, every registered project's scopes, and each
 project's `docs/*.md` (surfaced as `docs`; disable with `project_docs = false`

@@ -18,6 +18,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 
 use notez_core::config::{Config, ProjectRegistry};
+use notez_core::core::NoteDate;
 use notez_core::filter::{self, Filter};
 use notez_core::tags::FLAG_DEFS;
 use notez_core::todo::{self, CheckState, Task};
@@ -26,6 +27,7 @@ use notez_core::util::tilde;
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
+use super::panes::{self, Pane, Panes, Press};
 use super::sync::VaultSync;
 use super::{VimCommandMode, VimKey, text, theme};
 
@@ -53,11 +55,12 @@ const fn key(
 /// Every key, mouse action and command the todo board handles, in footer
 /// order. Kept in step with `event_loop`.
 const TODO_KEYS: &[KeyHint] = &[
-    key("j/k", "move", "move down / up (also Down / Up)", theme::TEXT, Group::Navigate, BOARD_AND_TAG, Slot::HelpOnly, None),
+    key("j/k", "move", "move down / up (also Down / Up); with the preview focused, scroll it", theme::TEXT, Group::Navigate, BOARD_AND_TAG, Slot::HelpOnly, None),
+    key("PgDn/PgUp", "page", "with the preview focused, scroll it a page", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
     key("h/l", "fold", "collapse / expand (also Left / Right)", theme::TEXT, Group::Navigate, BOARD_AND_TAG, Slot::HelpOnly, None),
     key("J/K", "reorder", "move todo down / up", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
-    key("wheel", "move", "mouse wheel moves the selection", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
-    key("click", "select", "click a row to select it and fold a header or parent", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("wheel", "move", "mouse wheel moves the selection; over the preview, scrolls it", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
+    key("click", "select", "click a row to select it and fold a header or parent; click the preview to focus it", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
     key("drag", "reorder", "mouse drag to reorder", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
     key("x", "check", "check / uncheck (also Space, Enter)", theme::SAPPHIRE, Group::Edit, BOARD, Slot::Priority(1), None),
     key("n", "new", "new todo", theme::GREEN, Group::Edit, BOARD, Slot::Priority(2), None),
@@ -87,6 +90,14 @@ const TODO_KEYS: &[KeyHint] = &[
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the board from disk, saving unsaved edits first (it also reloads by itself, within 2 s of idle, when a shown TODO.md changes, unless it has unsaved edits here)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
     key("g", "sync", "sync the vault now, as quitting does: save edits, commit, pull, push (in the background; the header shows syncing, then the result, and the board reloads if a shown TODO.md changed)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
+    // The pane keys; in the footer only while the preview is open, see
+    // `todo_keys`.
+    key(PREVIEW_KEY, "preview", "show / hide the preview of the selected todo's TODO.md (open at start from 120 columns)", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
+    key(PANE_FOCUS_KEY, "focus", "focus the list / the preview; 2 on the focused preview folds it, 2 on a folded one unfolds and focuses it", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
+    key(PANE_CYCLE_KEY, "pane", "focus the other pane", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
+    key("</>", "split", "narrow / widen the list by 5 points (both panes keep a usable width)", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
+    key("=", "reset", "reset the split to 50/50", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
+    key("drag grip", "split", "drag the grip on the border between the panes to resize them", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BOARD, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BOARD, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -171,7 +182,9 @@ fn view_all_lit(items: &[Task]) -> bool {
     items.iter().any(|i| i.is_header || i.has_subtasks) && !any_collapsed(items)
 }
 
-/// The board's footer line: `footer::status_line` over `TODO_KEYS`.
+/// The board's footer line with the preview folded: `footer::status_line`
+/// over `TODO_KEYS`. The event loop passes [`todo_keys`] instead.
+#[cfg(test)]
 fn status_line(
     lead: Vec<Span<'static>>,
     hints: bool,
@@ -762,6 +775,370 @@ fn board_items(
         .collect()
 }
 
+// --- Preview pane ---
+//
+// The right pane shows the selected todo's `TODO.md`, rendered as markdown,
+// with the todo's rows highlighted. Split, focus and fold come from
+// `tui::panes`, as in the tree browser; the tree's preview helpers are
+// private to that module, so the two small scroll ones are duplicated here.
+
+/// Terminal width from which the preview is open when the board starts;
+/// narrower, it starts folded. Separate from `Panes::fits`, which is only
+/// the least room both panes need.
+const PREVIEW_OPEN_MIN_WIDTH: u16 = 120;
+
+/// What `p` says when the body cannot hold both panes.
+const TOO_NARROW: &str = "too narrow for a preview";
+
+/// Lines one wheel notch scrolls the preview, as in the tree.
+const PREVIEW_WHEEL_STEP: i32 = 3;
+
+/// Marks the start and end of the todo's line in the markdown handed to the
+/// renderer, so its rows can be found in the output. A word joiner: zero
+/// columns wide and not whitespace. It can still change how emphasis next
+/// to it parses, so [`render_task_file`] checks the result before using it.
+const TASK_MARK: char = '\u{2060}';
+
+/// The keys of the preview toggle and the focus rows in `TODO_KEYS`.
+const PREVIEW_KEY: &str = "p";
+const PANE_FOCUS_KEY: &str = "1/2";
+const PANE_CYCLE_KEY: &str = "tab";
+
+/// The panes as the board opens in a terminal `terminal_width` columns
+/// wide: the preview open from [`PREVIEW_OPEN_MIN_WIDTH`], folded below.
+fn panes_at_start(terminal_width: u16) -> Panes {
+    Panes { folded: terminal_width < PREVIEW_OPEN_MIN_WIDTH, ..Panes::default() }
+}
+
+/// `p`: fold or unfold the preview. Refused with [`TOO_NARROW`], changing
+/// nothing, when `body_width` cannot hold both panes.
+fn toggle_preview(panes: &mut Panes, body_width: u16) -> std::result::Result<(), &'static str> {
+    if !Panes::fits(body_width) {
+        return Err(TOO_NARROW);
+    }
+    panes.toggle_fold();
+    Ok(())
+}
+
+/// The footer table for the board's panes. Folded, `TODO_KEYS` unchanged.
+/// Open with the list focused, the pane keys join the hints last, so they
+/// drop first. With the preview focused, only the preview set: `j/k
+/// scroll`, `PgDn/PgUp page`, `2 fold`, `1/tab list`, `p`, `?` and quit;
+/// every other browse row is help only. Same rows in the same order, so
+/// the footer and the help overlay agree.
+fn todo_keys(preview_open: bool, focus: Pane) -> Vec<KeyHint> {
+    TODO_KEYS
+        .iter()
+        .map(|&hint| {
+            if !preview_open || !hint.applies_in(Mode::Normal) {
+                return hint;
+            }
+            let shown = |key, desc, priority| KeyHint { key, desc, slot: Slot::Priority(priority), ..hint };
+            if focus == Pane::List {
+                return match hint.key {
+                    PREVIEW_KEY => shown(PREVIEW_KEY, hint.desc, 13),
+                    PANE_FOCUS_KEY => shown(PANE_FOCUS_KEY, hint.desc, 14),
+                    PANE_CYCLE_KEY => shown(PANE_CYCLE_KEY, hint.desc, 15),
+                    "</>" => shown("</>", hint.desc, 16),
+                    "=" => shown("=", hint.desc, 17),
+                    _ => hint,
+                };
+            }
+            match (hint.key, hint.slot) {
+                ("j/k", _) => shown("j/k", "scroll", 1),
+                ("PgDn/PgUp", _) => shown("PgDn/PgUp", "page", 2),
+                (PANE_FOCUS_KEY, _) => shown("2", "fold", 3),
+                (PANE_CYCLE_KEY, _) => shown("1/tab", "list", 4),
+                (PREVIEW_KEY, _) => shown(PREVIEW_KEY, "hide", 5),
+                (_, Slot::Pinned | Slot::Quit) => hint,
+                _ => KeyHint { slot: Slot::HelpOnly, ..hint },
+            }
+        })
+        .collect()
+}
+
+/// What a key does with the preview focused: scroll it by a number of
+/// lines, nothing (the keys that act on the list's cursor row), or pass
+/// through to the list's handling. `page` is the PgDn/PgUp step.
+#[derive(Debug, PartialEq, Eq)]
+enum PreviewFocusKey {
+    Scroll(i32),
+    Inert,
+    Pass,
+}
+
+/// The preview-focused meaning of `code`, as in the tree: `j`/`k`/Down/Up
+/// scroll a line and PgDn/PgUp a page; `h`, `l`, Left, Right, Enter, Space
+/// and `x` are inert; everything else passes through.
+fn preview_focus_key(code: KeyCode, page: i32) -> PreviewFocusKey {
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => PreviewFocusKey::Scroll(1),
+        KeyCode::Char('k') | KeyCode::Up => PreviewFocusKey::Scroll(-1),
+        KeyCode::PageDown => PreviewFocusKey::Scroll(page),
+        KeyCode::PageUp => PreviewFocusKey::Scroll(-page),
+        KeyCode::Char('h' | 'l' | 'x' | ' ') | KeyCode::Left | KeyCode::Right | KeyCode::Enter => {
+            PreviewFocusKey::Inert
+        }
+        _ => PreviewFocusKey::Pass,
+    }
+}
+
+/// The scroll offset after moving `delta` lines from `current`, clamped to
+/// `0..=max` (the tree's `preview::scrolled`).
+fn scrolled(current: u16, delta: i32, max: u16) -> u16 {
+    (i64::from(current) + i64::from(delta)).clamp(0, i64::from(max)) as u16
+}
+
+/// Lines PgDn/PgUp scroll a pane `height` lines tall: a page minus one, at
+/// least one (the tree's `preview::preview_page`).
+fn preview_page(height: u16) -> i32 {
+    i32::from(height.saturating_sub(1).max(1))
+}
+
+/// Which checkbox of its source file the todo at `idx` is: the count of
+/// todos before it on the board from the same file. The board lists a
+/// file's todos in file order (`todo::load_single_todo`), so this is its
+/// line's place among the file's checkbox lines while the file is not
+/// edited here. `None` for a header or a code TODO.
+fn source_ordinal(items: &[Task], idx: usize) -> Option<usize> {
+    let task = items.get(idx)?;
+    if task.is_header || task.is_code_todo {
+        return None;
+    }
+    let before = items[..idx]
+        .iter()
+        .filter(|t| !t.is_header && !t.is_code_todo && t.source == task.source)
+        .count();
+    Some(before)
+}
+
+/// The 0-based line of `content` that holds the todo with `text` and
+/// `depth`, the `ordinal`-th checkbox line of the file as the board read it
+/// (see [`source_ordinal`]). When that line holds another todo (the order
+/// or the text changed here and is not saved yet), the checkbox line with
+/// the same text and depth nearest to `ordinal` wins. `None` when no line
+/// matches, such as a todo added here and not saved.
+fn task_line(content: &str, ordinal: usize, text: &str, depth: u8) -> Option<usize> {
+    let boxes: Vec<(usize, todo::TodoLine)> = content
+        .lines()
+        .enumerate()
+        .filter_map(|(at, line)| todo::parse_todo_lines(line).pop().map(|t| (at, t)))
+        .collect();
+    let is_task = |t: &todo::TodoLine| t.text == text && t.depth == depth;
+    if let Some((at, _)) = boxes.get(ordinal).filter(|(_, t)| is_task(t)) {
+        return Some(*at);
+    }
+    boxes
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, t))| is_task(t))
+        .min_by_key(|(n, _)| n.abs_diff(ordinal))
+        .map(|(_, (at, _))| *at)
+}
+
+/// `content` with [`TASK_MARK`] just after the checkbox of line `line` and
+/// at the end of its text, before any trailing whitespace (which would be a
+/// hard break). `None` when that line is not a checkbox line.
+fn mark_task_line(content: &str, line: usize) -> Option<String> {
+    let source = content.lines().nth(line)?;
+    let start = source.find("- [")? + "- [ ] ".len();
+    let end = source.trim_end().len();
+    if start > end {
+        return None;
+    }
+    let marked = format!(
+        "{}{TASK_MARK}{}{TASK_MARK}{}",
+        &source[..start],
+        &source[start..end],
+        &source[end..]
+    );
+    let lines: Vec<&str> = content
+        .lines()
+        .enumerate()
+        .map(|(at, l)| if at == line { marked.as_str() } else { l })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+/// The preview's rendered lines, the highlighted rows of the selected todo
+/// in them, and the rows the pane scrolls to: the highlighted ones, or a
+/// best guess when nothing could be highlighted.
+#[derive(Debug, Default)]
+struct PaneView {
+    lines: Vec<Line<'static>>,
+    task_rows: Option<std::ops::Range<usize>>,
+    scroll_rows: Option<std::ops::Range<usize>>,
+}
+
+/// `content` rendered as markdown `width` columns wide, with the rows of
+/// source line `line` (a checkbox line) highlighted in
+/// [`theme::selected_row`] across the width. The lines drawn are always
+/// those of rendering `content` alone. The rows are found in a second
+/// render with [`TASK_MARK`] around the line's text. The mark is not
+/// whitespace or punctuation to CommonMark, so next to an emphasis
+/// delimiter or a trailing backslash it can change how the line renders.
+/// The rows are therefore highlighted only when that render, with the
+/// marks stripped, has the same rows with the same text as the plain one.
+/// Otherwise nothing is highlighted and the marked rows are kept only as a
+/// scroll target. A file that already holds the mark is shown unlit and
+/// unscrolled.
+fn render_task_file(content: &str, line: Option<usize>, width: u16) -> PaneView {
+    let mut lines = super::markdown::render_markdown(content, width);
+    let marked = line
+        .filter(|_| !content.contains(TASK_MARK))
+        .and_then(|line| mark_task_line(content, line));
+    let Some(marked) = marked else {
+        return PaneView { lines, task_rows: None, scroll_rows: None };
+    };
+    let marked_lines = super::markdown::render_markdown(&marked, width);
+    let has_mark = |l: &Line| l.spans.iter().any(|s| s.content.contains(TASK_MARK));
+    let first = marked_lines.iter().position(has_mark);
+    let last = marked_lines.iter().rposition(has_mark);
+    let found = first.zip(last).map(|(first, last)| first..last + 1);
+    let unmarked = |l: &Line| -> String {
+        l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().replace(TASK_MARK, "")
+    };
+    let same_rows = marked_lines.len() == lines.len()
+        && marked_lines.iter().zip(&lines).all(|(m, p)| unmarked(m) == unmarked(p));
+    if !same_rows {
+        let scroll_rows = found.map(|rows| {
+            let start = rows.start.min(lines.len().saturating_sub(1));
+            start..start + 1
+        });
+        return PaneView { lines, task_rows: None, scroll_rows };
+    }
+    if let Some(rows) = &found {
+        for l in &mut lines[rows.clone()] {
+            let pad = usize::from(width).saturating_sub(l.width());
+            l.spans.push(Span::raw(" ".repeat(pad)));
+            l.style = l.style.patch(theme::selected_row());
+        }
+    }
+    PaneView { lines, task_rows: found.clone(), scroll_rows: found }
+}
+
+/// The preview of `source`: read now, rendered for `task` (its ordinal,
+/// text and depth; `None` for a header) `width` columns wide. A file that
+/// cannot be read gives one line saying so.
+fn load_pane_view(source: &Path, task: Option<&PreviewTask>, width: u16) -> PaneView {
+    let content = match std::fs::read_to_string(source) {
+        Ok(content) => content,
+        Err(e) => {
+            let message = if e.kind() == std::io::ErrorKind::NotFound {
+                format!("{} does not exist yet", tilde::contract(source))
+            } else {
+                format!("cannot read {}: {e}", tilde::contract(source))
+            };
+            return PaneView {
+                lines: vec![Line::from(Span::styled(message, Style::default().fg(theme::OVERLAY)))],
+                task_rows: None,
+                scroll_rows: None,
+            };
+        }
+    };
+    let line = task.and_then(|t| task_line(&content, t.ordinal, &t.text, t.depth));
+    render_task_file(&content, line, width)
+}
+
+/// The scroll offset that shows the todo's `rows` in a pane `height` lines
+/// tall: from the top when they fit on the first page, else with the first
+/// row a third of the way down. 0 with no rows.
+fn scroll_to_task(rows: Option<&std::ops::Range<usize>>, height: u16) -> u16 {
+    let Some(rows) = rows else { return 0 };
+    let height = usize::from(height);
+    if rows.end <= height {
+        return 0;
+    }
+    u16::try_from(rows.start.saturating_sub(height / 3)).unwrap_or(u16::MAX)
+}
+
+/// The selected todo as the preview needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreviewTask {
+    ordinal: usize,
+    text: String,
+    depth: u8,
+}
+
+/// What the cached preview was built from. `generation` counts the board's
+/// reloads and saves, so the file is read again after each and never on a
+/// plain redraw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreviewKey {
+    source: PathBuf,
+    task: Option<PreviewTask>,
+    width: u16,
+    generation: u64,
+}
+
+/// The preview's key for the row at `idx`, `None` on an empty board.
+fn preview_key(items: &[Task], idx: usize, width: u16, generation: u64) -> Option<PreviewKey> {
+    let item = items.get(idx)?;
+    let task = source_ordinal(items, idx).map(|ordinal| PreviewTask {
+        ordinal,
+        text: item.text.clone(),
+        depth: item.depth,
+    });
+    Some(PreviewKey { source: item.source.clone(), task, width, generation })
+}
+
+/// The last preview built and what it was built from.
+#[derive(Debug, Default)]
+struct TodoPreview {
+    key: Option<PreviewKey>,
+    view: PaneView,
+}
+
+impl TodoPreview {
+    /// The view for `key`, built only when `key` differs from the last one.
+    /// Also whether it was built now, so the caller scrolls to the todo.
+    fn view(&mut self, key: Option<PreviewKey>) -> (&PaneView, bool) {
+        let fresh = self.key != key;
+        if fresh {
+            self.view = match &key {
+                Some(k) => load_pane_view(&k.source, k.task.as_ref(), k.width),
+                None => PaneView::default(),
+            };
+            self.key = key;
+        }
+        (&self.view, fresh)
+    }
+}
+
+/// A date as the tree preview's footer writes it: `2026-10-20`, or
+/// `2026-10-20 14:00` with a time.
+fn footer_date(date: NoteDate) -> String {
+    match date.time {
+        Some(time) => format!("{} {}", date.date.format("%Y-%m-%d"), time.format("%H:%M")),
+        None => date.date.format("%Y-%m-%d").to_string(),
+    }
+}
+
+/// The preview's bottom title for a todo due `due`: ` due 2026-10-20 `,
+/// red when overdue (before `today`), as the tree preview's date footer.
+fn due_title(due: Option<NoteDate>, today: chrono::NaiveDate) -> Option<Line<'static>> {
+    let due = due?;
+    let style = Style::default().fg(if due.date < today { theme::RED } else { theme::NEUTRAL_SUFFIX });
+    Some(Line::from(vec![
+        Span::raw(" "),
+        Span::styled(format!("due {}", footer_date(due)), style),
+        Span::raw(" "),
+    ]))
+}
+
+/// The title of `pane`: its number (its focus key) in the pane number
+/// style, then `rest`, as the tree's pane titles.
+fn pane_title(pane: Pane, focus: Pane, rest: Vec<Span<'static>>) -> Line<'static> {
+    let mut spans = vec![Span::styled(format!(" {} ", pane.number()), theme::pane_number(pane == focus))];
+    spans.extend(rest);
+    Line::from(spans)
+}
+
+/// The border style of `pane`: highlighted while it has focus.
+fn pane_border(pane: Pane, focus: Pane) -> Style {
+    if pane == focus { theme::border_focused() } else { theme::border() }
+}
+
 // --- Reload (`R` and the file-change probe) ---
 //
 // The probe mirrors the tree's (`tree::model`); its helpers are private to
@@ -1112,10 +1489,34 @@ fn event_loop(
     // A sync moved `HEAD` and the probe has not looked since: quit checks
     // the dirty files before saving over them.
     let mut sync_pulled = false;
+    // The preview pane: split, focus and fold (session only), the cached
+    // view, its scroll, and the rect both panes shared at the last draw for
+    // the split keys' clamp and the mouse hit tests. `preview_generation`
+    // goes up on every reload or save, so the file is read again.
+    let mut panes = panes_at_start(terminal.size().map(|s| s.width).unwrap_or(0));
+    let mut preview = TodoPreview::default();
+    let mut preview_generation: u64 = 0;
+    let mut preview_scroll: u16 = 0;
+    let mut preview_max: u16 = 0;
+    let mut preview_height: u16 = 0;
+    let mut body_area: Rect = Rect::default();
 
     loop {
         todo::derive_parent_states(&mut items);
         todo::derive_header_flags(&mut items);
+        // Prompts, confirms, the filter, tag mode and the `:` line belong to
+        // the list: opening one with the preview focused moves focus there.
+        if confirm_delete
+            || flag_mode
+            || search_mode
+            || edit_mode
+            || subtask_mode
+            || category_mode
+            || input_mode
+            || vim.active
+        {
+            panes.focus(Pane::List);
+        }
         // No `git status` while a sync runs git in the vault.
         let vault_dirty_files = if vault_sync.running() {
             vault_dirty.cached()
@@ -1142,6 +1543,10 @@ fn event_loop(
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(1), Constraint::Length(1)])
                     .split(area);
+                // Too narrow for both panes: the preview folds on its own.
+                panes.fit(chunks[0].width);
+                let (list_rect, _, preview_rect) = panes.layout(chunks[0]);
+                body_area = chunks[0];
 
                 let cur_filter = filter::parse(&search_buffer);
                 let filter_changed = search_buffer != prev_filter;
@@ -1163,7 +1568,7 @@ fn event_loop(
                     &items,
                     &visible,
                     hover_flag,
-                    area.width.saturating_sub(4),
+                    list_rect.width.saturating_sub(4),
                     &search_buffer,
                 );
                 let no_matches = no_matches_row(&items, &visible, &search_buffer);
@@ -1286,16 +1691,19 @@ fn event_loop(
                     ));
                 }
 
-                let block = Block::default()
+                let mut block = Block::default()
                     .borders(Borders::ALL)
-                    // The board is the only pane and always has focus, so
-                    // it takes the focused border, as the tree's list does.
-                    .border_style(theme::border_focused())
+                    // With the preview folded the board is the only pane
+                    // and has focus, so it takes the focused border.
+                    .border_style(pane_border(Pane::List, panes.focus))
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .padding(Padding::new(1, 1, 1, 0));
+                if preview_rect.is_some() {
+                    block = block.title(pane_title(Pane::List, panes.focus, Vec::new()));
+                }
 
                 // Inner area: [filter strip, divider, list].
-                let inner = block.inner(chunks[0]);
+                let inner = block.inner(list_rect);
                 let inner_chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
@@ -1308,7 +1716,7 @@ fn event_loop(
                 let divider_rect = inner_chunks[1];
                 list_area = inner_chunks[2];
 
-                frame.render_widget(block, chunks[0]);
+                frame.render_widget(block, list_rect);
                 frame.render_widget(
                     Paragraph::new(Line::from(filter_spans)),
                     filter_strip_area,
@@ -1329,6 +1737,61 @@ fn event_loop(
                     );
                 } else {
                     frame.render_stateful_widget(List::new(list_items), list_area, &mut state);
+                }
+
+                // A folded preview is neither read nor drawn.
+                if let Some(preview_rect) = preview_rect {
+                    let selected = state
+                        .selected()
+                        .and_then(|s| visible.get(s.min(visible.len().saturating_sub(1))))
+                        .copied();
+                    let shown = selected.and_then(|idx| items.get(idx));
+                    let title = shown
+                        .map(|t| vec![Span::styled(format!(" {} ", tilde::contract(&t.source)), Style::default().fg(theme::OVERLAY))])
+                        .unwrap_or_default();
+                    let mut preview_block = Block::default()
+                        .title(pane_title(Pane::Preview, panes.focus, title))
+                        .borders(Borders::ALL)
+                        .border_style(pane_border(Pane::Preview, panes.focus))
+                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .padding(Padding::new(1, 1, 0, 0));
+                    let today = chrono::Local::now().date_naive();
+                    if let Some(due) = shown.and_then(|t| due_title(t.due, today)) {
+                        preview_block = preview_block.title_bottom(due);
+                    }
+                    let inner = preview_block.inner(preview_rect);
+                    let key = selected
+                        .and_then(|idx| preview_key(&items, idx, inner.width, preview_generation));
+                    let (view, fresh) = preview.view(key);
+                    preview_height = inner.height;
+                    let total = u16::try_from(view.lines.len()).unwrap_or(u16::MAX);
+                    preview_max = total.saturating_sub(preview_height);
+                    if fresh {
+                        preview_scroll = scroll_to_task(view.scroll_rows.as_ref(), preview_height);
+                    }
+                    preview_scroll = scrolled(preview_scroll, 0, preview_max);
+                    // Only the visible lines are handed over; nothing wraps
+                    // here, the renderer wrapped them to the width.
+                    let first = usize::from(preview_scroll).min(view.lines.len());
+                    let last = (first + usize::from(preview_height)).min(view.lines.len());
+                    frame.render_widget(
+                        Paragraph::new(view.lines[first..last].to_vec()).block(preview_block),
+                        preview_rect,
+                    );
+                } else {
+                    preview_height = 0;
+                    preview_max = 0;
+                }
+
+                // The grip on the border strip, from the same layout the
+                // drag hit test uses; lit while it is being dragged.
+                if let Some(grip) = panes.grip(chunks[0]) {
+                    for y in grip.y..grip.y + grip.height {
+                        if let Some(cell) = frame.buffer_mut().cell_mut((grip.x, y)) {
+                            cell.set_symbol(panes::GRIP);
+                            cell.set_style(theme::grip(panes.dragging));
+                        }
+                    }
                 }
 
                 // Status bar.
@@ -1352,8 +1815,9 @@ fn event_loop(
                     view_all_lit(&items),
                     help.open,
                 );
+                let keys = todo_keys(preview_rect.is_some(), panes.focus);
                 let hint_line = |lead: Vec<Span<'static>>| {
-                    status_line(lead, true, mode, &toggles, Vec::new(), width)
+                    footer::status_line(&keys, lead, true, mode, &toggles, Vec::new(), width)
                 };
                 let status = if confirm_delete {
                     hint_line(vec![Span::styled(
@@ -1452,9 +1916,9 @@ fn event_loop(
                         Some(text) => {
                             let right = warning_right(&text, right, width);
                             let lead = warning_lead(&text, span_cols(&right), width);
-                            status_line(lead, false, mode, &toggles, right, width)
+                            footer::status_line(&keys, lead, false, mode, &toggles, right, width)
                         }
-                        None => status_line(Vec::new(), true, mode, &toggles, right, width),
+                        None => footer::status_line(&keys, Vec::new(), true, mode, &toggles, right, width),
                     }
                 };
                 frame.render_widget(Paragraph::new(status), chunks[1]);
@@ -1479,7 +1943,7 @@ fn event_loop(
             vim_active: vim.active,
             focus_active,
         };
-        let can_probe = probe_allowed(&flags, help.open, drag_candidate.is_some());
+        let can_probe = probe_allowed(&flags, help.open, drag_candidate.is_some() || panes.dragging);
         enum Wake {
             Input(Event),
             Reload,
@@ -1543,6 +2007,7 @@ fn event_loop(
                         probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
                         held.clear();
                         hover_flag = None;
+                        preview_generation += 1;
                         if status_message.is_none() {
                             status_message = Some("reloaded (files changed)".to_string());
                         }
@@ -1556,6 +2021,37 @@ fn event_loop(
 
         // Mouse: scroll, dot clicks, click-to-collapse, drag-to-reorder.
         if let Event::Mouse(mouse) = ev {
+            // The panes first, as in the tree: a border drag owns every
+            // mouse event until the button comes up; the wheel over the
+            // preview scrolls it; a press grabs the border or focuses the
+            // pane under it, and only a list press goes on below.
+            if panes.dragging {
+                match mouse.kind {
+                    MouseEventKind::Drag(MouseButton::Left) => panes.drag_to(body_area, mouse.column),
+                    _ => panes.dragging = false,
+                }
+                continue;
+            }
+            match mouse.kind {
+                MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                    if panes.pane_at(body_area, mouse.column, mouse.row) == Some(Pane::Preview) =>
+                {
+                    let delta = if mouse.kind == MouseEventKind::ScrollDown {
+                        PREVIEW_WHEEL_STEP
+                    } else {
+                        -PREVIEW_WHEEL_STEP
+                    };
+                    preview_scroll = scrolled(preview_scroll, delta, preview_max);
+                    continue;
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    match panes.press(body_area, mouse.column, mouse.row) {
+                        Press::Grab | Press::Pane(Pane::Preview) => continue,
+                        Press::Pane(Pane::List) | Press::Outside => {}
+                    }
+                }
+                _ => {}
+            }
             let vis_sel = state.selected().unwrap_or(0);
             match mouse.kind {
                 MouseEventKind::ScrollDown => {
@@ -1824,6 +2320,7 @@ fn event_loop(
                             items = todo::load_board(config, &registry);
                             probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
                             held.clear();
+                            preview_generation += 1;
                             input_buffer.clear();
                             cursor_pos = 0;
                             category_mode = false;
@@ -2042,7 +2539,26 @@ fn event_loop(
         let vis_sel = state.selected().unwrap_or(0);
         let real_idx = visible.get(vis_sel).copied().unwrap_or(0);
 
+        if panes.focus == Pane::Preview {
+            match preview_focus_key(key.code, preview_page(preview_height)) {
+                PreviewFocusKey::Scroll(delta) => {
+                    preview_scroll = scrolled(preview_scroll, delta, preview_max);
+                    continue;
+                }
+                PreviewFocusKey::Inert => continue,
+                PreviewFocusKey::Pass => {}
+            }
+        }
+        if panes.handle_key(key.code, body_area.width) {
+            continue;
+        }
+
         match key.code {
+            KeyCode::Char('p') => {
+                if let Err(message) = toggle_preview(&mut panes, body_area.width) {
+                    status_message = Some(message.to_string());
+                }
+            }
             KeyCode::Char('q') => {
                 if let Some(hold) =
                     quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
@@ -2243,6 +2759,8 @@ fn event_loop(
                     None => save_before_sync(&items, &mut dirty, &mut held, &mut probe, todo::save_todos_for)
                         .and_then(|()| vault_sync.start().map_err(|why| why.message().to_string())),
                 };
+                // The save may have rewritten the shown file.
+                preview_generation += 1;
                 status_message = Some(match started {
                     Ok(()) => "syncing the vault".to_string(),
                     Err(message) => message,
@@ -2264,6 +2782,7 @@ fn event_loop(
                     probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
                     held.clear();
                     hover_flag = None;
+                    preview_generation += 1;
                     status_message = Some("reloaded".to_string());
                 }
                 Err(message) => status_message = Some(message),
@@ -3497,5 +4016,332 @@ mod tests {
             |_, _| panic!("nothing to save"),
         );
         assert_eq!(nothing, Ok(()));
+    }
+
+    // --- Preview pane ---
+
+    /// A `TODO.md` with headings, prose, blank lines, nested todos, a loose
+    /// list, a due date and tags: every case the line search must survive.
+    const PREVIEW_FILE: &str = "# TODO\n\
+        \n\
+        Some prose about the list.\n\
+        \n\
+        ## Work\n\
+        \n\
+        - [ ] write the report @2026-11-02\n\
+        \x20 - [x] gather numbers\n\
+        \x20 - [ ] draft\n\
+        \x20\x20\x20\x20- [/] intro #prio\n\
+        - [ ] call the venue\n\
+        \n\
+        ## Home\n\
+        \n\
+        - [ ] fix the tap\n\
+        \n\
+        - [ ] water the plants\n";
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn the_preview_opens_at_start_from_120_columns() {
+        for width in [0u16, 44, 45, 80, 119] {
+            let panes = panes_at_start(width);
+            assert!(panes.folded, "width {width}");
+            assert_eq!(panes.focus, Pane::List);
+        }
+        for width in [120u16, 121, 200] {
+            let panes = panes_at_start(width);
+            assert!(!panes.folded, "width {width}");
+            assert_eq!(panes.focus, Pane::List);
+            assert_eq!(panes.split, panes::DEFAULT_SPLIT);
+        }
+    }
+
+    #[test]
+    fn p_is_refused_when_too_narrow_and_toggles_the_fold_otherwise() {
+        for folded in [false, true] {
+            let mut panes = Panes { folded, ..Panes::default() };
+            panes.fit(44);
+            let before = panes;
+            assert_eq!(toggle_preview(&mut panes, 44), Err(TOO_NARROW));
+            assert_eq!(panes, before, "a refused p changes nothing");
+        }
+        assert_eq!(TOO_NARROW, "too narrow for a preview");
+        let mut panes = Panes::default();
+        assert_eq!(toggle_preview(&mut panes, 45), Ok(()));
+        assert!(panes.folded);
+        assert_eq!(toggle_preview(&mut panes, 45), Ok(()));
+        assert!(!panes.folded);
+        // Folding the focused preview hands focus back to the list.
+        panes.focus(Pane::Preview);
+        assert_eq!(toggle_preview(&mut panes, 120), Ok(()));
+        assert!(panes.folded && panes.focus == Pane::List);
+    }
+
+    #[test]
+    fn source_ordinal_counts_the_todos_before_it_in_the_same_file() {
+        let items = vec![
+            in_file(header("A"), "/a.md", "a"),
+            in_file(task("one", 0, 0), "/a.md", "a"),
+            in_file(task("one.one", 1, 0), "/a.md", "a"),
+            in_file(header("B"), "/b.md", "b"),
+            in_file(task("two", 0, 0), "/b.md", "b"),
+            in_file(task("three", 0, 0), "/a.md", "a"),
+        ];
+        let ordinals: Vec<Option<usize>> = (0..items.len()).map(|i| source_ordinal(&items, i)).collect();
+        assert_eq!(ordinals, vec![None, Some(0), Some(1), None, Some(0), Some(2)]);
+        assert_eq!(source_ordinal(&items, 99), None);
+    }
+
+    #[test]
+    fn task_line_finds_each_todo_as_the_board_loads_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        std::fs::write(&path, PREVIEW_FILE).unwrap();
+        let items = todo::load_single_todo(&path, "s");
+        assert_eq!(items.len(), 7);
+        let source: Vec<&str> = PREVIEW_FILE.lines().collect();
+        let mut found = Vec::new();
+        for (idx, item) in items.iter().enumerate() {
+            let ordinal = source_ordinal(&items, idx).unwrap();
+            let line = task_line(PREVIEW_FILE, ordinal, &item.text, item.depth).unwrap();
+            assert!(source[line].contains(&item.text), "{:?} on {:?}", item.text, source[line]);
+            found.push(line);
+        }
+        assert_eq!(found, vec![6, 7, 8, 9, 10, 14, 16]);
+    }
+
+    #[test]
+    fn task_line_falls_back_to_the_text_when_the_order_changed_here() {
+        // "call the venue" moved to the top here, not saved: the board's
+        // ordinal 0 is now "call the venue", whose file line is 10.
+        assert_eq!(task_line(PREVIEW_FILE, 0, "call the venue", 0), Some(10));
+        assert_eq!(task_line(PREVIEW_FILE, 6, "write the report", 0), Some(6));
+        // Depth counts: "draft" is a subtask.
+        assert_eq!(task_line(PREVIEW_FILE, 2, "draft", 0), None);
+        // Added or edited here and not saved: no line.
+        assert_eq!(task_line(PREVIEW_FILE, 3, "not in the file", 0), None);
+        assert_eq!(task_line("", 0, "x", 0), None);
+        // A repeated text picks the copy nearest the ordinal.
+        let twice = "- [ ] a\n- [ ] dup\n- [ ] b\n- [ ] dup\n";
+        assert_eq!(task_line(twice, 3, "dup", 0), Some(3));
+        assert_eq!(task_line(twice, 0, "dup", 0), Some(1));
+    }
+
+    #[test]
+    fn the_highlight_lands_on_the_todo_rows_and_the_render_is_unchanged() {
+        let width = 40;
+        let plain: Vec<String> =
+            super::super::markdown::render_markdown(PREVIEW_FILE, width).iter().map(line_text).collect();
+        let checkbox_lines = [6usize, 7, 8, 9, 10, 14, 16];
+        let texts = ["write the report", "gather numbers", "draft", "intro", "call the venue", "fix the tap", "water the plants"];
+        for (line, text) in checkbox_lines.into_iter().zip(texts) {
+            let view = render_task_file(PREVIEW_FILE, Some(line), width);
+            let shown: Vec<String> = view.lines.iter().map(line_text).collect();
+            // Same rows as rendering the file alone, apart from the padding
+            // of the highlighted rows, and no mark left anywhere.
+            assert_eq!(shown.len(), plain.len(), "line {line}");
+            for (a, b) in shown.iter().zip(&plain) {
+                assert_eq!(a.trim_end(), b.trim_end(), "line {line}");
+                assert!(!a.contains(TASK_MARK));
+            }
+            let rows = view.task_rows.clone().unwrap_or_else(|| panic!("line {line} not found"));
+            assert_eq!(rows.len(), 1, "line {line}");
+            assert!(shown[rows.start].contains(text), "line {line}: {:?}", shown[rows.start]);
+            // Highlighted across the width; no other row is.
+            for (at, l) in view.lines.iter().enumerate() {
+                let lit = l.style == Style::default().patch(theme::selected_row());
+                assert_eq!(lit, rows.contains(&at), "line {line}, row {at}");
+                if lit {
+                    assert_eq!(l.width(), usize::from(width));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn emphasis_next_to_the_mark_never_changes_what_the_pane_draws() {
+        let width = 40;
+        let cases = [
+            ("# TODO\n\n- [ ] first\n- [ ] _urgent_ call _now_\n- [ ] last\n", 3, "urgent"),
+            ("# TODO\n\n- [ ] first\n- [ ] check the **API.**\n- [ ] last\n", 3, "API."),
+            ("# TODO\n\n- [ ] first\n- [ ] say *\"quoted\"*\n- [ ] last\n", 3, "quoted"),
+            ("# TODO\n\n- [ ] first\n- [ ] two rows\\\n  here\n- [ ] last\n", 3, "two rows"),
+        ];
+        for (content, line, text) in cases {
+            let plain = super::super::markdown::render_markdown(content, width);
+            let view = render_task_file(content, Some(line), width);
+            let shown: Vec<String> = view.lines.iter().map(|l| line_text(l).trim_end().to_string()).collect();
+            let expected: Vec<String> = plain.iter().map(|l| line_text(l).trim_end().to_string()).collect();
+            assert_eq!(shown, expected, "{content:?}");
+            // The marked render differs here, so nothing is lit and the
+            // lines are exactly the plain ones, styles included.
+            assert!(view.task_rows.is_none(), "{content:?}");
+            assert_eq!(view.lines, plain, "{content:?}");
+            // The pane still scrolls to the todo's row.
+            let scroll = view.scroll_rows.clone().unwrap_or_else(|| panic!("{content:?}: no scroll row"));
+            assert!(shown[scroll.start].contains(text), "{content:?}: {:?}", shown[scroll.start]);
+        }
+        // Emphasis away from the marks still lights the row.
+        let content = "# TODO\n\n- [ ] call the _venue_ today\n- [ ] check **API** docs\n";
+        for (line, text) in [(2, "venue"), (3, "API")] {
+            let view = render_task_file(content, Some(line), width);
+            let rows = view.task_rows.clone().unwrap_or_else(|| panic!("line {line} not lit"));
+            assert!(line_text(&view.lines[rows.start]).contains(text));
+            assert!(!line_text(&view.lines[rows.start]).contains('_') && !line_text(&view.lines[rows.start]).contains('*'));
+        }
+    }
+
+    #[test]
+    fn a_prefix_render_would_miss_the_row_in_a_loose_list() {
+        // Why the rows are found by marking the line, not by rendering the
+        // text above it and counting: a blank line later in a list makes
+        // the whole list loose, which spaces out its earlier items too.
+        let content = "- [ ] one\n- [ ] two\n\n- [ ] three\n";
+        let prefix_rows = super::super::markdown::render_markdown("- [ ] one\n", 40).len();
+        let view = render_task_file(content, Some(1), 40);
+        let rows = view.task_rows.unwrap();
+        assert!(line_text(&view.lines[rows.start]).contains("two"));
+        assert_ne!(rows.start, prefix_rows, "the prefix count happens to agree; the test no longer shows why");
+    }
+
+    #[test]
+    fn a_wrapped_todo_is_lit_on_every_row() {
+        let content = "# TODO\n\n- [ ] a todo long enough to wrap over several rows here\n- [ ] next\n";
+        let view = render_task_file(content, Some(2), 20);
+        let rows = view.task_rows.clone().unwrap();
+        assert!(rows.len() > 1, "{rows:?}");
+        assert!(!line_text(&view.lines[rows.end]).contains("long"));
+        for at in rows {
+            assert_eq!(view.lines[at].style, Style::default().patch(theme::selected_row()));
+        }
+    }
+
+    #[test]
+    fn a_header_or_an_unmatched_todo_shows_the_file_with_nothing_lit() {
+        for line in [None, Some(0), Some(99)] {
+            let view = render_task_file(PREVIEW_FILE, line, 40);
+            assert!(view.task_rows.is_none(), "{line:?}");
+            assert!(!view.lines.is_empty());
+        }
+        // A file already holding the mark is shown, unlit.
+        let marked = format!("- [ ] a{TASK_MARK}b\n");
+        assert!(render_task_file(&marked, Some(0), 40).task_rows.is_none());
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_file_shows_one_line_and_no_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("TODO.md");
+        let view = load_pane_view(&missing, None, 40);
+        assert_eq!(view.lines.len(), 1);
+        assert!(line_text(&view.lines[0]).contains("does not exist yet"));
+        let task = PreviewTask { ordinal: 0, text: "x".into(), depth: 0 };
+        // A directory cannot be read as a file.
+        let view = load_pane_view(dir.path(), Some(&task), 40);
+        assert_eq!(view.lines.len(), 1);
+        assert!(line_text(&view.lines[0]).starts_with("cannot read "), "{:?}", line_text(&view.lines[0]));
+        assert!(view.task_rows.is_none());
+    }
+
+    #[test]
+    fn the_preview_reads_the_file_once_per_selection_and_again_after_a_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        std::fs::write(&path, "- [ ] old\n").unwrap();
+        let items = vec![in_file(task("old", 0, 0), path.to_str().unwrap(), "s")];
+        let mut preview = TodoPreview::default();
+        let shown = |preview: &mut TodoPreview, generation| {
+            let (view, fresh) = preview.view(preview_key(&items, 0, 40, generation));
+            (view.lines.iter().map(line_text).collect::<String>(), fresh, view.task_rows.clone())
+        };
+        let (text, fresh, rows) = shown(&mut preview, 0);
+        assert!(text.contains("old") && fresh && rows == Some(0..1));
+        std::fs::write(&path, "- [ ] new\n").unwrap();
+        let (text, fresh, _) = shown(&mut preview, 0);
+        assert!(text.contains("old") && !fresh, "a redraw does not read the file");
+        let (text, fresh, rows) = shown(&mut preview, 1);
+        assert!(text.contains("new") && fresh, "a reload does");
+        assert_eq!(rows, None, "the todo is gone from the file");
+        let (view, fresh) = preview.view(None);
+        assert!(view.lines.is_empty() && fresh);
+    }
+
+    #[test]
+    fn the_preview_scrolls_the_todo_into_view() {
+        assert_eq!(scroll_to_task(None, 20), 0);
+        assert_eq!(scroll_to_task(Some(&(5..6)), 20), 0);
+        assert_eq!(scroll_to_task(Some(&(19..20)), 20), 0);
+        assert_eq!(scroll_to_task(Some(&(20..21)), 20), 14);
+        assert_eq!(scroll_to_task(Some(&(100..102)), 30), 90);
+        assert_eq!(scroll_to_task(Some(&(3..40)), 30), 0);
+        assert_eq!(scrolled(5, 3, 6), 6);
+        assert_eq!(scrolled(5, -9, 6), 0);
+        assert_eq!(preview_page(20), 19);
+        assert_eq!(preview_page(0), 1);
+    }
+
+    #[test]
+    fn with_the_preview_focused_j_k_and_pages_scroll_and_row_keys_are_inert() {
+        assert_eq!(preview_focus_key(KeyCode::Char('j'), 9), PreviewFocusKey::Scroll(1));
+        assert_eq!(preview_focus_key(KeyCode::Up, 9), PreviewFocusKey::Scroll(-1));
+        assert_eq!(preview_focus_key(KeyCode::PageDown, 9), PreviewFocusKey::Scroll(9));
+        assert_eq!(preview_focus_key(KeyCode::PageUp, 9), PreviewFocusKey::Scroll(-9));
+        for code in [KeyCode::Char('x'), KeyCode::Char(' '), KeyCode::Enter, KeyCode::Char('h'), KeyCode::Right] {
+            assert_eq!(preview_focus_key(code, 9), PreviewFocusKey::Inert, "{code:?}");
+        }
+        for code in [KeyCode::Char('q'), KeyCode::Char('2'), KeyCode::Tab, KeyCode::Char('p'), KeyCode::Char('?')] {
+            assert_eq!(preview_focus_key(code, 9), PreviewFocusKey::Pass, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn the_pane_keys_are_listed_once_and_shown_while_the_preview_is_open() {
+        for k in ["p", "1/2", "tab", "</>", "=", "PgDn/PgUp", "drag grip"] {
+            let rows: Vec<&KeyHint> = TODO_KEYS.iter().filter(|h| h.key == k).collect();
+            assert_eq!(rows.len(), 1, "{k}");
+            assert_eq!(rows[0].slot, Slot::HelpOnly, "{k} stays out of the folded footer");
+        }
+        let shown = |keys: &[KeyHint]| -> Vec<&'static str> {
+            footer::select(keys, Mode::Normal, &[], 300).left.iter().map(|&(i, _)| keys[i].key).collect()
+        };
+        let folded = todo_keys(false, Pane::List);
+        assert_eq!(shown(&folded), shown(TODO_KEYS));
+        let open = todo_keys(true, Pane::List);
+        assert_eq!(
+            shown(&open),
+            vec!["x", "n", "e", "t", "s", "d", "a", "/", "f", "v", "p", "1/2", "tab", "</>", "=", "?"]
+        );
+        // The pane keys drop first.
+        assert_eq!(shown_at(&open, 80), shown_at(TODO_KEYS, 80));
+        let focused = todo_keys(true, Pane::Preview);
+        assert_eq!(shown(&focused), vec!["j/k", "PgDn/PgUp", "p", "2", "1/tab", "?"]);
+        // Prompt footers are untouched, and every table has the same rows.
+        for keys in [&folded, &open, &focused] {
+            assert_eq!(keys.len(), TODO_KEYS.len());
+            assert_eq!(footer::select(keys, Mode::Filter, &[], 300).left, footer::select(TODO_KEYS, Mode::Filter, &[], 300).left);
+            assert!(footer::select(keys, Mode::Normal, &[], 300).quit.is_some());
+        }
+    }
+
+    fn shown_at(keys: &[KeyHint], width: usize) -> Vec<&'static str> {
+        footer::select(keys, Mode::Normal, &[], width).left.iter().map(|&(i, _)| keys[i].key).collect()
+    }
+
+    #[test]
+    fn the_due_title_shows_the_date_red_when_overdue() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 27).unwrap();
+        assert!(due_title(None, today).is_none());
+        let date = |s: &str| NoteDate::parse(s).unwrap();
+        let soon = due_title(Some(date("2026-10-28")), today).unwrap();
+        assert_eq!(line_text(&soon), " due 2026-10-28 ");
+        assert_eq!(soon.spans[1].style.fg, Some(theme::NEUTRAL_SUFFIX));
+        let late = due_title(Some(date("2026-10-26T14:00")), today).unwrap();
+        assert_eq!(line_text(&late), " due 2026-10-26 14:00 ");
+        assert_eq!(late.spans[1].style.fg, Some(theme::RED));
+        let today_due = due_title(Some(date("2026-10-27")), today).unwrap();
+        assert_eq!(today_due.spans[1].style.fg, Some(theme::NEUTRAL_SUFFIX));
     }
 }
