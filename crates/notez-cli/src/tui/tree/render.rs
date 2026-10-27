@@ -100,6 +100,44 @@ pub(super) fn list_items(
         .collect()
 }
 
+/// Rows the tree list keeps between the cursor and the pane's top and
+/// bottom edges while rows are left to scroll, as vim's `scrolloff`.
+pub(super) const SCROLL_MARGIN: usize = 5;
+
+/// The tree list widget over `items`, keeping [`SCROLL_MARGIN`] rows around
+/// the cursor. ratatui shrinks the margin in a pane too short for it.
+pub(super) fn tree_list(items: Vec<ListItem<'static>>) -> List<'static> {
+    List::new(items).scroll_padding(SCROLL_MARGIN)
+}
+
+/// The list offset that reveals the just-expanded `folder` (an index into
+/// `nodes`) in a pane `height` rows tall, scrolled to `offset`: far enough
+/// down that the folder's last visible row (`visible` in tree order) sits
+/// on the bottom row, but never so far that the folder itself leaves the
+/// top margin. The margin is [`SCROLL_MARGIN`] shrunk to `(height - 1) / 2`
+/// as ratatui shrinks it, so its padding does not undo the reveal. Rows
+/// that already fit keep `offset`; a reveal never scrolls up.
+pub(super) fn reveal_offset(
+    nodes: &[TreeNode],
+    visible: &[usize],
+    folder: usize,
+    offset: usize,
+    height: usize,
+) -> usize {
+    let Some(pos) = visible.iter().position(|&i| i == folder) else {
+        return offset;
+    };
+    let depth = nodes[folder].depth;
+    let last = pos
+        + visible[pos + 1..]
+            .iter()
+            .take_while(|&&i| nodes[i].depth > depth)
+            .count();
+    let margin = SCROLL_MARGIN.min(height.saturating_sub(1) / 2);
+    let bottom = (last + 1).saturating_sub(height);
+    offset.max(bottom.min(pos.saturating_sub(margin)))
+}
+
 /// For each row, whether a later row of `visible` (rows in tree order)
 /// shares its parent: the row draws `├─` and its descendants a bar at its
 /// level. Rows outside `visible`, such as rows the filter hides, neither
@@ -1232,6 +1270,87 @@ mod tests {
             hidden: false,
             doc_types: 0,
         }
+    }
+
+    /// `rows` sibling rows at depth 1 under a section row, the one at
+    /// `folder` an expanded folder holding `children` rows at depth 2. All
+    /// rows show, so a node index is also its list position.
+    fn reveal_forest(rows: usize, folder: usize, children: usize) -> (Vec<TreeNode>, Vec<usize>) {
+        let mut nodes = vec![dir_node(0)];
+        for i in 1..rows {
+            nodes.push(dir_node(1));
+            if i == folder {
+                nodes[i].expanded = true;
+                nodes.extend((0..children).map(|_| dir_node(2)));
+            }
+        }
+        let visible = (0..nodes.len()).collect();
+        (nodes, visible)
+    }
+
+    /// The offset a [`tree_list`] settles on when drawn `height` rows tall
+    /// from `offset` with the cursor on `selected`.
+    fn drawn_offset(rows: usize, selected: usize, offset: usize, height: u16) -> usize {
+        let items = (0..rows).map(|i| ListItem::new(i.to_string())).collect();
+        let mut state = ListState::default()
+            .with_offset(offset)
+            .with_selected(Some(selected));
+        let area = Rect::new(0, 0, 10, height);
+        let mut buf = Buffer::empty(area);
+        StatefulWidget::render(tree_list(items), area, &mut buf, &mut state);
+        state.offset()
+    }
+
+    #[test]
+    fn reveal_puts_the_folders_last_row_on_the_bottom_row() {
+        // The folder on row 14 of 20, the lowest the margin lets the cursor
+        // sit; its eight rows end at position 22, below the pane.
+        let (nodes, visible) = reveal_forest(30, 14, 8);
+        let offset = reveal_offset(&nodes, &visible, 14, 0, 20);
+        assert_eq!(offset, 3);
+        assert_eq!(offset + 20 - 1, 22);
+        assert_eq!(drawn_offset(visible.len(), 14, offset, 20), offset);
+    }
+
+    #[test]
+    fn reveal_of_a_folder_taller_than_the_pane_stops_at_the_top_margin() {
+        let (nodes, visible) = reveal_forest(30, 14, 30);
+        let offset = reveal_offset(&nodes, &visible, 14, 0, 20);
+        assert_eq!(14 - offset, SCROLL_MARGIN);
+        assert_eq!(drawn_offset(visible.len(), 14, offset, 20), offset);
+    }
+
+    #[test]
+    fn reveal_in_a_short_pane_uses_the_shrunken_margin() {
+        // Eight rows: the margin shrinks to (8 - 1) / 2 = 3. The folder on
+        // row 4 climbs to row 3, not to row 5 of a full margin.
+        let (nodes, visible) = reveal_forest(30, 14, 10);
+        let offset = reveal_offset(&nodes, &visible, 14, 10, 8);
+        assert_eq!(offset, 11);
+        assert_eq!(drawn_offset(visible.len(), 14, offset, 8), offset);
+    }
+
+    #[test]
+    fn reveal_keeps_the_offset_when_the_folders_rows_already_fit() {
+        let (nodes, visible) = reveal_forest(30, 14, 5);
+        assert_eq!(reveal_offset(&nodes, &visible, 14, 0, 20), 0);
+        let (nodes, visible) = reveal_forest(30, 14, 0);
+        assert_eq!(reveal_offset(&nodes, &visible, 14, 0, 20), 0);
+    }
+
+    #[test]
+    fn reveal_never_scrolls_up() {
+        // The folder already sits on row 2, inside the top margin.
+        let (nodes, visible) = reveal_forest(30, 14, 30);
+        assert_eq!(reveal_offset(&nodes, &visible, 14, 12, 20), 12);
+    }
+
+    #[test]
+    fn reveal_counts_only_the_visible_rows_under_the_folder() {
+        // The filter hides the folder's last six rows: two still show.
+        let (nodes, mut visible) = reveal_forest(30, 14, 8);
+        visible.retain(|&i| !(17..=22).contains(&i));
+        assert_eq!(reveal_offset(&nodes, &visible, 14, 0, 20), 0);
     }
 
     #[test]

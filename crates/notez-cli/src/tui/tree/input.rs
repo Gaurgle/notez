@@ -83,6 +83,9 @@ pub(super) fn event_loop(
     let mut list_inner_area: Rect = Rect::default();
     let mut visible_for_mouse: Vec<usize> = Vec::new();
     let mut prev_filter_buffer = String::new();
+    // The folder (a node index) expanded since the last draw, which the
+    // next draw scrolls into view (see `reveal_offset`).
+    let mut reveal: Option<usize> = None;
     // The file-change probe's last reading; `None` until the first probe,
     // which only records it. Paths no longer probed keep their entry, so a
     // folder expanded again compares against its last reading.
@@ -282,6 +285,7 @@ pub(super) fn event_loop(
                     inner_chunks[1],
                 );
 
+                let pending_reveal = reveal.take();
                 if empty_state_line(nodes).is_some() {
                     frame.render_widget(
                         Paragraph::new(Line::from(Span::styled(
@@ -299,7 +303,16 @@ pub(super) fn event_loop(
                         inner_chunks[2],
                     );
                 } else {
-                    frame.render_stateful_widget(List::new(items), inner_chunks[2], &mut state);
+                    if let Some(folder) = pending_reveal {
+                        *state.offset_mut() = reveal_offset(
+                            nodes,
+                            &visible,
+                            folder,
+                            state.offset(),
+                            usize::from(inner_chunks[2].height),
+                        );
+                    }
+                    frame.render_stateful_widget(tree_list(items), inner_chunks[2], &mut state);
                 }
 
                 if real_idx != last_preview_idx {
@@ -716,6 +729,9 @@ pub(super) fn event_loop(
                             }
                             if nodes[real].is_dir {
                                 nodes[real].expanded = !nodes[real].expanded;
+                                if nodes[real].expanded {
+                                    reveal = Some(real);
+                                }
                             }
                         }
                     }
@@ -1219,6 +1235,7 @@ pub(super) fn event_loop(
                     let idx = visible[selected];
                     if nodes[idx].is_dir && !nodes[idx].expanded {
                         nodes[idx].expanded = true;
+                        reveal = Some(idx);
                         focus_active = false;
                     }
                 }
@@ -1242,6 +1259,9 @@ pub(super) fn event_loop(
                     let idx = visible[selected];
                     if nodes[idx].is_dir {
                         nodes[idx].expanded = !nodes[idx].expanded;
+                        if nodes[idx].expanded {
+                            reveal = Some(idx);
+                        }
                     } else {
                         let path = nodes[idx].path.clone();
                         super::open_in_editor(&config.editor.command, &path).ok();
