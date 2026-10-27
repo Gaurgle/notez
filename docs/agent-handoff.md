@@ -13,7 +13,21 @@ Finished tickets and earlier leads: `docs/agent-log.md`.
 
 ## Current lead
 
-Lead `0bafc905` (Claude, `claude-fable-5-1`, `nz-coordinator`) took
+None. Lead `0bafc905` (Claude, `claude-fable-5-1`, `nz-coordinator`)
+RELEASED the baton on 2026-10-27 at about 12:58 CET on Andreas's
+"find a place to stop for today". Workers and reviewers: none running,
+none were started for NZ-43. State at release: `main` = `origin/main`
+at `84fa8df` (the docs ship after the wave), CI green; NZ-43 (#71) is
+CUT but NOT dispatched: branch `feat/nz-43-todo-preview`, worktree
+`.claude/worktrees/NZ-43`, clean at base `84fa8df`, board Ready, the
+full worker brief is the body of #71 (the lead's rulings are in its
+comments). The 2026-10-27 "start nect ticket" instruction (Authorized
+by the owner) covers dispatching NZ-43, so the next lead may dispatch
+it from the issue body without a new confirmation, then stop at Ready
+to integrate for Andreas's branch-build try. Uncommitted at release:
+this file (commit command presented to Andreas).
+
+Earlier that day lead `0bafc905` took
 the baton on 2026-10-27 at about 10:45 CET on Andreas's "Take the
 baton" (his 2026-10-27 instruction, verbatim: "run NZ-55 (#81), then
 NZ-56 (#82), under the standing permissions. NZ-55 first ... NZ-56
@@ -192,6 +206,13 @@ The live scope is the two 2026-10-15 entries, verbatim:
   sync key) and run them under the standing 2026-10-08 permissions.
   Both are interaction changes, so each stops at Ready to integrate
   until Andreas tries the branch build.
+- 2026-10-27 about 12:50 CET, Andreas, in the lead session
+  (`0bafc905`), after the NZ-55 and NZ-56 merges and the docs ship:
+  "start nect ticket". The lead's reading: run the head of the
+  recorded Next step queue, NZ-43 (#71, approved design), under the
+  standing permissions; interaction change, so it stops at Ready to
+  integrate for his branch-build try. One ticket; the rest of the
+  queue waits for his next word.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -357,13 +378,12 @@ and needs no new confirmation. Uncommitted at this point: this file
 and `docs/agent-log.md` (the lead presents the docs commit command;
 coordination commits are not in the recorded delegation).
 
-1. NZ-43 (#71), todoz preview pane, approved design under Tickets.
-   Files `tui/todo.rs`, `tui/panes.rs`, `tui/footer.rs`,
-   `tui/help.rs`, `README.md`. Brief to write at dispatch from the
-   record; the footer's due date can use `Task.due` now that NZ-48
-   and NZ-53 are in. Interaction-heavy: Andreas should try the branch
-   build before the merge, or say the precedent (merge, then try
-   `main`) holds.
+1. NZ-43 (#71), todoz preview pane: CUT, not dispatched (branch
+   `feat/nz-43-todo-preview`, worktree `.claude/worktrees/NZ-43` at
+   `84fa8df`). Dispatch `nz-worker` (opus, medium) with the body of
+   #71 as the brief; authorized by the 2026-10-27 "start nect ticket"
+   entry. Interaction-heavy: stop at Ready to integrate for Andreas's
+   try of the branch build.
 2. NZ-30 (#59), symbol outline, on the tree line (`tui/tree/*`,
    `tui/highlight.rs`, `tui/markdown.rs`, `tui/outline.rs` new,
    `README.md`). Can run beside NZ-43 (disjoint files; README is
