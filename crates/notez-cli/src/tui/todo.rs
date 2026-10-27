@@ -27,7 +27,9 @@ use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, T
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::sync::VaultSync;
-use super::{VimCommandMode, VimKey, text, theme};
+use super::{VimCommandMode, VimKey, text, theme, todo_rows};
+#[cfg(test)]
+use super::todo_rows::{branch_prefix, flags_slots, later_siblings};
 
 const BOARD: &[Mode] = &[Mode::Normal, Mode::Focus];
 const BOARD_AND_TAG: &[Mode] = &[Mode::Normal, Mode::Focus, Mode::Tag];
@@ -419,7 +421,7 @@ fn compute_filter_keep(items: &[Task], f: &Filter) -> Vec<bool> {
 }
 
 /// The column of a list row's first tag dot, relative to the list: rows
-/// start with the one-column gutter drawn by [`flags_slots`], and the list
+/// start with the one-column gutter drawn by [`todo_rows::flags_slots`], and the list
 /// draws no highlight symbol.
 const FIRST_DOT_COL: u16 = 1;
 
@@ -463,122 +465,6 @@ fn mouse_y_to_real_idx(
     None
 }
 
-/// Render the 5 fixed tag-dot slots: the row's one-column gutter, the dots,
-/// and one space before the tree drawing. `hover_dot` previews an unset slot in its tag color while the mouse
-/// hovers over it.
-fn flags_slots_with_hover(flags: u8, hover_dot: Option<u8>) -> Vec<Span<'static>> {
-    let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
-    for (i, def) in FLAG_DEFS.iter().enumerate() {
-        let is_set = flags & def.bit != 0;
-        let is_hovered = hover_dot == Some(i as u8);
-        if is_set {
-            spans.push(Span::styled(
-                "●",
-                Style::default().fg(theme::FLAG_COLORS[i]),
-            ));
-        } else if is_hovered {
-            spans.push(Span::styled(
-                "●",
-                Style::default()
-                    .fg(theme::FLAG_COLORS[i])
-                    .add_modifier(Modifier::DIM),
-            ));
-        } else {
-            spans.push(Span::styled(
-                "·",
-                Style::default().fg(Color::Rgb(50, 50, 65)),
-            ));
-        }
-    }
-    spans.push(Span::raw(" "));
-    spans
-}
-
-fn flags_slots(flags: u8) -> Vec<Span<'static>> {
-    flags_slots_with_hover(flags, None)
-}
-
-/// The row a todo hangs under: the nearest earlier todo one level up, or
-/// for a top-level todo its section header. `None` for a header, or a todo
-/// with nothing above it.
-fn parent_of(items: &[Task], idx: usize) -> Option<usize> {
-    if items[idx].is_header {
-        return None;
-    }
-    let depth = items[idx].depth;
-    (0..idx)
-        .rev()
-        .find(|&j| items[j].is_header || items[j].depth < depth)
-}
-
-/// For each row, whether a later row of `visible` shares its parent: the
-/// row draws `├─` and its descendants a bar at its level. Rows outside
-/// `visible` (collapsed or filtered away) neither get one nor count as a
-/// later sibling. Indexed like `items`. Mirrors the tree browser's.
-fn later_siblings(items: &[Task], visible: &[usize]) -> Vec<bool> {
-    let mut later = vec![false; items.len()];
-    let mut seen: HashSet<Option<usize>> = HashSet::new();
-    for &i in visible.iter().rev() {
-        if !items[i].is_header {
-            later[i] = !seen.insert(parent_of(items, i));
-        }
-    }
-    later
-}
-
-/// The ancestor columns of todo `idx`: for each todo above it, a bar if
-/// that ancestor has a later sibling and a blank otherwise, outermost first.
-fn ancestor_levels(items: &[Task], idx: usize, later: &[bool]) -> String {
-    let g = &theme::TREE_GLYPHS;
-    let mut levels = Vec::new();
-    let mut up = parent_of(items, idx);
-    while let Some(p) = up.filter(|&p| !items[p].is_header) {
-        levels.push(if later[p] { g.ancestor_bar } else { g.ancestor_blank });
-        up = parent_of(items, p);
-    }
-    levels.reverse();
-    levels.concat()
-}
-
-/// The tree drawing before row `idx`'s checkbox, from
-/// [`theme::TREE_GLYPHS`], as the tree browser draws it: a section header
-/// shows its expand mark; a todo shows its ancestor columns, its own branch
-/// (`├─`, or `└─` when it is the last child), then a parent's fold mark or
-/// a blank. `later` comes from [`later_siblings`].
-fn branch_prefix(items: &[Task], idx: usize, later: &[bool]) -> String {
-    let g = &theme::TREE_GLYPHS;
-    let item = &items[idx];
-    if item.is_header {
-        let mark = if item.collapsed { g.section_closed } else { g.section_open };
-        return mark.to_string();
-    }
-    let mut prefix = ancestor_levels(items, idx, later);
-    prefix.push_str(if later[idx] { g.branch } else { g.last_branch });
-    prefix.push_str(match (item.has_subtasks, item.collapsed) {
-        (true, true) => g.folder_closed,
-        (true, false) => g.folder_open,
-        (false, _) => g.file,
-    });
-    prefix
-}
-
-/// The tree drawing on a wrapped todo's continuation lines: the branch
-/// lines that pass the row keep going, its own included when it has a
-/// later sibling, and a bar under the fold mark when its first child
-/// follows it (`has_visible_child`).
-fn continuation_prefix(items: &[Task], idx: usize, later: &[bool], has_visible_child: bool) -> String {
-    let g = &theme::TREE_GLYPHS;
-    let mut prefix = ancestor_levels(items, idx, later);
-    prefix.push_str(if later[idx] { g.ancestor_bar } else { g.ancestor_blank });
-    prefix.push_str(if has_visible_child { g.ancestor_bar } else { g.ancestor_blank });
-    prefix
-}
-
-/// The display columns of every row's dot field: gutter, dots and space.
-fn dot_field_cols() -> usize {
-    flags_slots(0).iter().map(Span::width).sum()
-}
-
 /// Every row of `visible` drawn for a list `list_width` columns wide:
 /// the dot field (with the hover preview of `hover_flag`), the tree
 /// drawing in the tree's dim colour, then the header label, or the
@@ -604,130 +490,7 @@ fn board_rows_matching(
     list_width: u16,
     search_buffer: &str,
 ) -> Vec<Text<'static>> {
-    let later = later_siblings(items, visible);
-    let branch_style = Style::default().fg(theme::SURFACE);
-    let f = filter::parse(search_buffer);
-    visible
-        .iter()
-        .enumerate()
-        .map(|(pos, &idx)| {
-            let item = &items[idx];
-            let branch = branch_prefix(items, idx, &later);
-            let matched = if item.is_header {
-                Vec::new()
-            } else {
-                text::filter_match_positions(&f, &item.text)
-            };
-            let lit = |piece: &str, start: usize, style: Style| {
-                text::highlight_spans(piece, start, &matched, style, theme::filter_match())
-            };
-            if item.is_header {
-                let path_display = item
-                    .source
-                    .canonicalize()
-                    .unwrap_or_else(|_| item.source.clone())
-                    .parent()
-                    .map(tilde::contract)
-                    .unwrap_or_default();
-                let header_color = if item.is_code_todo { theme::YELLOW } else { theme::MAUVE };
-                let mut spans = flags_slots(item.flags);
-                spans.push(Span::styled(branch, branch_style));
-                spans.push(Span::styled(
-                    format!("{} ", item.text),
-                    Style::default().fg(header_color).add_modifier(Modifier::BOLD),
-                ));
-                spans.push(Span::styled(path_display, Style::default().fg(theme::OVERLAY)));
-                return Text::from(Line::from(spans));
-            }
-            if item.is_code_todo {
-                let mut spans = flags_slots(0);
-                spans.push(Span::styled(branch, branch_style));
-                spans.extend(lit(&item.text, 0, Style::default().fg(theme::OVERLAY)));
-                return Text::from(Line::from(spans));
-            }
-            let (mark, mark_color, bracket_color, style) = match item.state {
-                CheckState::Checked => (
-                    "x",
-                    theme::SAPPHIRE,
-                    theme::OVERLAY,
-                    Style::default().fg(theme::OVERLAY),
-                ),
-                CheckState::Half => (
-                    "/",
-                    theme::YELLOW,
-                    theme::OVERLAY,
-                    Style::default().fg(theme::SUBTEXT),
-                ),
-                CheckState::Unchecked => (
-                    " ",
-                    theme::SURFACE,
-                    match item.depth {
-                        0 => theme::SAPPHIRE,
-                        1 => Color::Rgb(86, 169, 206),
-                        _ => Color::Rgb(56, 139, 176),
-                    },
-                    Style::default().fg(theme::TEXT),
-                ),
-            };
-            const CHECKBOX_COLS: usize = 4;
-            let prefix_len = dot_field_cols() + Span::raw(branch.as_str()).width() + CHECKBOX_COLS;
-            let text_width = (list_width as usize).saturating_sub(prefix_len + 4);
-            let hover_dot = hover_flag.and_then(|(hi, d)| (hi == idx).then_some(d));
-            let mut first_line = flags_slots_with_hover(item.flags, hover_dot);
-            first_line.push(Span::styled(branch, branch_style));
-            first_line.push(Span::styled("[", Style::default().fg(bracket_color)));
-            first_line.push(Span::styled(mark, Style::default().fg(mark_color)));
-            first_line.push(Span::styled("] ", Style::default().fg(bracket_color)));
-
-            if text_width == 0 || item.text.chars().count() <= text_width {
-                first_line.extend(lit(&item.text, 0, style));
-                return Text::from(Line::from(first_line));
-            }
-            let has_visible_child = visible
-                .get(pos + 1)
-                .is_some_and(|&next| parent_of(items, next) == Some(idx));
-            let cont = continuation_prefix(items, idx, &later, has_visible_child);
-            let field_blank = " ".repeat(dot_field_cols());
-            let checkbox_blank = " ".repeat(CHECKBOX_COLS);
-            // Wrap on char boundaries; slicing mid-char (å, ö, icons) would
-            // panic on tiny widths.
-            let mut lines = vec![];
-            let mut remaining = item.text.as_str();
-            let mut first = Some(first_line);
-            while !remaining.is_empty() {
-                let split_at = remaining
-                    .char_indices()
-                    .nth(text_width)
-                    .map(|(i, _)| i)
-                    .unwrap_or(remaining.len());
-                let split_at = if split_at < remaining.len() {
-                    remaining[..split_at].rfind(' ').map(|i| i + 1).unwrap_or(split_at)
-                } else {
-                    split_at
-                };
-                let (chunk, rest) = remaining.split_at(split_at);
-                // `remaining` is always a suffix of the text.
-                let chunk = lit(chunk, item.text.len() - remaining.len(), style);
-                match first.take() {
-                    Some(mut spans) => {
-                        spans.extend(chunk);
-                        lines.push(Line::from(spans));
-                    }
-                    None => {
-                        let mut spans = vec![
-                            Span::raw(field_blank.clone()),
-                            Span::styled(cont.clone(), branch_style),
-                            Span::raw(checkbox_blank.clone()),
-                        ];
-                        spans.extend(chunk);
-                        lines.push(Line::from(spans));
-                    }
-                }
-                remaining = rest.trim_start();
-            }
-            Text::from(lines)
-        })
-        .collect()
+    todo_rows::rows(items, visible, hover_flag, list_width, search_buffer)
 }
 
 /// The board's rows as list items. The `selected` row (clamped to the last

@@ -20,6 +20,7 @@ pub mod tags;
 pub mod text;
 pub mod theme;
 pub mod todo;
+pub mod todo_rows;
 pub mod tree;
 
 use std::io::{Stdout, stdout};

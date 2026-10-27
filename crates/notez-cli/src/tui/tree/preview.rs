@@ -3,6 +3,9 @@
 
 use super::*;
 use notez_core::core::dates::{NoteDate, NoteDates};
+use notez_core::todo::{self, Task};
+
+use crate::tui::todo_rows;
 
 // --- Preview scrolling ---
 
@@ -309,12 +312,14 @@ pub(super) fn with_section_root(
 /// another file, a resize (`width`), the toggle (`rendered`), the file
 /// being written (`modified`, `len`), or the language the whole file is
 /// highlighted as (`language`, `None` for rendered markdown, plain text and
-/// files over the limit).
+/// files over the limit), or whether a rendered note is drawn as a todo
+/// document (`todo`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreviewKey {
     path: PathBuf,
     width: u16,
     rendered: bool,
+    todo: bool,
     modified: Option<std::time::SystemTime>,
     len: u64,
     language: Option<Language>,
@@ -330,6 +335,7 @@ impl PreviewKey {
             path: path.to_path_buf(),
             width,
             rendered,
+            todo: false,
             modified: meta.modified().ok(),
             len,
             language,
@@ -391,10 +397,18 @@ impl Preview {
     /// wide inside its borders and padding: rendered markdown, already
     /// wrapped to `width`, or the raw lines unwrapped, highlighted when the
     /// extension maps to a language, the file is within the limit, and a
-    /// code file is not toggled to plain.
-    pub(super) fn file_lines(&mut self, path: &Path, width: u16) -> &[Line<'static>] {
+    /// code file is not toggled to plain. `is_todo` says the tree types the
+    /// file as a todo document ([`is_todo_note`]); rendered, such a file
+    /// draws its checkbox lines as the todoz board's rows.
+    pub(super) fn file_lines_for(
+        &mut self,
+        path: &Path,
+        width: u16,
+        is_todo: bool,
+    ) -> &[Line<'static>] {
         let rendered = self.mode == PreviewMode::Rendered && is_markdown(path);
         let plain = self.mode == PreviewMode::Raw && !is_markdown(path);
+        let todo = rendered && is_todo;
         let key = PreviewKey::of(path, width, rendered).map(|key| {
             if plain {
                 PreviewKey {
@@ -402,12 +416,19 @@ impl Preview {
                     ..key
                 }
             } else {
-                key
+                PreviewKey { todo, ..key }
             }
         });
         let language = key.as_ref().and_then(|key| key.language);
-        self.cache
-            .get(key, || file_preview_lines(path, rendered, width, language))
+        self.cache.get(key, || {
+            file_preview_lines(path, rendered, todo, width, language)
+        })
+    }
+
+    /// [`Preview::file_lines_for`] a file that is not a todo document.
+    #[cfg(test)]
+    pub(super) fn file_lines(&mut self, path: &Path, width: u16) -> &[Line<'static>] {
+        self.file_lines_for(path, width, false)
     }
 
     /// The dates of the markdown note at `path`, read (at most its first
@@ -459,10 +480,15 @@ impl Preview {
 fn file_preview_lines(
     path: &Path,
     rendered: bool,
+    todo: bool,
     width: u16,
     language: Option<Language>,
 ) -> Vec<Line<'static>> {
     match std::fs::read_to_string(path) {
+        Ok(content) if todo => {
+            let items = todo::load_single_todo(path, "");
+            todo_preview_lines(&content, &items, width)
+        }
         Ok(content) if rendered => markdown::render_markdown(&content, width),
         Ok(content) => match language {
             Some(language) => highlighted_preview_lines(&content, language),
@@ -472,6 +498,66 @@ fn file_preview_lines(
             "  unable to read file",
             Style::default().fg(theme::OVERLAY),
         ))],
+    }
+}
+
+/// A rendered todo document `width` columns wide: each checkbox line drawn
+/// as the todoz board draws its row ([`todo_rows::rows`], every row shown,
+/// no hover, no filter), each run of other lines rendered as markdown, and
+/// blank lines kept, in file order. `items` are the file's todos in file
+/// order, from [`todo::load_single_todo`]; when their count differs from the
+/// checkbox lines', the whole file renders as markdown rather than pairing
+/// a line with the wrong todo.
+fn todo_preview_lines(content: &str, items: &[Task], width: u16) -> Vec<Line<'static>> {
+    let is_checkbox = |line: &str| !todo::parse_todo_lines(line).is_empty();
+    if content.lines().filter(|line| is_checkbox(line)).count() != items.len() {
+        return markdown::render_markdown(content, width);
+    }
+    let mut out: Vec<Line<'static>> = Vec::new();
+    let mut prose: Vec<&str> = Vec::new();
+    // A run of todos and the blank lines between and after them: `Some`
+    // is the item a checkbox line pairs with, `None` a blank line.
+    let mut run: Vec<Option<usize>> = Vec::new();
+    let mut next_item = 0;
+    for line in content.lines() {
+        if is_checkbox(line) {
+            flush_prose(&mut prose, width, &mut out);
+            run.push(Some(next_item));
+            next_item += 1;
+        } else if !run.is_empty() && line.trim().is_empty() {
+            run.push(None);
+        } else {
+            flush_todo_run(&mut run, items, width, &mut out);
+            prose.push(line);
+        }
+    }
+    flush_prose(&mut prose, width, &mut out);
+    flush_todo_run(&mut run, items, width, &mut out);
+    out
+}
+
+/// Renders the markdown `prose` lines into `out`; its trailing blank lines,
+/// which markdown would drop, stay as blank lines before the todos.
+fn flush_prose(prose: &mut Vec<&str>, width: u16, out: &mut Vec<Line<'static>>) {
+    let blanks = prose.iter().rev().take_while(|line| line.trim().is_empty()).count();
+    let text = prose[..prose.len() - blanks].join("\n");
+    if !text.is_empty() {
+        out.extend(markdown::render_markdown(&text, width));
+    }
+    out.extend((0..blanks).map(|_| Line::default()));
+    prose.clear();
+}
+
+/// Draws the todo `run` into `out` as one board list, so its branch lines
+/// join across the blank lines inside it.
+fn flush_todo_run(run: &mut Vec<Option<usize>>, items: &[Task], width: u16, out: &mut Vec<Line<'static>>) {
+    let visible: Vec<usize> = run.iter().flatten().copied().collect();
+    let mut rows = todo_rows::rows(items, &visible, None, width, "").into_iter();
+    for entry in run.drain(..) {
+        match entry {
+            Some(_) => out.extend(rows.next().map(|row| row.lines).unwrap_or_default()),
+            None => out.push(Line::default()),
+        }
     }
 }
 
@@ -1519,5 +1605,145 @@ mod tests {
         let code = dir.path().join("2026-10-01-tool.rs");
         std::fs::write(&code, "fn main() {}\n").unwrap();
         assert_eq!(preview.note_dates(&code), NoteDates::default());
+    }
+
+    const TODO_FIXTURE: &str = "# Plans
+
+Some prose about the week.
+
+- [ ] ship it #important
+  - [/] review the diff #prio
+    - [x] run the checks #blocked
+    - [ ] write the notes
+- [x] tidy up
+- [ ] a long todo that keeps going well past the width of the narrow pane
+
+## Later
+
+- [ ] someday #idea
+";
+
+    fn todo_fixture() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        std::fs::write(&path, TODO_FIXTURE).unwrap();
+        (dir, path)
+    }
+
+    /// The line whose text contains `needle`.
+    fn line_with<'a>(lines: &'a [Line<'static>], needle: &str) -> &'a Line<'static> {
+        lines
+            .iter()
+            .find(|l| text_of(l).contains(needle))
+            .unwrap_or_else(|| panic!("no line with {needle:?} in {:?}", plain(lines)))
+    }
+
+    fn span_in<'a>(line: &'a Line<'static>, content: &str) -> &'a Span<'static> {
+        line.spans
+            .iter()
+            .find(|s| s.content == content)
+            .unwrap_or_else(|| panic!("no span {content:?} in {line:?}"))
+    }
+
+    #[test]
+    fn a_todo_file_draws_its_checkbox_lines_as_board_rows() {
+        let (_dir, path) = todo_fixture();
+        let mut preview = Preview::default();
+        let lines = preview.file_lines_for(&path, 40, true).to_vec();
+        let text = plain(&lines);
+        assert!(
+            text.iter().all(|l| !l.contains("- [")),
+            "no raw checkbox syntax: {text:?}"
+        );
+
+        let ship = line_with(&lines, "ship it");
+        assert_eq!(span_in(ship, "[").style.fg, Some(theme::SAPPHIRE));
+        assert_eq!(span_in(ship, " ").style.fg, None, "the gutter");
+        assert_eq!(
+            ship.spans[1].style.fg,
+            Some(theme::FLAG_COLORS[0]),
+            "the important dot"
+        );
+        assert!(text_of(ship).contains("├─▾ [ ] ship it"), "{:?}", text_of(ship));
+
+        let review = line_with(&lines, "review the diff");
+        assert_eq!(span_in(review, "/").style.fg, Some(theme::YELLOW));
+        assert_eq!(review.spans[2].style.fg, Some(theme::FLAG_COLORS[1]), "the prio dot");
+        assert!(text_of(review).contains("│ └─▾ [/] review"), "{:?}", text_of(review));
+
+        let checks = line_with(&lines, "run the checks");
+        assert_eq!(span_in(checks, "x").style.fg, Some(theme::SAPPHIRE));
+        assert_eq!(
+            span_in(checks, "run the checks").style.fg,
+            Some(theme::OVERLAY),
+            "done is dimmed"
+        );
+        assert_eq!(span_in(checks, "[").style.fg, Some(theme::OVERLAY));
+        assert!(text_of(checks).contains("│   ├─  [x] run"), "{:?}", text_of(checks));
+        let notes = line_with(&lines, "write the notes");
+        assert_eq!(span_in(notes, "[").style.fg, Some(Color::Rgb(56, 139, 176)));
+
+        let long = text.iter().position(|l| l.contains("a long todo")).unwrap();
+        assert!(
+            text[long + 1].trim_start().starts_with(|c: char| c.is_alphabetic()),
+            "the long todo wraps under its text: {text:?}"
+        );
+        assert!(text.concat().contains("pane"), "{text:?}");
+    }
+
+    #[test]
+    fn a_todo_file_keeps_its_headings_prose_and_blank_lines_as_markdown() {
+        let (_dir, path) = todo_fixture();
+        let mut preview = Preview::default();
+        let lines = preview.file_lines_for(&path, 40, true).to_vec();
+        let text = plain(&lines);
+        assert_eq!(span_in(line_with(&lines, "Plans"), "Plans").style, theme::heading(1));
+        assert_eq!(span_in(line_with(&lines, "Later"), "Later").style, theme::heading(2));
+        assert!(text.contains(&"Some prose about the week.".to_string()), "{text:?}");
+        let later = text.iter().position(|l| l == "Later").unwrap();
+        let someday = text.iter().position(|l| l.contains("someday")).unwrap();
+        let ship = text.iter().position(|l| l.contains("ship it")).unwrap();
+        let prose = text.iter().position(|l| l.contains("Some prose")).unwrap();
+        assert!(prose < ship && ship < later && later < someday, "file order: {text:?}");
+        assert_eq!(text[ship - 1], "", "a blank line before the todos");
+        assert_eq!(text[later - 1], "", "a blank line after them");
+    }
+
+    #[test]
+    fn a_todo_file_in_raw_mode_shows_its_text_unchanged() {
+        let (_dir, path) = todo_fixture();
+        let mut preview = Preview::default();
+        preview.toggle(Some(&path));
+        assert_eq!(
+            plain(preview.file_lines_for(&path, 40, true)),
+            TODO_FIXTURE.lines().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_note_that_is_not_a_todo_renders_as_plain_markdown() {
+        let (_dir, path) = todo_fixture();
+        let mut preview = Preview::default();
+        assert_eq!(
+            preview.file_lines_for(&path, 40, false).to_vec(),
+            markdown::render_markdown(TODO_FIXTURE, 40)
+        );
+        let rows = preview.file_lines_for(&path, 40, true).to_vec();
+        assert_ne!(
+            rows,
+            markdown::render_markdown(TODO_FIXTURE, 40),
+            "the todo flag is part of the cache key"
+        );
+    }
+
+    #[test]
+    fn fewer_items_than_checkbox_lines_fall_back_to_the_rendered_markdown() {
+        let (_dir, path) = todo_fixture();
+        let mut items = notez_core::todo::load_single_todo(&path, "");
+        items.pop();
+        assert_eq!(
+            todo_preview_lines(TODO_FIXTURE, &items, 40),
+            markdown::render_markdown(TODO_FIXTURE, 40)
+        );
     }
 }

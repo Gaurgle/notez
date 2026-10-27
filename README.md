@@ -246,7 +246,13 @@ and wraps their cells, and one that cannot fit even then is cut off with
 `…`. A footnote reference shows as `[1]`, `[2]` in order of first use, and
 the footnotes follow the note under a short rule. Raw HTML shows as its
 source text; an image shows as `[image: <alt text>]`. The text wraps to the pane
-width; code block lines wrap by character and keep their indentation. `p`
+width; code block lines wrap by character and keep their indentation. A
+todo document (a `TODO.md`, or any note in the global `_todos` store, the
+notes `@todo` matches) previews with the todoz board's row look: its
+checkbox lines draw as the board draws them, with the tag dots, the tree
+lines by depth, the checkbox glyphs and colours per state, done todos dimmed
+and long todos wrapped under their text, while its headings and prose stay
+rendered markdown. The preview is read-only: no cursor, no hover. `p`
 is the one preview toggle: it switches a markdown note between rendered and
 raw, and a code file between highlighted and plain. The footer hint names
 the view `p` switches to (`p raw` or `p rendered` on a note, `p plain` or

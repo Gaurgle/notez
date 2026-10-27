@@ -400,7 +400,7 @@ pub(super) fn event_loop(
                     let dir_lines: Vec<Line>;
                     let preview_lines: &[Line] =
                         if real_idx < nodes.len() && !nodes[real_idx].is_dir {
-                            preview.file_lines(&nodes[real_idx].path, preview_width)
+                            preview.file_lines_for(&nodes[real_idx].path, preview_width, is_todo_note(&nodes[real_idx]))
                         } else {
                             dir_lines = if real_idx < nodes.len() {
                                 match std::fs::read_dir(&nodes[real_idx].path) {
