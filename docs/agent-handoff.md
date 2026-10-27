@@ -13,7 +13,17 @@ Finished tickets and earlier leads: `docs/agent-log.md`.
 
 ## Current lead
 
-None. Lead `9c5067bf` (Claude, `claude-fable-5-1`, `nz-coordinator`)
+None. Lead `b5670714` (Claude, `claude-opus-5-5`, a plain session
+started in `~/notez`, NOT `nz-coordinator` on `fable`: Andreas named it
+lead in place, see Authorized by the owner, 2026-10-27) took the baton
+on 2026-10-27 10:23 CET and RELEASED it at 10:27 CET when Andreas said
+"ill open a relay lead". Its NZ-55 worker was stopped before editing
+anything; no worker or reviewer is running. The next lead resumes the
+2026-10-27 scope below (NZ-55 then NZ-56) without new confirmation. On takeover: `main` at `2e3dee7` =
+`origin/main`, clean, CI green; no ticket worktree or branch; no
+workers running; sweep 0 removed; board check passes (51 items).
+
+Before that: lead `9c5067bf` (Claude, `claude-fable-5-1`, `nz-coordinator`)
 took the baton on 2026-10-26 15:03 CET and RELEASED it at 16:10 CET
 on Andreas's "we can stop for today". Workers and reviewers: all
 stopped, none running. Nothing runs until Andreas says to continue;
@@ -148,11 +158,51 @@ The live scope is the two 2026-10-15 entries, verbatim:
     ticket Andreas owns.
   - Limits unchanged. Also in force since the same day: report at
     milestones only, stop him only for his decisions.
+- 2026-10-27 about 10:20 CET, Andreas, in session `b5670714`, after
+  asking whether notez should sync from inside the TUI (the session
+  proposed one sync key: commit, pull, push) and reporting a tree bug
+  (an expanded folder on the bottom row stays out of view; he wants a
+  5-row scroll margin and the list to move so the expansion fits):
+  "add all these as features and get started then? you're the lead,
+  you can plan and get to work?". The lead's reading: take the baton,
+  create both tickets (NZ-55 the tree scroll bug, NZ-56 the in-TUI
+  sync key) and run them under the standing 2026-10-08 permissions.
+  Both are interaction changes, so each stops at Ready to integrate
+  until Andreas tries the branch build.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
 
-Nothing is in flight. No worker or reviewer is running.
+Wave of 2026-10-27 (lead `b5670714`):
+
+- NZ-55 (#81, P1, 0.3.0, board item `PVTI_lAHOCU842c4BmE5ZzhD2ADo`):
+  Ready. Branch `fix/nz-55-tree-scroll` and worktree
+  `.claude/worktrees/NZ-55` exist at base `2e3dee7`, CLEAN (the
+  stopped worker edited nothing); reuse them or remove and recut. Files
+  `tui/tree/render.rs`, `tui/tree/input.rs`. Verified code facts for
+  the brief: ratatui 0.29 `List::scroll_padding` shrinks to
+  `min(p, (height - 1) / 2)` and only keeps the SELECTED row in the
+  padding, so a reveal offset must not push the folder above the top
+  padding; the list renders at `input.rs` ~302 inside the draw closure;
+  expansion sites are `l`/Right (~1217), `Enter`/`o` (~1240) and the
+  mouse click (~717). Suggested shape: a pure `reveal_offset(nodes,
+  visible, folder, offset, height)` in `render.rs` with unit tests, a
+  loop-level `reveal: Option<usize>` set at the three sites and applied
+  through `state.offset_mut()` before the render.
+- NZ-56 (#82, P1, 0.3.0, board item `PVTI_lAHOCU842c4BmE5ZzhD2AGw`):
+  Ready. Lead decisions on the issue body. Stacks on NZ-55's reviewed
+  commit (shared files), dispatched after NZ-55's review. Facts for
+  the brief: both event loops wait `PROBE_INTERVAL` (2 s) in
+  `event::poll`, so poll shorter while a sync runs or the result lags;
+  tree tag maps are saved by the CALLER after `run_tree` returns
+  (`commands/tree.rs` ~62, `changed_tag_maps_retiring` in
+  `tree/model.rs`), so a mid-session flush must call
+  `note_tags::save_tags` from the TUI and move `forest.initial` (and the
+  retired list) forward; `crates/notez-cli/tests/common` drives the
+  binary, not a TUI, so the runner's git test fits as a unit test with
+  temp repos, like `main.rs`'s `synced_after` tests.
+- Both are interaction changes: stop at Ready to integrate until
+  Andreas tries the NZ-56 branch build (it carries both).
 
 Wave of 2026-10-26 (lead `9c5067bf`, started 15:20 CET on Andreas's
 "i guess you can just get started?", read as the "continue" the
