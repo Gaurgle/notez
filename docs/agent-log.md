@@ -205,6 +205,74 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-56 (#82): sync the vault from inside the TUI with one key
+
+Cut by lead `b5670714` on 2026-10-27 from Andreas's "add all these as
+features and get started then?" (P1, 0.3.0, board item
+`PVTI_lAHOCU842c4BmE5ZzhD2AGw`); the brief with the lead decisions is
+the issue body. Run by lead `0bafc905` the same day, stacked on NZ-55's
+reviewed commit `d32a412` because both touch `tui/tree/input.rs` and
+`render.rs`. Branch `feat/nz-56-tui-sync`, worktree
+`.claude/worktrees/NZ-56`.
+
+Worker (opus, medium, about 10 min) delivered `tui/sync.rs` (new:
+`run`, `refusal`, `VaultSync` start / take_finished / wait /
+poll_interval, bare-remote test with two clones), `SyncState::Syncing`
+and `DirtyCount::cached` in `header.rs`, `g` in both key tables
+(help-only like `R`), `flush_tag_maps` and `refresh_tag_baseline` in
+`tree/model.rs`, `save_before_sync` on the board, README. Lead rulings
+on #82: help-only `g`; only a stopped opening pull blocks `g`; "changed
+files" means HEAD moved. Review 1 (opus, about 5 min): changes
+requested, two quit-path blockers: the wait for a running sync ran
+inside the raw-mode loop (a hung network froze the terminal with
+Ctrl-C dead), and a board quit during a sync could save a pre-pull
+TODO.md over the pulled one. Fix cycle 1 (about 6 min): `VaultSync::
+finish()` called after `leave()` from `run_tree` / `run_board` with a
+stderr line, `pulled_over_edits` + `quit_after_sync` on the board
+returning to the loop with the NZ-42 held message, test added.
+Re-review (about 2 min) accepted: diff sha1 `e2a9535...`, `sync.rs`
+`f7b5856...`. Committed as `0ad8fb4`, branch CI `40485599886` green,
+lead checks green on the branch (= combined result). Andreas tried the
+branch build with both tickets and accepted ("thats perfect ... im
+happy. continue"). Merged `--no-ff` as `17bdf3e` (Closes #82), checks
+green on `main`, pushed; CI on `main` run `40499879883`.
+
+Carried follow-ups (on #82, not blocking): the panic hook leaves the
+TUI from any thread; git credential or ssh passphrase prompts on
+`/dev/tty` during a raw-mode sync (`GIT_TERMINAL_PROMPT=0` would need a
+core change); the stderr wait line lingers after a held-quit re-entry;
+two `redundant_clone` clippy warnings in the new test.
+
+NZ-56: review changes 1; fix cycles 1; owner decisions 1; worker 16; review 7; usage read (worker 166k + 77k tokens, reviewer 73k + 96k)
+
+### NZ-55 (#81): tree list keeps a 5-row scroll margin and reveals an expanded folder
+
+Reported by Andreas on 2026-10-27 (an expanded folder on the bottom row
+stayed out of view), cut by lead `b5670714` (P1, 0.3.0, board item
+`PVTI_lAHOCU842c4BmE5ZzhD2ADo`), run by lead `0bafc905` the same day.
+Branch `fix/nz-55-tree-scroll`, worktree `.claude/worktrees/NZ-55`,
+base `90e8a25` (recut after the sweep removed the first clean cut at
+`2e3dee7`). Files `tui/tree/render.rs`, `tui/tree/input.rs`.
+
+Worker (opus, medium, about 4 min): `SCROLL_MARGIN = 5` through
+`List::scroll_padding` in a new `tree_list`, a pure `reveal_offset(
+nodes, visible, folder, offset, height)` with 6 tests (last row on the
+bottom row, tall folder stops at the top margin, short pane uses the
+shrunken margin, rows that fit keep the offset, never scrolls up,
+filter-hidden rows do not count; buffer renders prove ratatui's padding
+cannot undo the reveal), a loop-level `reveal: Option<usize>` set only
+when a folder opens at `l`/Right, `Enter`/`o` and the mouse click, and
+consumed in the draw closure before `render_stateful_widget`. Reviewer
+(opus, about 3 min) accepted first pass with a mutation run; diff sha1
+`5600911...`. Follow-ups on #81 (low): no test pins the navigation
+margin itself; `take_while` in `reveal_offset` has no test with a later
+expanded sibling. Committed as `d32a412`, branch CI `40482253710`
+green. Accepted by Andreas through the NZ-56 build. Merged `--no-ff`
+as `03427e6` (Closes #81), checks green, pushed; CI on `main`
+`40489422617` green.
+
+NZ-55: review accepted first; fix cycles 0; owner decisions 0; worker 4; review 3; usage read (worker 56k tokens, reviewer 37k)
+
 ### NZ-53 (#79): notez agenda and the inspector date footer
 
 Consumers 2 and 3 of `docs/design-nz47-dates.md` (planned in the

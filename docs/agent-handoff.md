@@ -13,7 +13,30 @@ Finished tickets and earlier leads: `docs/agent-log.md`.
 
 ## Current lead
 
-None. Lead `b5670714` (Claude, `claude-opus-5-5`, a plain session
+Lead `0bafc905` (Claude, `claude-fable-5-1`, `nz-coordinator`) took
+the baton on 2026-10-27 at about 10:45 CET on Andreas's "Take the
+baton" (his 2026-10-27 instruction, verbatim: "run NZ-55 (#81), then
+NZ-56 (#82), under the standing permissions. NZ-55 first ... NZ-56
+stacks on NZ-55's reviewed commit ... Both change how the TUI behaves,
+so stop at Ready to integrate and give me the NZ-56 branch build
+command so I can try both before anything merges. Report at
+milestones only."). On takeover: `main` at `90e8a25` = `origin/main`,
+clean, CI green; `scripts/relay-sweep main` removed the stale clean
+NZ-55 worktree and branch (base `2e3dee7`, no commits), recut as
+`fix/nz-55-tree-scroll` at `.claude/worktrees/NZ-55` from `90e8a25`;
+board check passes (53 items); relay-check up to date, handoff over
+the 150-line cap (trim at release). No worker or reviewer was running.
+State at about 12:40 CET, scope DONE: NZ-55 merged as `03427e6` and
+NZ-56 as `17bdf3e`, `main` = `origin/main` at `17bdf3e`, CI green on
+both merges, #81 and #82 closed, board Done, remote ticket branches
+deleted, sweep removed both worktrees (0 kept), board check passes.
+The lead still holds the baton; no worker or reviewer running. Only
+this file and `docs/agent-log.md` are uncommitted (docs commit command
+presented to Andreas). The 2026-10-27 scope is exhausted; the Next
+step queue below (NZ-43 first) stays authorized by the standing scope
+but Andreas names when it runs.
+
+Before: lead `b5670714` (Claude, `claude-opus-5-5`, a plain session
 started in `~/notez`, NOT `nz-coordinator` on `fable`: Andreas named it
 lead in place, see Authorized by the owner, 2026-10-27) took the baton
 on 2026-10-27 10:23 CET and RELEASED it at 10:27 CET when Andreas said
@@ -173,36 +196,14 @@ The live scope is the two 2026-10-15 entries, verbatim:
 
 ## In flight
 
-Wave of 2026-10-27 (lead `b5670714`):
-
-- NZ-55 (#81, P1, 0.3.0, board item `PVTI_lAHOCU842c4BmE5ZzhD2ADo`):
-  Ready. Branch `fix/nz-55-tree-scroll` and worktree
-  `.claude/worktrees/NZ-55` exist at base `2e3dee7`, CLEAN (the
-  stopped worker edited nothing); reuse them or remove and recut. Files
-  `tui/tree/render.rs`, `tui/tree/input.rs`. Verified code facts for
-  the brief: ratatui 0.29 `List::scroll_padding` shrinks to
-  `min(p, (height - 1) / 2)` and only keeps the SELECTED row in the
-  padding, so a reveal offset must not push the folder above the top
-  padding; the list renders at `input.rs` ~302 inside the draw closure;
-  expansion sites are `l`/Right (~1217), `Enter`/`o` (~1240) and the
-  mouse click (~717). Suggested shape: a pure `reveal_offset(nodes,
-  visible, folder, offset, height)` in `render.rs` with unit tests, a
-  loop-level `reveal: Option<usize>` set at the three sites and applied
-  through `state.offset_mut()` before the render.
-- NZ-56 (#82, P1, 0.3.0, board item `PVTI_lAHOCU842c4BmE5ZzhD2AGw`):
-  Ready. Lead decisions on the issue body. Stacks on NZ-55's reviewed
-  commit (shared files), dispatched after NZ-55's review. Facts for
-  the brief: both event loops wait `PROBE_INTERVAL` (2 s) in
-  `event::poll`, so poll shorter while a sync runs or the result lags;
-  tree tag maps are saved by the CALLER after `run_tree` returns
-  (`commands/tree.rs` ~62, `changed_tag_maps_retiring` in
-  `tree/model.rs`), so a mid-session flush must call
-  `note_tags::save_tags` from the TUI and move `forest.initial` (and the
-  retired list) forward; `crates/notez-cli/tests/common` drives the
-  binary, not a TUI, so the runner's git test fits as a unit test with
-  temp repos, like `main.rs`'s `synced_after` tests.
-- Both are interaction changes: stop at Ready to integrate until
-  Andreas tries the NZ-56 branch build (it carries both).
+Wave of 2026-10-27 (tickets cut by lead `b5670714`, run by lead
+`0bafc905`): NZ-55 (#81) merged as `03427e6`, `main` CI green; NZ-56
+(#82) merged as `17bdf3e`, `main` CI run `40499879883` (see Current
+lead for its result). Both accepted by Andreas on the NZ-56 branch
+build. Records in `docs/agent-log.md`; follow-ups on #81 and #82.
+Remote branches `fix/nz-55-tree-scroll` and `feat/nz-56-tui-sync`
+deleted after the merges under the 2026-10-08 branch permission;
+worktrees swept.
 
 Wave of 2026-10-26 (lead `9c5067bf`, started 15:20 CET on Andreas's
 "i guess you can just get started?", read as the "continue" the
