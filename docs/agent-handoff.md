@@ -213,6 +213,16 @@ The live scope is the two 2026-10-15 entries, verbatim:
   standing permissions; interaction change, so it stops at Ready to
   integrate for his branch-build try. One ticket; the rest of the
   queue waits for his next word.
+- 2026-10-27 about 13:05 CET, Andreas, in the lead session
+  (`0bafc905`), after stopping for the day: "also add fix: all
+  keycommands should be be noted as a whole word, with the bound key
+  bold and in color. some are not right now, such as 'S scope', should
+  be '[S]cope', 'N folder' should be '[N]ew dir/'". The lead's
+  reading: create the ticket under the standing board permission
+  (NZ-57, #83, P2, 0.3.0, board item `PVTI_lAHOCU842c4BmE5ZzhD4lSg`,
+  Ready, brief and lead decisions in the issue body). Not an
+  instruction to run it; Andreas names when, and it is a look change,
+  so it stops at Ready to integrate for his try.
 - No other ticket execution is authorized. Andreas names which tickets run.
 
 ## In flight
@@ -384,6 +394,11 @@ coordination commits are not in the recorded delegation).
    #71 as the brief; authorized by the 2026-10-27 "start nect ticket"
    entry. Interaction-heavy: stop at Ready to integrate for Andreas's
    try of the branch build.
+1b. NZ-57 (#83), footer hints as one word with the key bold inside
+   it (P2, Ready, brief on the issue). Small: `nz-small` or
+   `nz-worker`, files `tui/footer.rs`, the two key tables, README.
+   Could run beside NZ-43 only if NZ-43 does not touch `TODO_KEYS`;
+   it does, so run it after NZ-43 or before it, not alongside.
 2. NZ-30 (#59), symbol outline, on the tree line (`tui/tree/*`,
    `tui/highlight.rs`, `tui/markdown.rs`, `tui/outline.rs` new,
    `README.md`). Can run beside NZ-43 (disjoint files; README is
