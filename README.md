@@ -389,16 +389,33 @@ when you quit, or after the editor for `edit`), and skips the exit sync so
 nothing is pushed over it; resolve it with `notez sync`. `add`, `quick`, `log`,
 `logz` and `todo "item"` never pull, and `--no-sync` skips the pull too.
 
+**Sync in a session.** `g` in the tree or the todo board runs the exit sync
+now, without quitting: it first saves what quit would save (tag edits in the
+tree, unsaved board edits), then commits, pulls and pushes on a background
+thread, so the view stays usable. The header shows `syncing`, then the
+result (`synced`, `offline` or `no upstream`, or `pull stopped` with git's
+first line in the footer). When the sync changed files the view reloads as
+with `R`, the cursor staying on its row; tags pulled from another machine
+show, and tags set while the sync ran are kept. `g` again while one runs
+says `sync already running`, and quitting waits for it before the exit
+sync. `g` does nothing, with a one-line reason, when the opening pull
+stopped, with `--no-sync`, or when the vault is not a git repository or has
+no upstream. A sync that stops in the session can be retried with `g`; the
+exit sync then stops at the same pull and says so, as it does after a
+conflict. There is no periodic background sync.
+
 **Header.** The tree and the todo board open with one header line above
 the panes: the view and its path on the left; on the right the vault's
 sync state from that opening pull (`synced`, `offline`, `no upstream`,
-`pull stopped` or `sync off` with `--no-sync`), the number of uncommitted
+`pull stopped` or `sync off` with `--no-sync`; `syncing` and then the
+new result after `g`), the number of uncommitted
 vault files (`3 uncommitted`, or `clean`), and the note count in the tree
 or the open and done counts on the board. Nothing in it reaches the
 network: the uncommitted count is a local `git status`, taken again only
 after something changes files (editing, creating, renaming, deleting or
-moving a note, and a reload), not on every key. Tags and board checks are
-saved when you quit, so they show in the count from the next session. A
+moving a note, a reload and a sync), not on every key, and never while a
+sync runs. Tags and board checks are saved when you quit or press `g`, so
+they show in the count from the next session or sync. A
 vault that is not a git repository shows no sync state and no count. On a
 narrow terminal the header drops the path first, then the counts, the
 uncommitted count and the sync state; it never wraps.

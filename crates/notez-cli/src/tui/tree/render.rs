@@ -644,6 +644,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("s", "scopes", "show the next scope: all, scratch, project, global, then the types private, public, docs, todo (the header names it; @type tokens narrow it further, and back on all they are dropped)", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(10), None),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
+    key("g", "sync", "sync the vault now, as quitting does: save tags, commit, pull, push (in the background; the header shows syncing, then the result, and the tree reloads if files changed)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
     key(PREVIEW_TOGGLE_KEY, "raw", "toggle the preview: rendered / raw markdown, highlighted / plain code", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),

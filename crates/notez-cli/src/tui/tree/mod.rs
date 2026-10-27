@@ -158,6 +158,9 @@ pub fn run_tree(
     };
     let mut retired = Vec::new();
     let mut carried = Vec::new();
+    // The in-session sync (`g`). It is waited for only after the TUI has
+    // left, on every path out, so a hung network never freezes raw mode.
+    let mut vault_sync = super::sync::VaultSync::new(config.notez_root_path(), ctx.sync);
 
     let mut terminal = super::enter().context("failed to enter TUI")?;
     let result = event_loop(
@@ -168,9 +171,17 @@ pub fn run_tree(
         ctx,
         config,
         rebuild,
+        &mut vault_sync,
     );
-    super::leave().context("failed to leave TUI")?;
-    result?;
+    let left = super::leave().context("failed to leave TUI");
+    // Quit waits for a running sync, so the exit sync never races it, and
+    // takes in the tags it pulled before computing what to write.
+    let moved = vault_sync.finish().is_some_and(|done| done.moved);
+    left?;
+    let sync_reload = result?;
+    if moved || sync_reload {
+        refresh_tag_baseline(&mut forest);
+    }
 
     Ok(exit_tag_maps(&forest, &retired, &carried))
 }

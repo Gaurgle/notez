@@ -1,6 +1,7 @@
 //! The event loop and its key dispatch.
 
 use super::*;
+use crate::tui::sync::VaultSync;
 
 /// What a browse key does while the preview is focused, before the list's
 /// own handling: scroll the preview by a number of lines, nothing, or the
@@ -32,7 +33,9 @@ pub(super) fn preview_focus_key(code: KeyCode, page: i32) -> PreviewFocusKey {
 
 // --- Event loop ---
 
-#[allow(clippy::too_many_lines)]
+/// Returns whether a sync that moved `HEAD` still has its reload pending;
+/// the caller waits for a running `vault_sync` after leaving the TUI.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub(super) fn event_loop(
     terminal: &mut super::TuiTerminal,
     forest: &mut Forest,
@@ -41,7 +44,8 @@ pub(super) fn event_loop(
     ctx: &TreeContext,
     config: &Config,
     rebuild: &dyn Fn() -> Result<Vec<SectionSpec>>,
-) -> Result<()> {
+    vault_sync: &mut VaultSync,
+) -> Result<bool> {
     let mut new_note: Option<NewNotePrompt> = None;
     let mut confirm_delete: Option<DeletePrompt> = None;
     let mut confirm_bulk_delete: Option<Vec<BulkItem>> = None;
@@ -93,6 +97,8 @@ pub(super) fn event_loop(
     // The header's count of uncommitted vault files. Every action below
     // that changes files marks it stale; plain navigation never runs git.
     let mut dirty = header::vault_dirty_count(config.notez_root_path(), ctx.sync);
+    // A sync moved `HEAD`: reload as `R` does once no prompt or mode is open.
+    let mut sync_reload = false;
 
     loop {
         let nodes = &mut forest.nodes;
@@ -134,8 +140,14 @@ pub(super) fn event_loop(
         if input_open {
             panes.focus(Pane::List);
         }
-        // Cached between actions that change files; see `DirtyCount`.
-        let dirty_files = dirty.get();
+        // Cached between actions that change files; see `DirtyCount`. No
+        // `git status` while a sync runs git in the vault.
+        let dirty_files = if vault_sync.running() {
+            dirty.cached()
+        } else {
+            dirty.get()
+        };
+        let sync_state = vault_sync.state();
         let note_count = notes_in_scope(nodes);
         let no_rows = no_rows_text(nodes, &visible, &search_buffer, forest.scope);
 
@@ -155,7 +167,7 @@ pub(super) fn event_loop(
                     &header::Header {
                         title: &ctx.title,
                         path: &ctx.path_display,
-                        sync: ctx.sync,
+                        sync: sync_state,
                         dirty: dirty_files,
                         counts: header::scope_and_note_count(forest.scope.label(), note_count),
                     },
@@ -599,11 +611,42 @@ pub(super) fn event_loop(
         // unless a prompt, mode, the help overlay or a drag is open; only a
         // change ends the wait without an event, to reload and redraw.
         let can_probe = !(input_open || help.open || panes.dragging);
+        // After a sync that moved `HEAD`, the same reload as `R`, cursor on
+        // its path, and the pulled `.tags` become the tag baseline.
+        if sync_reload && can_probe {
+            sync_reload = false;
+            dirty.mark_stale();
+            match reload_view(
+                forest,
+                rebuild,
+                &mut state,
+                &mut pre_focus_expanded,
+                &search_buffer,
+            ) {
+                Ok(kept) => {
+                    if let Some(row) = kept {
+                        last_preview_idx = row;
+                    }
+                    refresh_probe(&mut probe, forest);
+                }
+                Err(message) => status_message = Some(message),
+            }
+            refresh_tag_baseline(forest);
+            continue;
+        }
+        // A running sync shortens the wait so its result shows promptly,
+        // and holds the probe off until it is done.
+        let mut finished = None;
         let ev = loop {
-            if event::poll(PROBE_INTERVAL).context("failed to poll for events")? {
+            let wait = vault_sync.poll_interval(PROBE_INTERVAL);
+            if event::poll(wait).context("failed to poll for events")? {
                 break Some(event::read().context("failed to read event")?);
             }
-            if !can_probe {
+            if let Some(done) = vault_sync.take_finished() {
+                finished = Some(done);
+                break None;
+            }
+            if vault_sync.running() || !can_probe {
                 continue;
             }
             let reading = probe_snapshot(&probe_paths(sections, nodes));
@@ -617,6 +660,12 @@ pub(super) fn event_loop(
                 break None;
             }
         };
+        if let Some(done) = finished {
+            status_message = Some(done.message());
+            dirty.mark_stale();
+            sync_reload |= done.moved;
+            continue;
+        }
         let Some(ev) = ev else {
             dirty.mark_stale();
             match reload_view(
@@ -1319,6 +1368,18 @@ pub(super) fn event_loop(
                 }
                 focus_active = false;
             }
+            KeyCode::Char('g') => {
+                // Tag edits otherwise saved on quit go into this commit.
+                let started = match vault_sync.refusal() {
+                    Some(why) => Err(why.message().to_string()),
+                    None => flush_tag_maps(forest, retired, carried)
+                        .and_then(|()| vault_sync.start().map_err(|why| why.message().to_string())),
+                };
+                status_message = Some(match started {
+                    Ok(()) => "syncing the vault".to_string(),
+                    Err(message) => message,
+                });
+            }
             KeyCode::Char('R') => {
                 dirty.mark_stale();
                 match reload_view(
@@ -1465,7 +1526,7 @@ pub(super) fn event_loop(
         }
     }
 
-    Ok(())
+    Ok(sync_reload)
 }
 
 pub(super) fn file_name_of(path: &Path) -> String {
