@@ -8,8 +8,21 @@
 # branch is not green, unless --skip-ci-check is given (for a repo whose
 # workflow records that it has no CI).
 #
-# Merged means reachable from origin/<branch>: Relay merges with merge
-# commits, so a squash-merged branch never counts and is reported instead.
+# Merged means reachable from origin/<branch> but not on its first-parent
+# line: Relay merges with merge commits, so a merged ticket tip is always a
+# second parent. A branch with no commits of its own (a freshly dispatched
+# ticket) sits on the first-parent line and is kept, however far main has
+# moved since. Squash-merged and fast-forwarded branches are kept and
+# reported too.
+#
+# Then it prunes scratch builds in this repo's session scratchpads under
+# $RELAY_SCRATCH_ROOT (default /private/tmp/claude-<uid>): a scratchpad/<dir>
+# that is a Cargo target dir (has CACHEDIR.TAG) or a clone (has .git), or the
+# target dir inside one. A build goes once nothing in it was written for 1
+# hour in a closed session, or RELAY_SCRATCH_IDLE_HOURS (default 3) in a
+# running one (this one included); the hour covers a long test run and a
+# live session missing from the registry. Symlinks are skipped. A red CI does not stop this step,
+# --dry-run does.
 #
 # Usage: scripts/relay-sweep [--dry-run] [--skip-ci-check] [integration-branch]
 
@@ -22,7 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) dry_run=true ;;
     --skip-ci-check) skip_ci=true ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^# Usage/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "relay-sweep: unknown option $arg" >&2; exit 2 ;;
     *) branch=$arg ;;
   esac
@@ -35,6 +48,9 @@ target="origin/$branch"
 
 git fetch --quiet origin "$branch"
 
+# The scratch prune follows --dry-run only, not a red CI.
+prune_dry=$dry_run
+
 if ! $skip_ci; then
   ci=$(gh run list --branch "$branch" --limit 1 --json status,conclusion \
     --jq '.[0] | if . == null then "none" else "\(.status)/\(.conclusion)" end' \
@@ -46,6 +62,9 @@ if ! $skip_ci; then
 fi
 
 git worktree prune
+
+# Commits on the integration branch's own line, never a merged ticket's tip.
+mainline=$(git rev-list --first-parent "$target")
 
 removed=0
 kept=0
@@ -69,6 +88,9 @@ while IFS= read -r line; do
       if ! git merge-base --is-ancestor "$ref" "$target"; then
         echo "keep   $name ($ref): not merged into $target"; kept=$((kept + 1)); continue
       fi
+      if grep -qxF "$(git rev-parse "$ref")" <<<"$mainline"; then
+        echo "keep   $name ($ref): no commits of its own (fresh ticket?)"; kept=$((kept + 1)); continue
+      fi
       if $dry_run; then
         echo "would  remove $name, delete branch $ref"
         continue
@@ -84,3 +106,56 @@ while IFS= read -r line; do
 done < <(git worktree list --porcelain; echo)
 
 echo "relay-sweep: $removed removed, $kept kept."
+
+# Scratch builds. Claude Code names a repo's scratch directory after its path
+# with every "/" replaced by "-".
+scratch_root=${RELAY_SCRATCH_ROOT:-/private/tmp/claude-$(id -u)}
+project_dir="$scratch_root/${root//\//-}"
+[ -d "$project_dir" ] || exit 0
+# Without jq every session would look closed, so prune nothing.
+command -v jq >/dev/null || { echo "relay-sweep: no jq, scratch prune skipped"; exit 0; }
+real_project=$(cd -P "$project_dir" && pwd -P)
+idle_min=$(( ${RELAY_SCRATCH_IDLE_HOURS:-3} * 60 ))
+
+# Running sessions, from Claude Code's registry: one JSON file per process.
+live=" ${CLAUDE_CODE_SESSION_ID:-} "
+for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
+  [ -f "$f" ] || continue
+  read -r pid id < <(jq -r '"\(.pid) \(.sessionId)"' "$f" 2>/dev/null) || continue
+  kill -0 "$pid" 2>/dev/null && live+="$id "
+done
+
+pruned=0
+prune() {
+  local dir=$1 session=$2 real size
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 0
+  real=$(cd -P "$dir" && pwd -P)
+  case "$real" in "$real_project"/*) ;; *) return 0 ;; esac
+  # Keep any build written to within its session's idle window.
+  local window=60
+  [[ "$live" == *" $session "* ]] && window=$idle_min
+  [ -z "$(find "$dir" -maxdepth 3 -mmin "-$window" -print -quit 2>/dev/null)" ] || return 0
+  size=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
+  if $prune_dry; then
+    echo "would  prune ${dir#"$scratch_root/"} (${size:-?})"
+  else
+    rm -rf "$dir"
+    echo "pruned ${dir#"$scratch_root/"} (${size:-?})"
+  fi
+  pruned=$((pruned + 1))
+}
+
+for pad in "$project_dir"/*/scratchpad; do
+  [ -d "$pad" ] && [ ! -L "$pad" ] || continue
+  session=$(basename "$(dirname "$pad")")
+  for dir in "$pad"/*/; do
+    dir=${dir%/}
+    if [ -f "$dir/CACHEDIR.TAG" ] || [ -e "$dir/.git" ]; then
+      prune "$dir" "$session"
+    elif [ -f "$dir/target/CACHEDIR.TAG" ]; then
+      prune "$dir/target" "$session"
+    fi
+  done
+done
+
+echo "relay-sweep: $pruned scratch builds $($prune_dry && echo "to prune" || echo pruned)."

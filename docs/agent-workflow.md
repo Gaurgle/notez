@@ -1,4 +1,4 @@
-<!-- relay-template: 0.6.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.6.2; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 <!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
@@ -176,6 +176,12 @@ validation cycles on the same blocker, escalate instead of widening scope.
    `main` is green; it lists everything it keeps and why.
    Anything it keeps that should go is a question for the owner. Deleting
    remote branches needs the owner's approval.
+8. Scratch builds (a reviewer's base build, a combined check, a mutation
+   run) go in the session scratchpad, never in a worktree or the main
+   checkout. Use one build dir per ticket, `<scratchpad>/target-<ticket>`
+   (`CARGO_TARGET_DIR` for Rust), shared by every check on that ticket,
+   and delete it when the ticket is integrated. `scripts/relay-sweep main` also prunes
+   scratch builds idle for 1 hour in a closed session or 3 in a running one.
 
 ## Commits and tickets
 
