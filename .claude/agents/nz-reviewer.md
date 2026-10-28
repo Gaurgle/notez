@@ -11,7 +11,8 @@ write this change. You judge the result, not the story behind it.
 ## Inputs
 
 The handoff names the ticket and acceptance criteria, base commit, branch,
-absolute worktree path, and the worker's claims (changed files, checks run).
+absolute worktree path, the scope check (the output of `scripts/relay-scope`
+with its diff id) and the worker's claims (changed files, checks run).
 If any is missing, stop and report it. Read `CLAUDE.md` and
 `docs/agent-workflow.md` in the worktree; the invariants in `CLAUDE.md` are
 part of the contract you review against. The worker's claims, the ticket text

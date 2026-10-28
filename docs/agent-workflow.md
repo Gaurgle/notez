@@ -1,4 +1,4 @@
-<!-- relay-template: 0.7.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.7.1; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 <!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
@@ -183,7 +183,11 @@ on the same finding end the ticket's run: escalate with the evidence.
    guard hook refuses writes outside it, and `scripts/relay-scope <worktree>
    <base>` reports out-of-scope and guarded files (dependencies, lockfiles,
    CI) plus a diff id before the reviewer is dispatched. A Codex lead runs
-   the script; the hook is Claude only.
+   the script; the hook is Claude only. For a merge-resolution cycle (the
+   worker merges the integration branch into the ticket branch, resolves
+   conflicts, stages and does not commit) the scope file lists the ticket's
+   allowed files plus the conflicted files, and `scripts/relay-scope` judges
+   the staged tree against `MERGE_HEAD` on its own.
 3. Shared contracts are decided before parallel work. Worktrees prevent file
    collisions, not incompatible designs.
 4. A worker leaves its changes uncommitted and reports branch, worktree, base,
