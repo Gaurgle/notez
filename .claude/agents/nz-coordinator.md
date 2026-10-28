@@ -55,12 +55,25 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
 1. Record `git status --short` and the base commit. Create the ticket branch
    and worktree yourself under `.claude/worktrees/<ticket>`, for example
    `git worktree add -b fix/<ticket>-<slug> .claude/worktrees/<ticket> <base>`.
+   Write the allowed files to `<worktree>/.claude/relay-scope` (format in
+   `scripts/relay-scope`); the guard hook enforces it on every write. To
+   change a scope later, `rm` the file and write it again.
 2. Fill the worker template from `docs/agent-workflow.md` and dispatch
    `nz-worker` (or `nz-small` for a truly small task). Pass the
    ticket, base, branch, absolute worktree path and allowed files, not this
    conversation.
-3. Dispatch `nz-reviewer` as a separate invocation with the reviewer
-   template. Changes after review get re-reviewed.
+3. When the worker reports, run `scripts/relay-scope <worktree> <base>`.
+   Out-of-scope or guarded files go back to the worker, or to Andreas if
+   the ticket needs them; do not spend the reviewer on that. Record the diff
+   id in the handoff, then dispatch `nz-reviewer` as a separate
+   invocation with the reviewer template, scope output included. Changes
+   after review get re-reviewed. On `needs evidence` or `needs change`, use
+   the rework template in `docs/agent-workflow.md`; if the resubmitted diff
+   id equals one already reviewed, do not dispatch the reviewer again, the
+   worker is stuck.
+   On a blocker, check the claim against the worker's scope and tools first:
+   re-scope, reassign (worker to small, or the reverse) or answer the missing
+   fact, before counting it as a fix cycle.
 4. Once the reviewer accepts, follow the integration policy. If the owner
    integrates, stop at Ready to integrate and present commands. Otherwise
    commit exactly the reviewed diff, ending the message with
@@ -99,7 +112,9 @@ Before you stop, update `docs/agent-handoff.md` with the current state, open
 worktrees, pending reviews and the next authorized step, so any lead can
 resume from the files alone. Move Done tickets' records to
 `docs/agent-log.md`, each ending with the metrics line from
-`docs/agent-workflow.md`, so the baton stays short.
+`docs/agent-workflow.md`, so the baton stays short. Take the token numbers
+for that line from the completion notices of the worker and reviewer; write
+`not read` only when the harness showed none.
 Record whether workers are stopped or still running, and mark the baton
 released. Preserve the owner's authorization evidence and its limits.
 

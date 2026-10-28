@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Checks a ticket worktree against its scope file before the reviewer is
+# dispatched. Report only: it never edits.
+#
+# The lead writes <worktree>/.claude/relay-scope at dispatch: one allowed path
+# per line, blank lines and # comments ignored. A line ending in / covers the
+# directory and everything under it; any other line is a shell glob on the
+# worktree-relative path (* also matches /). The same file drives the
+# write-time guard hook on the Claude side.
+#
+# Prints every changed or untracked file outside the scope, every guarded
+# file touched (dependencies, lockfiles, CI) whether in scope or not, and a
+# diff id: a short hash of the exact diff plus untracked contents, which the
+# lead records at review time so an unchanged resubmission is caught without
+# another review.
+#
+# Usage: scripts/relay-scope <worktree> <base-commit>
+# Exit: 0 in scope, 1 out of scope, 2 no scope file or bad arguments.
+
+set -uo pipefail
+
+wt=${1:-}
+base=${2:-}
+if [ -z "$wt" ] || [ -z "$base" ]; then
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+fi
+wt=$(cd "$wt" 2>/dev/null && pwd -P) || { echo "No such worktree: $1"; exit 2; }
+scope="$wt/.claude/relay-scope"
+[ -f "$scope" ] || { echo "No scope file: $scope"; exit 2; }
+
+patterns=()
+while IFS= read -r line; do
+  line=${line%%#*}
+  line=${line#"${line%%[![:space:]]*}"}
+  line=${line%"${line##*[![:space:]]}"}
+  [ -n "$line" ] && patterns+=("$line")
+done < "$scope"
+
+in_scope() {
+  local path=$1 pat
+  for pat in "${patterns[@]}"; do
+    case "$pat" in
+      */) [[ "$path" == "$pat"* ]] && return 0 ;;
+      *)
+        # shellcheck disable=SC2254
+        case "$path" in $pat) return 0 ;; esac
+        [[ "$path" == "$pat/"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+guarded() {
+  case "$1" in
+    Cargo.toml|Cargo.lock|*/Cargo.toml|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|\
+    go.mod|go.sum|pyproject.toml|poetry.lock|requirements*.txt|Gemfile|Gemfile.lock|\
+    .github/workflows/*|.gitlab-ci.yml|Dockerfile|*/Dockerfile|docker-compose*.yml)
+      return 0 ;;
+  esac
+  return 1
+}
+
+changed=$(git -C "$wt" diff --name-only "$base" 2>/dev/null) || {
+  echo "Cannot diff against $base in $wt"; exit 2; }
+untracked=$(git -C "$wt" ls-files --others --exclude-standard)
+
+status=0
+count=0
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  count=$((count + 1))
+  if ! in_scope "$path"; then
+    echo "Out of scope: $path"
+    status=1
+  fi
+  guarded "$path" && echo "Guarded file changed (owner approval per safe-merge): $path"
+done <<EOF
+$changed
+$untracked
+EOF
+
+echo "Files changed or added: $count"
+diff_id=$( {
+  git -C "$wt" diff --binary "$base"
+  while IFS= read -r path; do
+    [ -n "$path" ] && { printf '\n--- untracked %s\n' "$path"; cat "$wt/$path"; }
+  done <<EOF
+$untracked
+EOF
+} | shasum -a 256 | cut -c1-12)
+echo "Diff id: $diff_id"
+[ "$status" -eq 0 ] && echo "In scope."
+exit "$status"
