@@ -26,6 +26,9 @@ const TAB: &str = "    ";
 const CODE_INDENT: &str = "  ";
 const QUOTE_BAR: &str = "▎ ";
 const BULLET: &str = "• ";
+/// The extra indent of a prose line's soft-wrapped continuation lines,
+/// after the container prefixes, so a wrap reads as a continuation.
+const WRAP_INDENT: &str = "  ";
 /// Between two table cells; [`TABLE_JOINT`] is its header rule crossing.
 const TABLE_SEPARATOR: &str = " │ ";
 const TABLE_JOINT: &str = "─┼─";
@@ -39,7 +42,8 @@ const FOOTNOTE_RULE_WIDTH: usize = 10;
 /// Every returned line is at most `width` columns wide, except where a
 /// single character is wider than the space left. A `width` of 0 is
 /// treated as 1. Words wrap on whitespace and are only split when one word
-/// is wider than the available width. Code block lines wrap by character
+/// is wider than the available width; a prose line's continuation lines
+/// are indented [`WRAP_INDENT`]. Code block lines wrap by character
 /// instead, keeping every space, and a fenced block whose tag names a
 /// shipped language is syntax highlighted, unless the document is over
 /// [`MAX_HIGHLIGHT_BYTES`]. A table is laid out in columns: too wide, its
@@ -470,7 +474,28 @@ impl<'s> Renderer<'s> {
             return;
         }
         let segments = std::mem::take(&mut self.inline);
-        self.emit_wrapped(&segments, "");
+        self.emit_prose(&segments);
+    }
+
+    /// Prose wrapped to the available width, its soft-wrapped continuation
+    /// lines indented [`WRAP_INDENT`]. Too narrow for the indent plus one
+    /// column, it wraps without one.
+    fn emit_prose(&mut self, segments: &[(Cow<'_, str>, Style)]) {
+        let avail = self.avail();
+        let indent_width = str_width(WRAP_INDENT);
+        let rest_avail = if avail > indent_width {
+            avail - indent_width
+        } else {
+            avail
+        };
+        for (is_continued, content) in wrap_continued(segments, avail, rest_avail) {
+            let mut spans = Vec::with_capacity(content.len() + 1);
+            if is_continued && rest_avail < avail {
+                spans.push(Span::raw(WRAP_INDENT));
+            }
+            spans.extend(content);
+            self.emit_line(spans);
+        }
     }
 
     /// A code block's lines, highlighted when its fence tag names a shipped
@@ -941,7 +966,26 @@ fn push_styled(line: &mut Vec<Span<'static>>, text: &str, style: Style) {
 /// one line. Whitespace at a soft wrap point is dropped; leading
 /// whitespace at the start of the text or after a hard break is kept.
 fn wrap(segments: &[(Cow<'_, str>, Style)], avail: usize) -> Vec<Vec<Span<'static>>> {
-    let mut wrapper = Wrapper::new(avail);
+    let mut wrapper = Wrapper::new(avail, avail);
+    feed(&mut wrapper, segments);
+    wrapper.finish()
+}
+
+/// [`wrap`] with the lines after a soft wrap limited to `rest_avail`
+/// columns, each line paired with whether it continues a soft wrap. A line
+/// after a hard break is not a continuation and gets `avail` again.
+fn wrap_continued(
+    segments: &[(Cow<'_, str>, Style)],
+    avail: usize,
+    rest_avail: usize,
+) -> Vec<(bool, Vec<Span<'static>>)> {
+    let mut wrapper = Wrapper::new(avail, rest_avail);
+    feed(&mut wrapper, segments);
+    let (continued, lines) = wrapper.finish_continued();
+    continued.into_iter().zip(lines).collect()
+}
+
+fn feed<'a>(wrapper: &mut Wrapper<'a>, segments: &'a [(Cow<'_, str>, Style)]) {
     for (text, style) in segments {
         let text: &str = text;
         let bytes = text.as_bytes();
@@ -966,15 +1010,21 @@ fn wrap(segments: &[(Cow<'_, str>, Style)], avail: usize) -> Vec<Vec<Span<'stati
             wrapper.run(kind, &text[start..], *style, is_plain);
         }
     }
-    wrapper.finish()
 }
 
 /// One piece of a word or of pending whitespace: text, style, width.
 type Piece<'a> = (Cow<'a, str>, Style, usize);
 
 struct Wrapper<'a> {
+    /// The width of the line being filled: `first_avail`, or `rest_avail`
+    /// after a soft wrap.
     avail: usize,
+    first_avail: usize,
+    rest_avail: usize,
     lines: Vec<Vec<Span<'static>>>,
+    /// Parallel to `lines`: whether each line continues a soft wrap.
+    continued: Vec<bool>,
+    is_continued: bool,
     line: Vec<Span<'static>>,
     line_width: usize,
     pending: Vec<Piece<'a>>,
@@ -1009,10 +1059,14 @@ impl<'a> Wrapper<'a> {
         }
     }
 
-    fn new(avail: usize) -> Self {
+    fn new(avail: usize, rest_avail: usize) -> Self {
         Self {
             avail: avail.max(1),
+            first_avail: avail.max(1),
+            rest_avail: rest_avail.max(1),
             lines: Vec::new(),
+            continued: Vec::new(),
+            is_continued: false,
             line: Vec::new(),
             line_width: 0,
             pending: Vec::new(),
@@ -1102,23 +1156,36 @@ impl<'a> Wrapper<'a> {
     }
 
     fn soft_break(&mut self) {
-        self.clear_pending();
-        self.lines.push(std::mem::take(&mut self.line));
-        self.line_width = 0;
+        self.end_line();
         self.is_soft_start = true;
+        self.is_continued = true;
+        self.avail = self.rest_avail;
     }
 
     fn hard_break(&mut self) {
-        self.clear_pending();
-        self.lines.push(std::mem::take(&mut self.line));
-        self.line_width = 0;
+        self.end_line();
         self.is_soft_start = false;
+        self.is_continued = false;
+        self.avail = self.first_avail;
     }
 
-    fn finish(mut self) -> Vec<Vec<Span<'static>>> {
+    fn end_line(&mut self) {
+        self.clear_pending();
+        self.lines.push(std::mem::take(&mut self.line));
+        self.continued.push(self.is_continued);
+        self.line_width = 0;
+    }
+
+    fn finish(self) -> Vec<Vec<Span<'static>>> {
+        self.finish_continued().1
+    }
+
+    /// The lines and, parallel to them, whether each continues a soft wrap.
+    fn finish_continued(mut self) -> (Vec<bool>, Vec<Vec<Span<'static>>>) {
         self.flush_word();
         self.lines.push(self.line);
-        self.lines
+        self.continued.push(self.is_continued);
+        (self.continued, self.lines)
     }
 }
 
@@ -1227,9 +1294,85 @@ mod tests {
     }
 
     #[test]
-    fn list_item_continuation_lines_align_with_the_text() {
+    fn list_item_continuation_lines_indent_two_past_the_text() {
         let lines = render_markdown("- alpha beta gamma", 10);
-        assert_eq!(texts(&lines), ["• alpha", "  beta", "  gamma"]);
+        assert_eq!(texts(&lines), ["• alpha", "    beta", "    gamma"]);
+    }
+
+    #[test]
+    fn a_wrapped_paragraph_indents_its_continuation_lines_two() {
+        let lines = render_markdown("alpha beta gamma delta", 10);
+        assert_eq!(texts(&lines), ["alpha beta", "  gamma", "  delta"]);
+        assert_eq!(lines[1].spans[0].content, WRAP_INDENT);
+        assert_eq!(lines[1].spans[0].style, Style::default());
+    }
+
+    #[test]
+    fn a_wrapped_heading_indents_its_continuation_lines_two() {
+        let lines = render_markdown("# alpha beta gamma", 10);
+        assert_eq!(texts(&lines), ["alpha beta", "  gamma"]);
+    }
+
+    #[test]
+    fn a_nested_list_item_keeps_its_markers_and_adds_two() {
+        let lines = render_markdown("- a\n  - alpha beta gamma", 12);
+        assert_eq!(
+            texts(&lines),
+            ["• a", "  • alpha", "      beta", "      gamma"]
+        );
+    }
+
+    #[test]
+    fn a_quoted_paragraph_keeps_its_bar_and_adds_two() {
+        let lines = render_markdown("> alpha beta gamma", 12);
+        assert_eq!(texts(&lines), ["▎ alpha beta", "▎   gamma"]);
+        assert_eq!(lines[1].spans[0].content, QUOTE_BAR);
+    }
+
+    #[test]
+    fn a_line_after_a_hard_break_starts_at_the_text_column() {
+        let lines = render_markdown("one two three\\\nfour", 9);
+        assert_eq!(texts(&lines), ["one two", "  three", "four"]);
+    }
+
+    #[test]
+    fn wrapped_prose_stays_within_tiny_widths() {
+        for width in 1..=8 {
+            for line in render_markdown("alpha beta gamma abcdefghijkl", width) {
+                assert!(
+                    line.width() <= usize::from(width),
+                    "{width}: {:?}",
+                    text_of(&line)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lines_that_do_not_wrap_are_unchanged() {
+        let source = "# Title\n\npara\n\n- item\n  - nested\n\n> quote\n\n\
+                      | a | b |\n|---|---|\n| 1 | 2 |\n\n```\ncode\n```\n\n<div>x</div>\n";
+        assert_eq!(
+            texts(&render_markdown(source, 30)),
+            [
+                "Title",
+                "",
+                "para",
+                "",
+                "• item",
+                "  • nested",
+                "",
+                "▎ quote",
+                "",
+                "a │ b",
+                "──┼──",
+                "1 │ 2",
+                "",
+                "  code",
+                "",
+                "<div>x</div>"
+            ]
+        );
     }
 
     #[test]
@@ -1419,9 +1562,9 @@ mod tests {
     }
 
     #[test]
-    fn a_wrapped_footnote_definition_aligns_with_its_text() {
+    fn a_wrapped_footnote_definition_indents_two_past_its_text() {
         let lines = render_markdown("a[^1]\n\n[^1]: one two three", 12);
-        assert_eq!(texts(&lines)[4..], ["[1] one two", "    three"]);
+        assert_eq!(texts(&lines)[4..], ["[1] one two", "      three"]);
     }
 
     #[test]
@@ -1514,12 +1657,12 @@ mod tests {
             got,
             [
                 "The quick brown fox",
-                "jumps over the lazy",
-                "dog and keeps",
-                "running until the",
-                "preview pane runs",
-                "out of columns",
-                "entirely.",
+                "  jumps over the",
+                "  lazy dog and keeps",
+                "  running until the",
+                "  preview pane runs",
+                "  out of columns",
+                "  entirely.",
             ]
         );
         for line in &lines {
@@ -1533,7 +1676,7 @@ mod tests {
     #[test]
     fn styled_text_inside_a_word_does_not_split_it() {
         let lines = render_markdown("aaaa **bb**cc", 6);
-        assert_eq!(texts(&lines), ["aaaa", "bbcc"]);
+        assert_eq!(texts(&lines), ["aaaa", "  bbcc"]);
     }
 
     #[test]
@@ -1585,7 +1728,10 @@ mod tests {
     fn a_long_single_token_is_split_at_the_width() {
         let token = "x".repeat(25);
         let lines = render_markdown(&format!("a {token} b"), 10);
-        assert_eq!(texts(&lines), ["a", "xxxxxxxxxx", "xxxxxxxxxx", "xxxxx b"]);
+        assert_eq!(
+            texts(&lines),
+            ["a", "  xxxxxxxx", "  xxxxxxxx", "  xxxxxxxx", "  x b"]
+        );
         let wide = "漢".repeat(7);
         for line in render_markdown(&wide, 5) {
             assert!(line.width() <= 5);
