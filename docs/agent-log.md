@@ -14,6 +14,147 @@ line. Older records (2026-10-06 to 2026-10-08) are in
 
 Lead records that preceded the current one in the handoff, newest first.
 
+### `0bafc905` and `b5670714` (Claude), 2026-10-27
+
+Moved verbatim from the handoff on 2026-10-29 by lead `7c4dc6c8`.
+
+Before: lead `0bafc905` (Claude, `claude-fable-5-1`, `nz-coordinator`)
+RELEASED the baton on 2026-10-27 at about 15:45 CET on Andreas's
+"merge 51 for now ... you may ship it, make sure handover is done etc,
+then i want to close this session". Workers and reviewers: none
+running. State at release: NZ-51 (#77) merged as `3c3c762` (Closes
+#77), checks green, pushed, `main` = `origin/main` at `3c3c762`, CI
+on `main` run `40524947003` GREEN, #77
+closed, board Done, remote branch deleted, record in
+`docs/agent-log.md`, worktree swept (NZ-43 kept, unmerged). Today's wave: NZ-55, NZ-56 and NZ-51 merged.
+- NZ-43 (#71) `feat/nz-43-todo-preview` at `06e7254`, worktree
+  `.claude/worktrees/NZ-43`, reviewed, branch CI green, Ready to
+  integrate but PARKED: Andreas said it is not the look he asked for;
+  he decides whether he wants the todoz pane too. Merging it now
+  needs a small `todo.rs` conflict fix (NZ-51 moved the row drawing
+  out), so re-review after the fix.
+- NZ-57 (#83) Ready, briefed on the issue, waits for his word.
+- Open design question from Andreas (2026-10-27, on #77), to look
+  into before more inspector rendering work: what defines a todoz
+  todo (a header or marker in the file?) so the inspector renders
+  exactly as intended, and whether to borrow the board's whole
+  preview from the todoz code; "dont we already do that on todoz? we
+  have to look into this". Lead-found, needs his yes to become a
+  ticket: start with a short investigation note, not code.
+Uncommitted at release: this file and `docs/agent-log.md` (the
+docs commit is shipped by the lead on his "you may ship it"). The
+handoff is over the 150-line cap; the next lead should move the
+verbatim 2026-10-15 authorization entries to the log.
+
+Earlier that day the same lead RETOOK the baton at about 13:15 CET on Andreas's "allright. we
+can continue now" (same session as the morning). On retake: `main` =
+`origin/main` at `16c7a7d`, clean, CI green; NZ-43 worktree clean at
+`84fa8df` (a docs-only gap to `main`, fine as base). NZ-43 (#71)
+in Review since about 13:30 CET: worker (opus, medium, about 10 min,
+186k tokens) delivered an uncommitted diff on branch
+`feat/nz-43-todo-preview`, worktree `.claude/worktrees/NZ-43`
+(`tui/todo.rs` +825/-15, README; rendered markdown with a U+2060
+marker to find the task row; 15 tests). Review 1 (opus, about 5 min,
+65k tokens): CHANGES REQUESTED, one medium blocker (the marker changes
+emphasis flanking, so the highlighted todo renders differently);
+ruling on #71: draw the plain render, use the marked render only to
+find the rows and only when it matches. Fix cycle 1 (same worker,
+about 3 min) done: plain render always drawn, `PaneView.scroll_rows`,
+one new test. Re-review (same reviewer, about 2 min) ACCEPTED, diff
+sha1 `3c1f6a5...`. Committed as `06e7254` on
+`feat/nz-43-todo-preview`, pushed; branch CI run `40516545125`
+GREEN (both check jobs and lint). Lead verification: `main` gained only
+docs since base `84fa8df`, so the branch is the combined code; build
+and tests green (695 + 5 + 191). READY TO INTEGRATE since about 14:00
+CET, waiting for Andreas's try; no worker or reviewer running.
+Follow-ups on #71. Andreas tried it at about 14:10 CET and said it
+is not the look he asked for (that is NZ-51); NZ-43 stays UNMERGED,
+branch and worktree kept, until he decides whether he wants the pane
+in todoz too. NZ-51 (#77) DISPATCHED at about 14:20 CET: `nz-worker`
+(opus, medium) RUNNING on branch `feat/nz-51-inspector-todo-rows`,
+worktree `.claude/worktrees/NZ-51`, base `16c7a7d`, brief = the
+body of #77; board In progress, P1. The first worker run stopped on
+ENOSPC (the disk was full: 35 GB of session scratch under
+`/private/tmp/claude-501`, 29 GB of it a fleetz session); the lead
+removed its own session's scratch build copies (4 GB free), reverted
+the worker's temp test, ruled option (a) on #77 (one-line `input.rs`
+change passes the todo flag to `file_lines`) and re-dispatched at
+about 14:35 CET. Andreas cleared the other sessions' scratch (21 GB free). Stop
+condition (Andreas, about 14:45 CET: "after that we could stop for
+today, if no other tickets are running"): NZ-51 runs to Ready to
+integrate, then the lead releases the baton; nothing else starts. Worker (opus, about 11 min, 121k tokens) delivered at about
+15:00 CET: new `tui/todo_rows.rs`, preview rows, `is_todo_note`,
+one-line `input.rs` call, README (6 files +275/-250 plus the new
+file). Reviewer (opus, about 7 min, 70k tokens) ACCEPTED first pass,
+diff sha1 `63548dd...`, `todo_rows.rs` `cbe6163...`. Committed as
+`5229193` on `feat/nz-51-inspector-todo-rows`, pushed; branch CI run
+`40523374775` GREEN (both check jobs and lint). Lead verification:
+origin/main is an ancestor, build and tests green (690 + 5 + 191).
+READY TO INTEGRATE since about 15:20 CET for Andreas's try of
+`notez tree`; follow-ups on #77 (fenced code block edge case first).
+No worker or reviewer running.
+Lesson: reviewers' mutation copies with their own `target/` eat
+1 to 2 GB each; have them delete the copy when done. Next: `nz-reviewer`, commit
+`Refs: #77`, push, branch CI, Ready to integrate for his try. The ticket stopped at Ready to integrate
+for Andreas's try. Then NZ-57 (#83) on his word.
+
+It had released the baton at about 12:58 CET on "find a place to stop
+for today" with NZ-43 cut but not dispatched.
+
+Earlier that day lead `0bafc905` took
+the baton on 2026-10-27 at about 10:45 CET on Andreas's "Take the
+baton" (his 2026-10-27 instruction, verbatim: "run NZ-55 (#81), then
+NZ-56 (#82), under the standing permissions. NZ-55 first ... NZ-56
+stacks on NZ-55's reviewed commit ... Both change how the TUI behaves,
+so stop at Ready to integrate and give me the NZ-56 branch build
+command so I can try both before anything merges. Report at
+milestones only."). On takeover: `main` at `90e8a25` = `origin/main`,
+clean, CI green; `scripts/relay-sweep main` removed the stale clean
+NZ-55 worktree and branch (base `2e3dee7`, no commits), recut as
+`fix/nz-55-tree-scroll` at `.claude/worktrees/NZ-55` from `90e8a25`;
+board check passes (53 items); relay-check up to date, handoff over
+the 150-line cap (trim at release). No worker or reviewer was running.
+State at about 12:40 CET, scope DONE: NZ-55 merged as `03427e6` and
+NZ-56 as `17bdf3e`, `main` = `origin/main` at `17bdf3e`, CI green on
+both merges, #81 and #82 closed, board Done, remote ticket branches
+deleted, sweep removed both worktrees (0 kept), board check passes.
+The lead still holds the baton; no worker or reviewer running. Only
+this file and `docs/agent-log.md` are uncommitted (docs commit command
+presented to Andreas). The 2026-10-27 scope is exhausted; the Next
+step queue below (NZ-43 first) stays authorized by the standing scope
+but Andreas names when it runs.
+
+Before: lead `b5670714` (Claude, `claude-opus-5-5`, a plain session
+started in `~/notez`, NOT `nz-coordinator` on `fable`: Andreas named it
+lead in place, see Authorized by the owner, 2026-10-27) took the baton
+on 2026-10-27 10:23 CET and RELEASED it at 10:27 CET when Andreas said
+"ill open a relay lead". Its NZ-55 worker was stopped before editing
+anything; no worker or reviewer is running. The next lead resumes the
+2026-10-27 scope below (NZ-55 then NZ-56) without new confirmation. On takeover: `main` at `2e3dee7` =
+`origin/main`, clean, CI green; no ticket worktree or branch; no
+workers running; sweep 0 removed; board check passes (51 items).
+
+Before that: lead `9c5067bf` (Claude, `claude-fable-5-1`, `nz-coordinator`)
+took the baton on 2026-10-26 15:03 CET and RELEASED it at 16:10 CET
+on Andreas's "we can stop for today". Workers and reviewers: all
+stopped, none running. Nothing runs until Andreas says to continue;
+the Next step queue below is already authorized. Open questions left
+with him: try the NZ-43 branch build before its merge or keep the
+precedent; yes or no to a frontmatter-hiding issue in the preview. The previous lead `8a79e020`
+had released it on 2026-10-15 (record in `docs/agent-log.md` under
+Earlier leads); no ticket ran in between. On takeover: `main` at
+`0019c62` = `origin/main`, clean, CI green; no ticket worktree or
+branch; no workers running; board check passes (49 items); the board
+matches this file (Ready: NZ-30 #59, NZ-43 #71; the rest Backlog).
+State at release: `main` at `c226a6c` = origin, CI green, no ticket
+worktree or branch; board check passes (51 items); only
+`docs/agent-handoff.md` and `docs/agent-log.md` are uncommitted (the
+commit command was presented to Andreas). Next free ticket id: NZ-55. The
+handoff was trimmed (parked NZ-18, NZ-28, NZ-29 and the Done NZ-42
+records moved to the log); the verbatim "Authorized by the owner"
+section keeps it above the 150-line cap.
+
+
 ### `8a79e020` (Claude, `claude-fable-5-1`), 2026-10-15
 
 Moved from the handoff's Current lead on 2026-10-17, verbatim.
@@ -204,6 +345,48 @@ One subsection per ticket, newest merge first: the ticket brief as it
 stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
+
+### NZ-43 (#71): todoz preview pane
+
+Design approved by Andreas on 2026-10-15 (right pane ON by default at
+120 columns or more, `p` toggles, NZ-4 resize and fold keys through
+`tui/panes.rs`, the selected task's source `TODO.md` rendered and
+scrolled to the task's line, highlighted; footer shows `Task.due`;
+no editing, linked-note previews or calendar). P1, 0.3.0, board item
+`PVTI_lAHOCU842c4BmE5Zzg_uH10`, brief in the issue body. Cut by lead
+`9c5067bf`, run by lead `0bafc905` on 2026-10-27 on "start next
+ticket": branch `feat/nz-43-todo-preview`, worktree
+`.claude/worktrees/NZ-43`, base `84fa8df`.
+
+Worker (opus, medium, about 10 min, 186k tokens): `tui/todo.rs`
++825/-15 and README; rendered markdown with a U+2060 marker to find
+the task row; 15 tests. Review 1 (opus, about 5 min, 65k tokens):
+changes requested, one medium blocker (the marker changes emphasis
+flanking); ruling on #71: draw the plain render, use the marked render
+only to find the rows and only when it matches. Fix cycle 1 (about 3
+min): plain render always drawn, `PaneView.scroll_rows`, one test.
+Re-review (about 2 min) accepted, diff sha1 `3c1f6a5...`. Committed as
+`06e7254`, branch CI `40516545125` green, lead checks green (695 + 5 +
+191). Andreas tried it on 2026-10-27 and said it was not the look he
+asked for (that became NZ-51); the branch stayed unmerged at Ready to
+integrate. On 2026-10-29 lead `7c4dc6c8` found the merge onto
+`da0229a` clean (no `todo.rs` conflict with NZ-51's extraction) and
+green (706 + 5 + 191); Andreas first saw an empty board (`notez todo`
+inside a repo scopes to that project; the full board is `-g todo`),
+then tried the `-g` build and accepted ("ok that works for now. looks
+good enough"). Merged `--no-ff` as `b835e55` (Closes #71), pushed, CI
+on `main` run `40874676111` green, remote branch deleted, worktree
+swept.
+
+Follow-ups on #71: split the preview block into `tui/todo/preview.rs`
+and share the copied tree helpers from `tui/panes.rs`; `2` on a
+too-narrow terminal gives no message; a lost drag release pauses the
+probe until the next mouse event; a todo with emphasis touching the
+start or end of its text is scrolled to but not highlighted; drawing
+the file through `tui/todo_rows.rs` (todoz look) is open for a later
+ticket.
+
+NZ-43: review changes 1; fix cycles 1; owner decisions 2; worker 13; review 7; usage read (worker 186k tokens, reviewer 65k)
 
 ### NZ-51 (#77): TODO.md in the notez inspector renders like standalone todoz
 
