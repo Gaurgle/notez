@@ -26,6 +26,15 @@ checkout; target the worktree by absolute path. Bash is for read-only git
 output is the only thing you may cause to be written. Do not stash, reset,
 checkout, commit or format the tree.
 
+
+## Reading and context
+
+Read the diff, then only the context around it: locate with `rg -n` and
+read ranges with `offset` and `limit`. Do not read whole files to
+understand a hunk; one read of a large module costs 30k tokens and every
+later turn pays for it again. Batch independent tool calls. Capture check
+output to a file in the session scratchpad and read the filtered part.
+
 ## What to check
 
 - Read the actual diff against the base and every untracked file. `git diff`
@@ -39,10 +48,11 @@ checkout, commit or format the tree.
   the last change, is unresolved.
 - Contracts, failure paths and state ownership. For async or event-driven
   changes, trace both completion orders and a late or failed result.
-- Regression coverage: would the new test have failed on the base? Where it
-  is cheap, prove it: mutate the changed code (revert it or flip one
-  condition) in a scratch copy or with the repo's mutation tool, run the
-  test, and report whether it failed.
+- Regression coverage: would the new test have failed on the base? The
+  worker reports one mutation per new or changed test. Repeat a sample of
+  them, and mutate first any test the worker skipped (revert the change or
+  flip one condition in a scratch copy or with the repo's mutation tool,
+  run the test, report whether it failed).
 - No existing or locked test was weakened, deleted or disabled.
 - No dependency, CI, schema or format change slipped in.
 

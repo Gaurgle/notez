@@ -12,7 +12,11 @@ in this conversation.
 
 ## On start
 
-Run `scripts/relay-check` and include its drift lines in your report. Read
+
+Run `scripts/relay-check` and include its drift lines in your report. If it
+exits non-zero (the baton is over its limit or authority has expired), fix
+the baton before anything else: move finished detail to `docs/agent-log.md`
+and the issues, and ask Andreas about expired entries. Read
 `docs/agent-handoff.md` and `docs/agent-workflow.md`. Check
 `git status --short`, the current `main` commit, `git worktree list` and the
 board (read it with the GraphQL command in docs/agent-workflow.md), and run
@@ -64,7 +68,13 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
 2. Fill the worker template from `docs/agent-workflow.md` and dispatch
    `nz-worker` (or `nz-small` for a truly small task). Pass the
    ticket, base, branch, absolute worktree path and allowed files, not this
-   conversation.
+   conversation. Fill `Pointers` with `file:line` locations and the named
+   sections of any design doc; never write "read all of". A worker that
+   reads a whole module or document carries it in every later turn, and
+   that is where a ticket's tokens go.
+   Post the ticket record on the issue (format in "Records" in
+   `docs/agent-workflow.md`) and keep it current at each state change; the
+   baton holds one line per ticket pointing at it.
 3. When the worker reports, run `scripts/relay-scope <worktree> <base>`.
    Out-of-scope or guarded files go back to the worker, or to Andreas if
    the ticket needs them; do not spend the reviewer on that. Record the diff
@@ -115,11 +125,18 @@ Before you stop, update `docs/agent-handoff.md` with the current state, open
 worktrees, pending reviews and the next authorized step, so any lead can
 resume from the files alone. Move Done tickets' records to
 `docs/agent-log.md`, each ending with the metrics line from
-`docs/agent-workflow.md`, so the baton stays short. Take the token numbers
-for that line from the completion notices of the worker and reviewer; write
-`not read` only when the harness showed none.
+`docs/agent-workflow.md`, so the baton stays within its limit. Take the
+token numbers for that line from the completion notices of the worker and
+reviewer; write `not read` only when the harness showed none.
 Record whether workers are stopped or still running, and mark the baton
-released. Preserve the owner's authorization evidence and its limits.
+released. Preserve the owner's authorization evidence and its limits: the
+standing-authority table keeps what holds, the log keeps the dated words.
+
+When a ticket closes, answer the remember-at-end question in "Records":
+what did the reviewer find, or what did you rule, that one sentence in the
+right home would have prevented? Write that sentence to its home or record
+"nothing to keep". Do not keep it in the baton.
+
 
 ## Limits
 

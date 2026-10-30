@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Aggregates the metrics lines in docs/agent-log.md so a retrospective or a
+# model trial is one command. Read only.
+#
+# A metrics line (format in docs/agent-workflow.md, "Records"):
+#   FZ-62: review changes 1; fix cycles 1; owner decisions 4; worker 32; review 11; models opus/opus; usage worker 303045 tokens, reviewer 272583 tokens
+# Older lines without "models" count under "unknown". Token figures accept
+# "303045", "303k" and "208 902"; a line that has none counts as not read.
+#
+# Prints: tickets, first-review outcomes, fix cycles, owner decisions,
+# minutes and tokens per role, then the same per models group, then the
+# tickets with the most fix cycles.
+#
+# Usage: scripts/relay-retro [--since <ticket-id>] [log-file]
+
+set -uo pipefail
+
+since=
+log=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --since) since=${2:-}; shift 2 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) log=$1; shift ;;
+  esac
+done
+
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") || root=.
+log=${log:-$root/docs/agent-log.md}
+[ -f "$log" ] || { echo "No log: $log"; exit 1; }
+
+grep -E '^[[:space:]]*([-*] *)?[`*]*([A-Z]+-[0-9]+[a-z]?|#[0-9]+)[`*]*: review ' "$log" \
+  | sed -E 's/^[[:space:]]*([-*] *)?//; s/[`*]//g' | awk -v since="$since" '
+function num(s,   v) {
+  # First number in s; "35k" means thousands; spaces inside a number are
+  # dropped. BSD awk: no backreferences in gsub, so splice by hand.
+  while (match(s, /[0-9] [0-9]/)) s = substr(s, 1, RSTART) substr(s, RSTART + 2)
+  if (match(s, /[0-9]+(\.[0-9]+)?k?/)) {
+    v = substr(s, RSTART, RLENGTH)
+    if (v ~ /k$/) { sub(/k$/, "", v); return v * 1000 }
+    return v + 0
+  }
+  return -1
+}
+function field(line, name,   i, n, parts) {
+  n = split(line, parts, ";")
+  for (i = 1; i <= n; i++) {
+    gsub(/^[ \t]+|[ \t]+$/, "", parts[i])
+    if (index(parts[i], name) == 1) return substr(parts[i], length(name) + 1)
+  }
+  return ""
+}
+function add(g,   fr) {
+  n[g]++
+  if (verdict ~ /accepted first/) first[g]++
+  else if (verdict ~ /evidence/) evid[g]++
+  else chg[g]++
+  if (fix >= 0) { fixsum[g] += fix; fixn[g]++ }
+  if (own >= 0) { ownsum[g] += own; ownn[g]++ }
+  if (wmin >= 0) { wminsum[g] += wmin; wminn[g]++ }
+  if (rmin >= 0) { rminsum[g] += rmin; rminn[g]++ }
+  if (wtok > 0) { wtoksum[g] += wtok; wtokn[g]++ }
+  if (rtok > 0) { rtoksum[g] += rtok; rtokn[g]++ }
+}
+function avg(sum, cnt) { return cnt ? sprintf("%.1f", sum / cnt) : "-" }
+function ktok(sum, cnt) { return cnt ? sprintf("%.0fk", sum / cnt / 1000) : "-" }
+function pct(a, b) { return b ? sprintf("%d%%", 100 * a / b) : "-" }
+{
+  line = $0; sub(/^[ \t]+/, "", line)
+  id = line; sub(/:.*/, "", id)
+  if (since != "" && !started) { if (id == since) started = 1; else next }
+  verdict = line; sub(/^[^:]*: *review */, "", verdict); sub(/;.*/, "", verdict)
+  fix = num(field(line, "fix cycles"))
+  own = num(field(line, "owner decisions"))
+  wmin = num(field(line, "worker"))
+  rmin = num(field(line, "review "))
+  models = field(line, "models"); gsub(/^[ \t]+/, "", models)
+  if (models == "") models = "unknown"
+  usage = field(line, "usage")
+  wtok = -1; rtok = -1
+  if (usage !~ /not read/) {
+    w = usage; if (match(w, /worker[^,;]*/)) wtok = num(substr(w, RSTART, RLENGTH))
+    r = usage; if (match(r, /review(er)?[^,;]*/)) rtok = num(substr(r, RSTART, RLENGTH))
+  }
+  add("all"); add("models " models)
+  if (fix > 0) worst[id] = fix
+  if (!(("models " models) in seen)) { seen["models " models] = 1; order[++groups] = "models " models }
+}
+function report(g) {
+  printf "%-28s tickets %3d | first review: accepted %s, evidence %d, changes %d | fix cycles avg %s | owner decisions avg %s | minutes worker %s review %s | tokens worker %s reviewer %s (%d read)\n", \
+    g, n[g], pct(first[g], n[g]), evid[g], chg[g], avg(fixsum[g], fixn[g]), avg(ownsum[g], ownn[g]), \
+    avg(wminsum[g], wminn[g]), avg(rminsum[g], rminn[g]), ktok(wtoksum[g], wtokn[g]), ktok(rtoksum[g], rtokn[g]), wtokn[g]
+}
+END {
+  if (!n["all"]) { print "No metrics lines found."; exit 0 }
+  report("all")
+  for (i = 1; i <= groups; i++) if (groups > 1 || order[i] != "models unknown") report(order[i])
+  # Top five by fix cycles, without gawk-only sorting.
+  shown = 0; out = ""
+  while (shown < 5) {
+    best = ""; bestv = 0
+    for (id in worst) if (worst[id] > bestv) { best = id; bestv = worst[id] }
+    if (best == "") break
+    out = out sprintf(" %s (%d)", best, bestv); delete worst[best]; shown++
+  }
+  if (out != "") print "most fix cycles:" out
+}'

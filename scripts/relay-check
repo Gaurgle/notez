@@ -4,9 +4,13 @@
 #
 # Checks: the template version stamped in docs/agent-workflow.md against the
 # skill's VERSION (with the changelog entries marked [migrate] since then),
-# that the Relay scripts are present, leftover {{placeholders}}, and the
-# handoff's length. A cloud session without the skill still gets the
-# repo-side checks.
+# that the Relay scripts are present, leftover {{placeholders}}, the
+# handoff's length and expired standing-authority rows. A cloud session
+# without the skill still gets the repo-side checks.
+#
+# Exit 1 when the handoff is over RELAY_HANDOFF_MAX lines (default 60) or
+# a standing-authority row's "Until" date has passed: the lead fixes the
+# baton before dispatching. Everything else is a report.
 #
 # Usage: scripts/relay-check [path-to-relay-skill]
 
@@ -57,7 +61,7 @@ else
   fi
 fi
 
-for script in scripts/relay-sweep scripts/relay-check scripts/relay-status scripts/relay-scope; do
+for script in scripts/relay-sweep scripts/relay-check scripts/relay-status scripts/relay-board scripts/relay-scope scripts/relay-retro; do
   [ -x "$script" ] || echo "Missing or not executable: $script"
 done
 
@@ -65,8 +69,33 @@ leftovers=$(grep -l '{{' docs/agent-workflow.md docs/agent-handoff.md AGENTS.md 
   .claude/agents/*.md 2>/dev/null)
 [ -n "$leftovers" ] && echo "Unfilled {{placeholders}} in: $leftovers"
 
+status=0
 if [ -f docs/agent-handoff.md ]; then
+  max=${RELAY_HANDOFF_MAX:-60}
   lines=$(wc -l < docs/agent-handoff.md | tr -d ' ')
-  echo "Handoff: $lines lines$([ "$lines" -gt 150 ] && echo ' (over 150: move finished tickets to docs/agent-log.md)')"
+  if [ "$lines" -gt "$max" ]; then
+    echo "Handoff: $lines lines, limit $max. Move finished tickets and dated words to docs/agent-log.md and ticket detail to the issues before dispatching."
+    status=1
+  else
+    echo "Handoff: $lines lines."
+  fi
+  # Standing-authority rows: "| what | granted | scope | until |". An Until
+  # that is a past date is expired; words (a milestone, "revoked by word")
+  # are not checked.
+  today=$(date +%Y-%m-%d)
+  expired=$(awk -F'|' -v today="$today" '
+    /^## Standing authority/ { on = 1; next }
+    /^## / { on = 0 }
+    on && /^\|/ && NF >= 6 {
+      until = $5; gsub(/^[ \t]+|[ \t]+$/, "", until)
+      what = $2; gsub(/^[ \t]+|[ \t]+$/, "", what)
+      if (until ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && until < today)
+        print "  expired " until ": " what
+    }' docs/agent-handoff.md)
+  if [ -n "$expired" ]; then
+    echo "Standing authority past its date (ask the owner to renew or strike, then move the row to the log):"
+    echo "$expired"
+    status=1
+  fi
 fi
-exit 0
+exit "$status"
