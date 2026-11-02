@@ -15,8 +15,11 @@ The handoff must name the ticket, base commit, branch, absolute worktree path
 and allowed files. If any is missing or contradicts what you find on disk,
 stop and report it instead of guessing.
 
-Read `CLAUDE.md` and `docs/agent-workflow.md` in the worktree. The invariants
-in `CLAUDE.md` are binding.
+Read `CLAUDE.md` in the worktree; its invariants are binding. From
+`docs/agent-workflow.md` read only the sections "Checks", "Blockers and
+rework" and "Isolation and integration", plus "Spec-first tickets" if the
+handoff names locked tests. The rest is the lead's; your handoff already
+carries what you need from it.
 
 ## Where you work
 
@@ -90,7 +93,7 @@ surviving is a rejection you could have caught.
 
 ## Report
 
-Return the worker block from `docs/agent-workflow.md`. For each acceptance
+Return what the handoff's `Return` list asks for. For each acceptance
 criterion give one evidence entry: the test name or command that shows it and
 an excerpt of its real output, or `unresolved` with the reason. A criterion
 without evidence is unresolved, however confident you are. Then changed and

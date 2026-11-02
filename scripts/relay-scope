@@ -10,9 +10,11 @@
 #
 # Prints every changed or untracked file outside the scope, every guarded
 # file touched (dependencies, lockfiles, CI) whether in scope or not, and a
-# diff id: a short hash of the exact diff plus untracked contents, which the
-# lead records at review time so an unchanged resubmission is caught without
-# another review.
+# diff id: the first 12 characters of the git tree id of the reviewed content
+# (tracked changes plus untracked files, never .claude/relay-scope). The lead
+# records it at review time, so an unchanged resubmission is caught without
+# another review, and scripts/relay-gate checks that the committed tree has
+# the same id, so the merged commit is exactly what the reviewer accepted.
 #
 # Normal cycle: the diff is the worktree against <base-commit>, the ticket's
 # base. Merge-resolution cycle (the worktree has MERGE_HEAD, a merge of the
@@ -46,12 +48,10 @@ if [ -n "$merge_head" ]; then
     echo
   fi
   changed=$(git -C "$wt" diff --cached --name-only "$merge_head")
-  diff_cmd=(git -C "$wt" diff --cached --binary "$merge_head")
 else
   [ -n "$base" ] || { echo "No base commit given and no merge in progress."; exit 2; }
   changed=$(git -C "$wt" diff --name-only "$base" 2>/dev/null) || {
     echo "Cannot diff against $base in $wt"; exit 2; }
-  diff_cmd=(git -C "$wt" diff --binary "$base")
 fi
 untracked=$(git -C "$wt" ls-files --others --exclude-standard)
 
@@ -103,14 +103,22 @@ $untracked
 EOF
 
 echo "Files changed or added: $count"
-diff_id=$( {
-  "${diff_cmd[@]}"
-  while IFS= read -r path; do
-    [ -n "$path" ] && { printf '\n--- untracked %s\n' "$path"; cat "$wt/$path"; }
-  done <<EOF
-$untracked
-EOF
-} | shasum -a 256 | cut -c1-12)
-echo "Diff id: $diff_id"
+# The diff id is the tree a commit of this content would have. During a
+# merge that is the staged index as it stands; otherwise everything in the
+# worktree, staged into a scratch copy of the index so the real one is
+# untouched.
+if [ -n "$merge_head" ]; then
+  tree=$(git -C "$wt" write-tree) || { echo "Cannot write the staged tree (unresolved conflicts?)"; exit 2; }
+else
+  tmp=$(mktemp -d) || exit 2
+  trap 'rm -rf "$tmp"' EXIT
+  index=$(git -C "$wt" rev-parse --path-format=absolute --git-path index)
+  [ -f "$index" ] && cp "$index" "$tmp/index"
+  export GIT_INDEX_FILE="$tmp/index"
+  git -C "$wt" add -A && git -C "$wt" rm -q --cached --ignore-unmatch .claude/relay-scope >/dev/null \
+    && tree=$(git -C "$wt" write-tree) || { echo "Cannot compute the diff id"; exit 2; }
+  unset GIT_INDEX_FILE
+fi
+echo "Diff id: ${tree:0:12}"
 [ "$status" -eq 0 ] && echo "In scope."
 exit "$status"

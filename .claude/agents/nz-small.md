@@ -26,7 +26,8 @@ given. The lead names the paths and the deliverable.
 
 ## Validation
 
-For a code change, run the full checks from `docs/agent-workflow.md` and
+For a code change, run the full checks from the "Checks" section of
+`docs/agent-workflow.md` (read that section, not the whole file) and
 quote the real results. A documentation-only task needs a link and content
 check. A scan needs neither.
 

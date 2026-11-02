@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Checks the mechanical conditions of the safe-merge rule for one ticket,
+# right before the lead merges. Report only: it never commits, merges,
+# pushes or edits.
+#
+# Run it after the reviewed diff is committed on the ticket branch and
+# pushed, and after the checks ran on the combined result:
+#
+#   scripts/relay-gate <worktree> <accepted-diff-id> <verified-on> [options]
+#
+# <accepted-diff-id> is the diff id the reviewer accepted (from
+# scripts/relay-scope, in the ticket record). <verified-on> is the
+# integration-branch commit the combined checks ran on.
+#
+# It holds when all of these do:
+#   - the worktree is clean, so its HEAD is the whole change;
+#   - HEAD's tree id starts with the accepted diff id: the commit is exactly
+#     the content the reviewer accepted;
+#   - the ticket branch on origin is at HEAD: the pushed commit is that one;
+#   - scripts/relay-scope passes against HEAD's merge base with
+#     origin/<integration branch>, and touches no guarded file (dependencies,
+#     lockfiles, CI) unless --guarded-approved;
+#   - every CI run at HEAD finished green or skipped, and there is at least
+#     one, unless --skip-ci-check;
+#   - origin/<integration branch> is still <verified-on>: nothing landed
+#     after the combined checks.
+#
+# Not checked, still the lead's judgment: persistence formats and external
+# contracts, and whether acceptance rests on the owner trying the build.
+#
+# Options:
+#   --branch <name>     integration branch (default main)
+#   --skip-ci-check     only when the integration policy records no CI
+#   --guarded-approved  the owner approved this ticket's guarded files; the
+#                       ruling is on the issue
+#
+# Exit: 0 all hold, 1 a condition fails, 2 bad arguments.
+
+set -uo pipefail
+
+usage() { sed -n '2,/^# Exit/p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+
+branch=main
+skip_ci=false
+guarded_ok=false
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --branch) [ $# -ge 2 ] || usage; branch=$2; shift ;;
+    --skip-ci-check) skip_ci=true ;;
+    --guarded-approved) guarded_ok=true ;;
+    -h|--help) usage ;;
+    -*) echo "relay-gate: unknown option $1" >&2; exit 2 ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+[ ${#args[@]} -eq 3 ] || usage
+
+wt=$(cd "${args[0]}" 2>/dev/null && pwd -P) || { echo "No such worktree: ${args[0]}"; exit 2; }
+accepted=${args[1]}
+[ ${#accepted} -ge 7 ] || { echo "Accepted diff id too short: $accepted"; exit 2; }
+here=$(cd "$(dirname "$0")" && pwd -P)
+
+ticket=$(git -C "$wt" symbolic-ref -q --short HEAD) || { echo "Worktree HEAD is detached: $wt"; exit 2; }
+head=$(git -C "$wt" rev-parse HEAD)
+git -C "$wt" fetch --quiet origin "$branch" || { echo "Cannot fetch origin $branch"; exit 2; }
+target=$(git -C "$wt" rev-parse "origin/$branch")
+verified=$(git -C "$wt" rev-parse -q --verify "${args[2]}^{commit}") || {
+  echo "Unknown commit for <verified-on>: ${args[2]}"; exit 2; }
+
+status=0
+ok() { echo "ok    $*"; }
+fail() { echo "FAIL  $*"; status=1; }
+
+echo "Ticket branch $ticket at ${head:0:12}, integration origin/$branch at ${target:0:12}."
+
+if [ -z "$(git -C "$wt" status --porcelain | grep -vxF '?? .claude/relay-scope')" ]; then
+  ok "worktree clean"
+else
+  fail "worktree has uncommitted or untracked changes; the commit is not the whole change"
+fi
+
+tree=$(git -C "$wt" rev-parse "HEAD^{tree}")
+if [[ "$tree" == "$accepted"* ]]; then
+  ok "committed tree is the accepted diff id $accepted"
+else
+  fail "committed tree ${tree:0:12} is not the accepted diff id $accepted: re-review or recommit"
+fi
+
+remote=$(git -C "$wt" ls-remote origin "refs/heads/$ticket" | cut -f1)
+if [ "$remote" = "$head" ]; then
+  ok "origin/$ticket is HEAD"
+else
+  where=absent
+  [ -n "$remote" ] && where="at ${remote:0:12}"
+  fail "origin/$ticket is $where, not HEAD: push the reviewed commit"
+fi
+
+base=$(git -C "$wt" merge-base HEAD "origin/$branch")
+scope_out=$("$here/relay-scope" "$wt" "$base")
+scope_rc=$?
+if [ "$scope_rc" -eq 0 ]; then
+  ok "in scope against merge base ${base:0:12}"
+else
+  fail "scope check against merge base ${base:0:12} (exit $scope_rc):"
+  grep -v '^Diff id:' <<<"$scope_out" | sed 's/^/        /'
+fi
+guarded=$(grep '^Guarded file changed' <<<"$scope_out")
+if [ -z "$guarded" ]; then
+  ok "no guarded files"
+elif $guarded_ok; then
+  ok "guarded files, owner-approved per --guarded-approved:"
+  sed 's/^/        /' <<<"$guarded"
+else
+  fail "guarded files need the owner's approval for this ticket:"
+  sed 's/^/        /' <<<"$guarded"
+fi
+
+if $skip_ci; then
+  ok "CI not checked (--skip-ci-check)"
+else
+  runs=$(cd "$wt" && gh run list --commit "$head" --json workflowName,status,conclusion \
+    --jq '.[] | "\(.workflowName): \(.status)/\(.conclusion)"' 2>/dev/null) || runs="unavailable"
+  if [ "$runs" = "unavailable" ]; then
+    fail "CI at HEAD unreadable (gh run list failed)"
+  elif [ -z "$runs" ]; then
+    fail "no CI run at HEAD yet"
+  elif grep -qvE ': completed/(success|skipped)$' <<<"$runs"; then
+    fail "CI at HEAD is not green:"
+    sed 's/^/        /' <<<"$runs"
+  else
+    ok "CI green at HEAD ($(wc -l <<<"$runs" | tr -d ' ') runs)"
+  fi
+fi
+
+if [ "$target" = "$verified" ]; then
+  ok "origin/$branch unchanged since the combined checks"
+else
+  fail "origin/$branch moved from ${verified:0:12} to ${target:0:12} after the combined checks: rerun them"
+fi
+
+echo "Not checked (lead's judgment): persistence formats, external contracts, owner-look acceptance."
+if [ "$status" -eq 0 ]; then
+  echo "relay-gate: holds."
+else
+  echo "relay-gate: does not hold. Fix it or stop at Ready to integrate."
+fi
+exit "$status"

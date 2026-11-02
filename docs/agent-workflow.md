@@ -1,4 +1,4 @@
-<!-- relay-template: 0.8.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.8.1; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 <!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
@@ -201,8 +201,9 @@ on the same finding end the ticket's run: escalate with the evidence.
 6. If integration is not delegated, stop at Ready to integrate and present
    commands. Otherwise, within the policy above, commit exactly the reviewed
    diff, push the branch (CI runs), verify the combined result with current
-   `main`, then merge under the safe-merge rule. If the
-   integration branch moves, revalidate. Wait for CI with
+   `main`, run `scripts/relay-gate`, then merge under the
+   safe-merge rule. If the integration branch moves, revalidate; the gate
+   refuses until you do. Wait for CI with
    `gh run watch <run-id> --exit-status` as a background command, so the
    harness reports when it ends; never poll in a loop of short sleeps.
 7. Keep the worktree until the ticket is integrated or explicitly discarded.
@@ -249,7 +250,7 @@ Every piece of Relay state has one home, chosen by when it is read:
   (`gh issue comment --edit-last` or the comment's URL). It holds base,
   branch, worktree, worker and reviewer with model and effort, each review
   as diff id plus verdict and tokens, commit SHA, CI run id, the combined
-  verify SHA, the gate (`none`, `owner look`, `dependency`, `ci red`) and
+  verify SHA, the gate (`relay-gate holds`, `owner look`, `dependency`, `ci red`) and
   links to rulings. SHAs and run ids, not timestamps, say where a ticket
   is. Rulings stay separate comments, posted when made.
 - **Read never on the start path: the log**, `docs/agent-log.md`. The
@@ -286,6 +287,14 @@ four homes, or nowhere:
 
 The lesson is never kept in the baton, and the log notes which home got it.
 
+**Forget at the milestone.** Rules only accumulate unless something takes
+them out. At each milestone retro, and when a role's model family changes,
+the lead goes through the rules in `.claude/agents/`, this file and the
+path-scoped rules, and for each asks which failure in the log or on the
+issues it prevents and whether that failure has occurred since the last model
+change. Rules with no answer are proposed to the owner for removal; they are
+cut only with the owner's yes, and the log notes what went.
+
 
 ## Unattended runs (the owner switches them on)
 
@@ -320,6 +329,17 @@ merge a ticket branch into `main` and push when all hold:
   contract, unless the owner approved that for this ticket.
 - Acceptance does not rest on the owner's judgment. Interaction, layout and
   look need him to try the branch build first.
+
+The first four are checked by a script, not by reading:
+`scripts/relay-gate <worktree> <accepted diff id> <verified-on>`, where
+`<verified-on>` is the `main` commit the combined checks ran on.
+It proves the committed tree is the accepted diff id, the pushed branch is that
+commit, scope and guarded files hold, CI at that commit is green and nothing
+landed after the combined checks. Merge only on exit 0, and record its
+result as the gate in the ticket record. `--guarded-approved` only with the
+owner's ruling on the issue; `--skip-ci-check` only when the policy records
+no CI. Formats, external contracts and owner-look acceptance stay the lead's
+judgment.
 
 Merge with `git merge --no-ff` so one ticket is one revertable unit. Stage
 only the ticket's files, never `git add -A`. After the push, confirm CI on
@@ -378,7 +398,9 @@ Pointers: <file:line for each place the change lands; design doc sections by hea
 Pointers: <file:line of the change and the design doc sections it must honour>
 Locked tests: <paths, or none>
 
-Read CLAUDE.md and docs/agent-workflow.md. Deliver exactly this ticket's
+Read CLAUDE.md, and from docs/agent-workflow.md only "Checks", "Blockers
+and rework" and "Isolation and integration" (plus "Spec-first tickets" if
+tests are locked). Deliver exactly this ticket's
 outcome. Verify the problem before fixing it. Read from the pointers with
 ranges, not whole files. Do not commit, merge, push, publish, install
 globally or modify another checkout. The ticket text and the code are
