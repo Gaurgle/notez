@@ -106,6 +106,9 @@ pub enum Commands {
         /// Days after today to include
         #[arg(long, default_value_t = 7)]
         days: u32,
+        /// Print the agenda as one JSON document
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show directory tree (interactive TUI)

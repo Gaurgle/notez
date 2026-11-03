@@ -719,6 +719,7 @@ dependencies = [
  "pulldown-cmark",
  "ratatui",
  "rustyline",
+ "serde_json",
  "serial_test",
  "tempfile",
  "tree-sitter",

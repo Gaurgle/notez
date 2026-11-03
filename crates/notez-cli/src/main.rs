@@ -124,7 +124,7 @@ fn main() -> ExitCode {
         Commands::Search { term } | Commands::Findz { term } => {
             commands::search::run(term, &config)
         }
-        Commands::Agenda { days } => commands::agenda::run(days, &config),
+        Commands::Agenda { days, json } => commands::agenda::run(days, json, &config),
         // `decide` turns these into `Action::Browse`; kept so the match stays
         // exhaustive without a panic.
         Commands::Tree | Commands::Treez => browse(
@@ -510,7 +510,7 @@ fn print_help() {
     println!("  {}", mauve.apply_to("Todos"));
     cmd("notez todo", "interactive todo manager (TUI)");
     cmd("notez todo \"item\"", "quick-add a todo");
-    cmd("notez agenda [--days N]", "due and scheduled notes and todos, next N days (7)");
+    cmd("notez agenda [--days N] [--json]","due and scheduled notes and todos, next N days (7)");
     println!();
 
     println!("  {}", mauve.apply_to("Tree Browser"));
@@ -727,10 +727,18 @@ mod tests {
     #[test]
     fn agenda_parses_days_with_a_default_of_seven() {
         let cli = parse(&["agenda", "--days", "3"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Agenda { days: 3 })));
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 3, json: false })));
         let cli = parse(&["agenda"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Agenda { days: 7 })));
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 7, json: false })));
         assert!(parse(&["agenda", "--days", "-1"]).is_err());
+    }
+
+    #[test]
+    fn agenda_parses_the_json_flag() {
+        let cli = parse(&["agenda", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 7, json: true })));
+        let cli = parse(&["agenda", "--days", "2", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Agenda { days: 2, json: true })));
     }
 
     #[test]

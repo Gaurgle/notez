@@ -68,7 +68,7 @@ every note source: global root, every registered project's scopes, and each
 project's `docs/*.md` (surfaced as `docs`; disable with `project_docs = false`
 under `[paths]` in config.toml).
 
-**notez agenda** (`notez agenda [--days N]`) lists what is coming up across
+**notez agenda** (`notez agenda [--days N] [--json]`) lists what is coming up across
 every scope: notes with a `due:` or `event:` date in their frontmatter, and
 unchecked todos with an `@YYYY-MM-DD` token. Overdue entries come first,
 then one group per day from today through today + N days (default 7). Each
@@ -77,6 +77,10 @@ line shows the date (and time when set), the kind (`due`, `event` or
 scope or project. Daily logs, checked todos and notes that only have a
 `created` date are left out, and a date that does not parse is ignored.
 When nothing is scheduled it prints one line and exits 0.
+`--json` prints the same agenda as one uncoloured JSON document (`today`,
+`days`, `overdue`, `days_list` of `{date, entries}`; each entry has `date`,
+`time`, `kind`, `title`, `path`, `scope` and `project`), empty arrays when
+nothing is listed.
 
 **notez tree** is the interactive tree browser (sections per scope and
 project including `docs`, tag strip + `#tag` filtering, preview pane,
