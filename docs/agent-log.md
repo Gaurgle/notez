@@ -355,6 +355,156 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-64 (#90): pane border in a third colour while typing (todoz and notez)
+
+From Andreas's NZ-57 try ("in edit mode perhaps we can have a different
+color on the pane border"), ruling "go with red". P2, 0.3.0. Run by lead
+`67917d20` on 2026-11-03 beside NZ-54: branch
+`feat/nz-64-editing-border`, worktree `.claude/worktrees/NZ-64`, base
+`d2b5991`. Worker (opus, medium, about 15 min, 62k tokens):
+`theme::border_editing()` (RED), `pane_border(pane, focus, mode)` in
+both TUIs, an `EDITING` list per TUI, `border_mode` derived in the tree
+loop in the footer's order. The worker flagged that the brief's tree
+list included Tag and SetScope, which take no typed text; ruling:
+editing means typed text goes into a field (tree NewItem, Rename, Move,
+VimCommand; todo the four `TEXT_ENTRY` modes plus VimCommand; Filter
+excluded). Reviewer (opus, about 2 min, 33k tokens) accepted first,
+diff id `f70b05995b1b`, two mutations. Committed `fda2de2`, branch CI
+`41674577957` green. Andreas tried it ("nz064 is great!") and asked for
+the row highlight to change too, ticketed as NZ-67 (#93). Combined
+checks on `9c3dadd` hit the sync flake once (NZ-68, #94), rerun green
+(771 + 5 + 191); gate held; merged `--no-ff` as `dc84401` (Closes #90),
+CI on `main` run `41677789041`. Follow-up on #90: the inline
+`border_mode` derivation has no test. Remember at the end: nothing to
+keep (the brief's mode list was the lead's error, caught by the worker).
+
+NZ-64: review accepted first; fix cycles 0; owner decisions 2; worker 15; review 2; models opus/opus; usage 62k; 33k
+
+### NZ-54 (#80): notez agenda --json
+
+Follow-up to NZ-53, dependency call delegated to the lead on 2026-10-26
+(serde_json as a direct dependency, ruled on the issue). P2, 0.3.0. Run
+by lead `67917d20` on 2026-11-03 beside NZ-64: branch
+`feat/nz-54-agenda-json`, worktree `.claude/worktrees/NZ-54`, base
+`d2b5991`. Worker (opus, medium, about 10 min, 73k tokens): `--json`
+flag, document built with `serde_json::json!` because a `Serialize`
+derive would need `serde` itself (ruling: `json!` stands, no second
+dependency, the criterion replaced by the asserted shape); `AgendaEntry`
+gained `path`, `scope`, `project`; `todo_scope` inferred from where the
+board found the file (risk accepted: a repo inside the notes root);
+seven mutations. Reviewer (opus, about 3 min, 37k tokens) accepted
+first, diff id `981fd1635d71`, checked `todo_scope` against
+`load_board`'s five locations, `--locked` build. Committed `05ccd3b`,
+branch CI `41674947377` green, `main` was the base so those checks are
+the combined checks; `relay-gate --guarded-approved` held; merged
+`--no-ff` as `9c3dadd` (Closes #80), CI on `main` run `41675893589`.
+Follow-up on #80: the help line has no space after the comma and fills
+its column. Remember at the end: method fact kept here: a ticket that
+names a derive must name every crate the derive needs; "serde_json
+only" cost a ruling mid-ticket.
+
+NZ-54: review accepted first; fix cycles 0; owner decisions 0; worker 10; review 3; models opus/opus; usage 73k; 37k
+
+### NZ-63 (#89): sync and other success messages clear by themselves
+
+From Andreas's NZ-57 try ("'vault synced' stays too long"), ruling "lets
+go with 2s". P2, 0.3.0. Run by lead `67917d20` on 2026-11-03: branch
+`feat/nz-63-message-expiry`, worktree `.claude/worktrees/NZ-63`, base
+`482bbb8`. Worker (opus, medium, about 6 min, 78k tokens): new
+`tui/notice.rs` (`Notice`: `set` stays, `flash` expires after 2 s,
+`expire`, `wait` shortens the poll), both loops converted,
+`Finished::succeeded`, `show_yank`; nine tests without sleeps, nine
+mutations. Rulings: "created {path}" clears as a success; delete, move,
+folder and rename outcomes keep stay-until-key (mixed Strings, files
+outside scope). Reviewer (opus, about 3 min, 59k tokens) accepted
+first, diff id `580cd2194b61`; two of its mutations survived because
+the event loops have no harness (F1), an expiry delays the next disk
+probe once (F2), and it named the flake's cause (F3: the sync runner
+test is not serial while NZ-59's helpers change cwd). Committed
+`908d439`, branch CI `41668475719` green, combined checks on `d40d1d2`
+green (765 + 5 + 191), gate held, merged `--no-ff` as `d2b5991`
+(Closes #89), CI on `main` run `41672463542` green, remote branch
+deleted, worktree swept. Remember at the end: nothing to keep.
+
+NZ-63: review accepted first; fix cycles 0; owner decisions 1; worker 6; review 3; models opus/opus; usage 78k; 59k
+
+### NZ-61 (#87): notez add dir/ title shorthand and a nested folder picker
+
+From Andreas's 2026-11-03 pin, P2, 0.3.0, brief in the issue body. Run
+by lead `67917d20` on 2026-11-03: branch `feat/nz-61-add-dir-shorthand`,
+worktree `.claude/worktrees/NZ-61`, base `14ec357`. Worker (opus,
+medium, about 16 min total, 102k tokens): `take_dir_shorthand`,
+normalised into `--in` in `main.rs::decide` before NZ-59's
+`fallback_hint`, injected picker, `nested_subdirs`, per-segment fuzzy
+matching with an exact child winning (ruling: accepted as "extended per
+segment"). Reviewer (opus, about 6 min total, 57k tokens): round 1
+needs change, one high blocker: the segment walk followed `..` out of
+the notes root and created folders beside the vault (the base refused
+`--in ../x`). Rework round 1 (about 4 min): `.`, `..` and empty segments
+refused before the early return, a symlink-loop test, `--in .` as the
+documented escape. Re-review accepted, diff id `39be2dcff120`.
+Committed `dfa9a7e`, branch CI `41667719995` green; the combined check
+on `482bbb8` hit the sync-test flake once and passed on rerun (757 + 5
++ 191); gate held, merged `--no-ff` as `d40d1d2` (Closes #87), CI on
+`main` run `41669017974` green, remote branch deleted, worktree swept.
+Follow-ups on #87: `todo/` fuzzy-matches `_todos`; `--in ./work`,
+`a//x`, `a/./x` now refused. Remember at the end: a code fact worth a
+sentence in the ticket template, not a rules file: any new path walk
+in the CLI must refuse `..` before joining (the reviewer's probe, not
+the tests, caught it).
+
+NZ-61: review changes 1; fix cycles 1; owner decisions 0; worker 16; review 6; models opus/opus; usage 102k; 57k
+
+### NZ-60 (#86): copy a note's content or path (yy/yp in the tree, notez cp/cpwd)
+
+From Andreas's 2026-11-03 pin ("cp to copy notez content and a cpwd to
+copy the path (like yazi)"), P2, 0.3.0, brief in the issue body. Run by
+lead `67917d20` on 2026-11-03: branch `feat/nz-60-copy-note`, worktree
+`.claude/worktrees/NZ-60`, base `a6ce239`, beside NZ-59. Worker (opus,
+medium, about 14 min, 93k tokens) blocked once on a lead scoping error
+(the scope named `cli.rs`; the `Commands` enum is `cli/mod.rs`),
+corrected, not a fix cycle. Result: `tui/clipboard.rs` (pbcopy, wl-copy,
+xclip chosen at runtime, no dependency), `commands/cp.rs`, `yank` chord
+in `tree/input.rs`, help-only `yy`/`yp` rows (a footer slot broke two
+footer-pinning tests; ruling: help-only, owner judges), README. Reviewer
+(opus, about 3 min, 44k tokens) accepted first, diff id `d44ca649963b`,
+four mutations. Committed `8029258`, branch CI `41663063712` green.
+Andreas tried it ("NZ-60, perfect!") and asked for a flash on copy,
+ticketed as NZ-66 (#92). Combined checks on `14ec357` green (743 + 5 +
+191), gate held, merged `--no-ff` as `482bbb8` (Closes #86), CI on
+`main` run `41665919457` green, remote branch deleted, worktree swept.
+Follow-ups on #86: a mouse event between `y` and its second key does
+not cancel the chord; no footer sign that `y` is pending. Remember at
+the end: method fact for the lead, kept here only: write the scope file
+from `ls` of the real paths, not from memory (two tickets today named
+files that do not exist).
+
+NZ-60: review accepted first; fix cycles 0; owner decisions 2; worker 14; review 3; models opus/opus; usage 93k; 44k
+
+### NZ-59 (#85): say on stderr when -p outside git writes to global
+
+From Andreas's 2026-09-18 pin, ticketed 2026-11-03, P2, 0.3.0, brief in
+the issue body. Run by lead `67917d20` on 2026-11-03 under his "continue
+with the tickets": branch `feat/nz-59-personal-fallback-hint`, worktree
+`.claude/worktrees/NZ-59`, base `a6ce239`, beside NZ-60 on disjoint
+files. Worker (opus, medium, about 6 min, 66k tokens):
+`commands::personal_fallback_hint` plus `fallback_hint` and `hinted` in
+`main.rs`, seven serial tests that `git init` a temp repo, 12
+mutations; also covered the `todo "item"` quick-add (ruling: stays, it
+writes through `resolve::root`). Reviewer (opus, about 6 min, 46k
+tokens) accepted first, diff id `30fde71bf58a`; ran the suite twice and
+the binary with a temp HOME; one mutation survived (`hinted` printing
+on failure, disclosed as untested). Committed `f9faef5`, branch CI
+`41663125612` green; `main` had moved by a docs-only commit, gate held
+on `8a75242`; merged `--no-ff` as `14ec357` (Closes #85), CI on `main`
+run `41663524653` green, remote branch deleted, worktree swept.
+Follow-ups on #85: a pure `hint_for(result, hint)` with tests; a cwd
+drop guard in the test helper. Remember at the end: code fact for
+NZ-61's brief (the `--in` rule is now copied in `main.rs::fallback_hint`),
+put in that ticket's pointers; nothing for a rules file.
+
+NZ-59: review accepted first; fix cycles 0; owner decisions 0; worker 6; review 6; models opus/opus; usage 66k; 46k
+
 ### NZ-57 (#83): footer hints read as one word with the bound key bold inside it
 
 Asked for by Andreas on 2026-10-27, brief in the issue body, P2, 0.3.0.
