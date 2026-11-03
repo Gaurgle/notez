@@ -7,6 +7,7 @@
 
 #![allow(dead_code)]
 
+pub mod clipboard;
 pub mod footer;
 pub mod header;
 pub mod help;

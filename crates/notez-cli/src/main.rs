@@ -157,6 +157,12 @@ fn main() -> ExitCode {
             let result = commands::edit::run(term, scope, &config);
             synced_after(result, &config, sync, stop.as_deref())
         }
+        Commands::Cp { term } => {
+            commands::cp::run(term, commands::cp::Copy::Content, scope, &config)
+        }
+        Commands::Cpwd { term } => {
+            commands::cp::run(term, commands::cp::Copy::Path, scope, &config)
+        }
         Commands::Rename { term, title } => {
             commands::rename::run(term, title, scope, &config).map(|path| {
                 println!("Renamed to {}", path.display());
@@ -679,6 +685,21 @@ mod tests {
         let mut out = Vec::new();
         clap_complete::generate(clap_complete::Shell::Zsh, &mut Cli::command(), "notez", &mut out);
         assert!(String::from_utf8(out).unwrap().contains("treez"));
+    }
+
+    #[test]
+    fn cp_and_cpwd_parse_with_an_optional_term() {
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).unwrap().command;
+        assert!(matches!(
+            parse(&["notez", "cp", "idea"]),
+            Some(Commands::Cp { term: Some(t) }) if t == "idea"
+        ));
+        assert!(matches!(parse(&["notez", "cp"]), Some(Commands::Cp { term: None })));
+        assert!(matches!(
+            parse(&["notez", "cpwd", "idea"]),
+            Some(Commands::Cpwd { term: Some(t) }) if t == "idea"
+        ));
+        assert!(matches!(parse(&["notez", "cpwd"]), Some(Commands::Cpwd { term: None })));
     }
 
     #[test]

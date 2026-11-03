@@ -71,6 +71,8 @@ pub(super) fn event_loop(
     // unchanged renames nothing.
     let mut rename_shown = String::new();
     let mut status_message: Option<String> = None;
+    // `y` was pressed: the next key finishes the copy chord (see `yank`).
+    let mut yank_pending = false;
     let mut preview_scroll: u16 = 0;
     // Set on every draw: the last scroll offset that still fills the preview
     // pane, and the pane's inner height, for the scroll keys.
@@ -805,6 +807,18 @@ pub(super) fn event_loop(
             break;
         }
 
+        // Before help and the `:` line, so a key after `y` only ends the chord.
+        if yank_pending {
+            yank_pending = false;
+            let visible = compute_visible(nodes, &search_buffer);
+            let row = state
+                .selected()
+                .and_then(|sel| visible.get(sel))
+                .and_then(|&i| nodes.get(i));
+            status_message = yank(key.code, row, &mut crate::tui::clipboard::copy);
+            continue;
+        }
+
         if help.handle_key(key) {
             continue;
         }
@@ -1506,6 +1520,7 @@ pub(super) fn event_loop(
                     Err(message) => status_message = Some(message.to_string()),
                 }
             }
+            KeyCode::Char('y') => yank_pending = true,
             KeyCode::Char('J') => {
                 preview_scroll = scrolled(preview_scroll, 1, preview_max);
             }
@@ -1527,6 +1542,36 @@ pub(super) fn event_loop(
     }
 
     Ok(sync_reload)
+}
+
+/// The key after `y` on `row`: `y` copies a note's content, `p` its absolute
+/// path, and a folder row copies its path for both. Returns the footer
+/// message; `None` for any other key or no row, which copies nothing.
+pub(super) fn yank(
+    code: KeyCode,
+    row: Option<&TreeNode>,
+    write: &mut dyn FnMut(&str) -> Result<()>,
+) -> Option<String> {
+    let path_only = match code {
+        KeyCode::Char('y') => false,
+        KeyCode::Char('p') => true,
+        _ => return None,
+    };
+    let row = row?;
+    let copied = if path_only || row.is_dir {
+        std::path::absolute(&row.path)
+            .map_err(anyhow::Error::from)
+            .and_then(|path| write(&path.to_string_lossy()))
+            .map(|()| "copied path".to_string())
+    } else {
+        std::fs::read_to_string(&row.path)
+            .map_err(anyhow::Error::from)
+            .and_then(|text| {
+                write(&text)?;
+                Ok(format!("copied {}", crate::tui::clipboard::size_label(text.len())))
+            })
+    };
+    Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
 }
 
 pub(super) fn file_name_of(path: &Path) -> String {
@@ -1638,5 +1683,90 @@ mod tests {
                 "{code:?}"
             );
         }
+    }
+
+    /// The chord's second key on the row at `rel` in a temp tree's first
+    /// store, with the clipboard writes collected instead of made. Also
+    /// returns the row's path.
+    fn yank_at(code: KeyCode, rel: &str) -> (Option<String>, Vec<String>, PathBuf) {
+        let (_dir, roots) = test_support::temp_tree();
+        let forest = test_support::forest_of(test_support::list_sections(&roots));
+        let target = roots[0].1.join(rel);
+        let row = forest.nodes.iter().find(|n| n.path == target).unwrap();
+        let mut written = Vec::new();
+        let message = yank(code, Some(row), &mut |text: &str| {
+            written.push(text.to_string());
+            Ok(())
+        });
+        (message, written, target)
+    }
+
+    #[test]
+    fn yy_copies_the_note_content_and_names_its_size() {
+        let (message, written, _) = yank_at(KeyCode::Char('y'), "c.md");
+        assert_eq!(written, ["# note\n"]);
+        assert_eq!(message.as_deref(), Some("copied 7 B"));
+    }
+
+    #[test]
+    fn yp_copies_the_note_absolute_path() {
+        let (message, written, want) = yank_at(KeyCode::Char('p'), "c.md");
+        assert!(want.is_absolute());
+        assert_eq!(written, [want.to_string_lossy().into_owned()]);
+        assert_eq!(message.as_deref(), Some("copied path"));
+    }
+
+    #[test]
+    fn a_folder_row_copies_its_path_for_yy_and_yp() {
+        for code in [KeyCode::Char('y'), KeyCode::Char('p')] {
+            let (message, written, want) = yank_at(code, "ideas");
+            assert_eq!(written, [want.to_string_lossy().into_owned()], "{code:?}");
+            assert_eq!(message.as_deref(), Some("copied path"), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn y_then_any_other_key_cancels_without_copying() {
+        for code in [
+            KeyCode::Char('d'),
+            KeyCode::Char('q'),
+            KeyCode::Char('?'),
+            KeyCode::Char(':'),
+            KeyCode::Esc,
+            KeyCode::Enter,
+        ] {
+            let (message, written, _) = yank_at(code, "c.md");
+            assert_eq!(message, None, "{code:?}");
+            assert!(written.is_empty(), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn help_lists_yy_and_yp_and_y_reaches_the_list_with_the_preview_focused() {
+        for chord in ["yy", "yp"] {
+            let rows: Vec<usize> =
+                (0..TREE_KEYS.len()).filter(|&i| TREE_KEYS[i].key == chord).collect();
+            assert_eq!(rows.len(), 1, "{chord}");
+            assert_eq!(TREE_KEYS[rows[0]].modes, BROWSE, "{chord}");
+            assert!(TREE_KEYS[rows[0]].desc.starts_with('y'), "{chord}");
+            assert!(help::rows(TREE_KEYS).contains(&help::Row::Key(rows[0])), "{chord}");
+        }
+        assert_eq!(preview_focus_key(KeyCode::Char('y'), 10), PreviewFocusKey::Pass);
+        assert!(!Panes::default().handle_key(KeyCode::Char('y'), 100));
+    }
+
+    #[test]
+    fn a_failed_write_is_reported_in_the_footer() {
+        let (_dir, roots) = test_support::temp_tree();
+        let forest = test_support::forest_of(test_support::list_sections(&roots));
+        let target = roots[0].1.join("c.md");
+        let row = forest.nodes.iter().find(|n| n.path == target);
+        let message = yank(KeyCode::Char('y'), row, &mut |_: &str| {
+            anyhow::bail!("no clipboard tool found: install pbcopy")
+        });
+        assert_eq!(
+            message.as_deref(),
+            Some("copy failed: no clipboard tool found: install pbcopy")
+        );
     }
 }
