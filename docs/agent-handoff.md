@@ -43,6 +43,8 @@ Installing, tags and releases are his. NZ-18 does not run.
 - Frontmatter drawn as rule plus paragraph in the rendered preview (found
   by NZ-53); needs his yes to ticket.
 - NZ-52 (#78) and NZ-47d / NZ-18 queue positions are his call.
+- New 2026-11-03 from his pins, Backlog P2: NZ-59..61 (#85-87), NZ-62
+  (#88, design). Milestones and order are the lead's; epoz#1 filed.
 
 ## Next step
 
