@@ -270,8 +270,8 @@ and long todos wrapped 2 columns past their text, while its headings and prose s
 rendered markdown. The preview is read-only: no cursor, no hover. `p`
 is the one preview toggle: it switches a markdown note between rendered and
 raw, and a code file between highlighted and plain. The footer hint names
-the view `p` switches to (`p raw` or `p rendered` on a note, `p plain` or
-`p highlighted` on code) and shows only while a file with a language is
+the view `p` switches to (`plain` for raw markdown or unhighlighted code,
+`pretty` for rendered markdown or highlighted code) and shows only while a file with a language is
 selected. The choice holds for every file until the browser closes and is
 never saved. Other files always show raw.
 

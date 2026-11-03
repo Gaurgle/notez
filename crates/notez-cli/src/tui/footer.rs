@@ -88,9 +88,10 @@ pub enum Slot {
     Quit,
 }
 
-/// One key of a view. `desc` is the short footer word; when it starts with
-/// `key` (as `o` / "open") the footer colours that letter inside the word,
-/// otherwise it draws `key desc`. `help` is the longer overlay text.
+/// One key of a view. `desc` is the short footer word; when a one-char `key`
+/// matches its first letter in any case (as `o` / "open", `S` / "scope") the
+/// footer draws the key, in its own case, in place of that letter, otherwise
+/// it draws `key desc`. `help` is the longer overlay text.
 #[derive(Debug, Clone, Copy)]
 pub struct KeyHint {
     pub key: &'static str,
@@ -115,11 +116,26 @@ impl KeyHint {
     /// The footer text of this hint, split into the coloured key part and the
     /// dim remainder.
     fn footer_parts(&self) -> (&'static str, String) {
-        if self.key.chars().count() == 1 && self.desc.starts_with(self.key) {
-            (self.key, self.desc[self.key.len()..].to_string())
-        } else {
-            (self.key, format!(" {}", self.desc))
+        let mut key_chars = self.key.chars();
+        let mut desc_chars = self.desc.chars();
+        match (key_chars.next(), key_chars.next(), desc_chars.next()) {
+            (Some(key), None, Some(first)) if key.to_lowercase().eq(first.to_lowercase()) => {
+                (self.key, desc_chars.as_str().to_string())
+            }
+            _ => (self.key, format!(" {}", self.desc)),
         }
+    }
+
+    /// The hints in `table` whose key is one letter but whose footer word
+    /// does not start with it, as `key desc`. The key-table audits want none.
+    #[cfg(test)]
+    pub fn unjoined_letter_keys(table: &[KeyHint]) -> Vec<String> {
+        table
+            .iter()
+            .filter(|h| h.key.chars().count() == 1 && h.key.chars().all(char::is_alphabetic))
+            .filter(|h| h.footer_parts().1.starts_with(' '))
+            .map(|h| format!("{} {}", h.key, h.desc))
+            .collect()
     }
 
     fn footer_cols(&self) -> usize {
@@ -339,6 +355,37 @@ mod tests {
         let rendered = text(&line);
         assert_eq!(rendered, format!(" alpha  bravo  ? help{}quit", " ".repeat(15)));
         assert_eq!(rendered.chars().count(), 40);
+    }
+
+    fn parts(key: &'static str, desc: &'static str) -> (&'static str, String) {
+        KeyHint { key, desc, ..TABLE[0] }.footer_parts()
+    }
+
+    #[test]
+    fn an_uppercase_key_joins_a_lowercase_word() {
+        assert_eq!(parts("S", "scope"), ("S", "cope".to_string()));
+        assert_eq!(parts("R", "reload"), ("R", "eload".to_string()));
+    }
+
+    #[test]
+    fn a_lowercase_key_joins_its_word() {
+        assert_eq!(parts("e", "edit"), ("e", "dit".to_string()));
+        assert_eq!(parts("n", "new"), ("n", "ew".to_string()));
+    }
+
+    #[test]
+    fn the_key_is_drawn_in_its_own_case() {
+        assert_eq!(parts("N", "new dir/"), ("N", "ew dir/".to_string()));
+        assert_eq!(parts("n", "New"), ("n", "ew".to_string()));
+    }
+
+    #[test]
+    fn multi_key_and_unmatched_hints_keep_key_space_word() {
+        assert_eq!(parts("j/k", "move"), ("j/k", " move".to_string()));
+        assert_eq!(parts("esc", "esc"), ("esc", " esc".to_string()));
+        assert_eq!(parts(":q", "quit"), (":q", " quit".to_string()));
+        assert_eq!(parts("0", "no #tags"), ("0", " no #tags".to_string()));
+        assert_eq!(parts("x", "check"), ("x", " check".to_string()));
     }
 
     #[test]

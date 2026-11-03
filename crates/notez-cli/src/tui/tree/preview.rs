@@ -41,42 +41,34 @@ pub(super) enum PreviewMode {
     Raw,
 }
 
-/// The `p` hint for the selected file: the session's mode and whether the
-/// file is a markdown note, which picks the hint's wording.
+/// The `p` hint for the selected file: the session's mode picks the hint's
+/// wording.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PreviewToggle {
     mode: PreviewMode,
-    markdown: bool,
 }
 
 impl PreviewToggle {
     /// The toggle on a markdown note.
     #[cfg(test)]
     pub(super) fn markdown(mode: PreviewMode) -> Self {
-        PreviewToggle {
-            mode,
-            markdown: true,
-        }
+        PreviewToggle { mode }
     }
 
     /// The toggle for the file at `path`; `None` when its extension maps to
     /// no language, since `p` then changes nothing.
     pub(super) fn for_file(path: &Path, mode: PreviewMode) -> Option<Self> {
         file_language(path)?;
-        Some(PreviewToggle {
-            mode,
-            markdown: is_markdown(path),
-        })
+        Some(PreviewToggle { mode })
     }
 
     /// The footer word of the toggle hint: the view `p` switches to,
-    /// `raw` / `rendered` for markdown, `plain` / `highlighted` for code.
+    /// `plain` (raw markdown, unhighlighted code) or `pretty` (rendered
+    /// markdown, highlighted code), so the word starts with the key `p`.
     pub(super) fn desc(self) -> &'static str {
-        match (self.markdown, self.mode) {
-            (true, PreviewMode::Rendered) => "raw",
-            (true, PreviewMode::Raw) => "rendered",
-            (false, PreviewMode::Rendered) => "plain",
-            (false, PreviewMode::Raw) => "highlighted",
+        match self.mode {
+            PreviewMode::Rendered => "plain",
+            PreviewMode::Raw => "pretty",
         }
     }
 }
@@ -1194,8 +1186,8 @@ mod tests {
             "same rows, so help and footer indices agree"
         );
         let line = |table: &[KeyHint]| text_of(&footer::line(table, Mode::Normal, &[], 300));
-        assert!(line(&rendered).contains("  p raw  "), "{}", line(&rendered));
-        assert!(line(&raw).contains("  p rendered  "), "{}", line(&raw));
+        assert!(line(&rendered).contains("  plain  "), "{}", line(&rendered));
+        assert!(line(&raw).contains("  pretty  "), "{}", line(&raw));
         let first_width = |key: &str| {
             (0..300)
                 .find(|&w| shown_with(&rendered, w).contains(&key))
@@ -1321,10 +1313,10 @@ mod tests {
         let toggle = |name: &str, mode| {
             PreviewToggle::for_file(&dir.path().join(name), mode).map(PreviewToggle::desc)
         };
-        assert_eq!(toggle("a.md", PreviewMode::Rendered), Some("raw"));
-        assert_eq!(toggle("a.md", PreviewMode::Raw), Some("rendered"));
+        assert_eq!(toggle("a.md", PreviewMode::Rendered), Some("plain"));
+        assert_eq!(toggle("a.md", PreviewMode::Raw), Some("pretty"));
         assert_eq!(toggle("main.rs", PreviewMode::Rendered), Some("plain"));
-        assert_eq!(toggle("main.rs", PreviewMode::Raw), Some("highlighted"));
+        assert_eq!(toggle("main.rs", PreviewMode::Raw), Some("pretty"));
         assert_eq!(toggle("Cargo.toml", PreviewMode::Rendered), Some("plain"));
         assert_eq!(toggle("app.ts", PreviewMode::Rendered), None);
         assert_eq!(toggle("Makefile", PreviewMode::Rendered), None);
@@ -1348,7 +1340,7 @@ mod tests {
             PreviewMode::Raw,
         ));
         let line = text_of(&footer::line(&code, Mode::Normal, &[], 300));
-        assert!(line.contains("  p highlighted  "), "{line}");
+        assert!(line.contains("  pretty  "), "{line}");
     }
 
     #[test]
