@@ -8,7 +8,8 @@
 //! `--in <dir>` targets a subdirectory instead: under the global root by
 //! default, under the current scope's root with `--in-local` (legacy
 //! semantics). Bare `--in` opens an fzf picker over the existing
-//! subdirectories of that root.
+//! folders of that root, nested ones included. A first title word ending in
+//! `/` is the same as `--in` (see [`take_dir_shorthand`]).
 
 use std::path::{Path, PathBuf};
 
@@ -40,6 +41,20 @@ pub fn take_quick_keyword(title_words: &mut Vec<String>) -> bool {
     is_quick
 }
 
+/// Take the `dir/` shorthand out of `add`'s title words: a first word that
+/// ends in `/` and holds no space is the target directory, exactly as
+/// `--in <dir>` (`work/meetings/` -> `work/meetings`). A lone `/` gives the
+/// empty target, which opens the picker like a bare `--in`. A quoted title
+/// stays a title (`"and/or/ notes"`, `"read up on tcp/"`).
+pub fn take_dir_shorthand(title_words: &mut Vec<String>) -> Option<String> {
+    let first = title_words.first()?;
+    if !first.ends_with('/') || first.contains(char::is_whitespace) {
+        return None;
+    }
+    let word = title_words.remove(0);
+    Some(word.trim_matches('/').to_string())
+}
+
 /// Write the new note to disk and return its absolute path.
 pub fn run(
     title_words: Vec<String>,
@@ -49,6 +64,29 @@ pub fn run(
     scope: Scope,
     config: &Config,
 ) -> Result<Created> {
+    let pick = |names: &[String]| fzf_pick(names, config);
+    run_with_picker(
+        title_words,
+        in_arg,
+        in_local,
+        is_quick,
+        scope,
+        config,
+        &pick,
+    )
+}
+
+/// [`run`] with the directory picker passed in: it gets the nested folder
+/// list and returns the chosen one.
+fn run_with_picker(
+    title_words: Vec<String>,
+    in_arg: Option<String>,
+    in_local: bool,
+    is_quick: bool,
+    scope: Scope,
+    config: &Config,
+    pick: &dyn Fn(&[String]) -> Result<String>,
+) -> Result<Created> {
     let dir = match &in_arg {
         None if is_quick => resolve::quick_notes(quick_scope(scope), config)?,
         None => resolve::root(scope, config)?,
@@ -56,7 +94,7 @@ pub fn run(
         Some(target) => {
             let root = in_root(in_local, scope, config)?;
             if target.is_empty() {
-                pick_directory(&root, config)?
+                pick_directory(&root, pick)?
             } else {
                 resolve_target_dir(&root, target)?
             }
@@ -174,50 +212,79 @@ fn in_root(in_local: bool, scope: Scope, config: &Config) -> Result<PathBuf> {
 }
 
 /// Resolve `--in <target>` to a directory under `root`: an existing subdir
-/// as-is, else a case-insensitive substring match on the first path segment
-/// (legacy fuzzy matching), else the sanitized target is created fresh.
+/// as-is, else segment by segment, each an existing child or the first
+/// child whose name contains it (case-insensitive, legacy fuzzy matching).
+/// From the first segment that matches nothing, the rest is created fresh,
+/// the first segment sanitized. A lone `.` is `root` itself; any other
+/// empty, `.` or `..` segment is refused, so a target never leaves `root`.
 fn resolve_target_dir(root: &Path, target: &str) -> Result<PathBuf> {
-    let joined = root.join(target);
+    let trimmed = target.trim_end_matches('/');
+    if trimmed == "." {
+        return Ok(root.to_path_buf());
+    }
+    let segments: Vec<&str> = trimmed.split('/').collect();
+    if segments.iter().any(|s| matches!(*s, "" | "." | "..")) {
+        bail!("invalid --in directory name: {target:?}");
+    }
+
+    let joined = root.join(trimmed);
     if joined.is_dir() {
         return Ok(joined);
     }
 
-    let (head, rest) = match target.split_once('/') {
-        Some((h, r)) => (h, Some(r)),
-        None => (target, None),
-    };
-    let needle = head.to_lowercase();
-    let matched = subdirs(root)?
-        .into_iter()
-        .find(|name| name.to_lowercase().contains(&needle));
-
-    let base = match matched {
-        Some(name) => root.join(name),
-        None => {
-            let cleaned = sanitize::name(head);
+    let mut base = root.to_path_buf();
+    for (i, segment) in segments.iter().enumerate() {
+        if let Some(child) = matching_child(&base, segment)? {
+            base = child;
+            continue;
+        }
+        if i == 0 {
+            let cleaned = sanitize::name(segment);
             if cleaned.is_empty() {
                 bail!("invalid --in directory name: {target:?}");
             }
-            root.join(cleaned)
+            base = base.join(cleaned);
+        } else {
+            base = base.join(segment);
         }
-    };
-    Ok(match rest {
-        Some(rest) if !rest.is_empty() => base.join(rest),
-        _ => base,
-    })
+        return Ok(segments[i + 1..].iter().fold(base, |dir, s| dir.join(s)));
+    }
+    Ok(base)
 }
 
-/// Bare `--in`: fzf over the existing subdirectories of `root`.
-fn pick_directory(root: &Path, config: &Config) -> Result<PathBuf> {
-    let names = subdirs(root)?;
+/// The child dir of `dir` named `segment`, else the first one (sorted) whose
+/// name contains it, case-insensitive.
+fn matching_child(dir: &Path, segment: &str) -> Result<Option<PathBuf>> {
+    let exact = dir.join(segment);
+    if exact.is_dir() {
+        return Ok(Some(exact));
+    }
+    let needle = segment.to_lowercase();
+    Ok(subdirs(dir)?
+        .into_iter()
+        .find(|name| name.to_lowercase().contains(&needle))
+        .map(|name| dir.join(name)))
+}
+
+/// Bare `--in` or a lone `/`: pick one of the nested folders of `root`.
+fn pick_directory(root: &Path, pick: &dyn Fn(&[String]) -> Result<String>) -> Result<PathBuf> {
+    let names = nested_subdirs(root);
     if names.is_empty() {
         bail!(
             "no subdirectories under {} to pick from; create one with `notez mkdir <name>`",
             root.display()
         );
     }
+    Ok(root.join(pick(&names)?))
+}
+
+/// The fzf directory picker behind [`pick_directory`].
+fn fzf_pick(names: &[String], config: &Config) -> Result<String> {
     if !config.tools.fzf {
-        bail!("bare --in needs fzf for the directory picker; pass a name instead: --in <dir>");
+        bail!(
+            "the directory picker (bare --in or `/`) needs fzf; pass a name instead: \
+             --in <dir> or <dir>/"
+        );
     }
 
     use std::io::Write;
@@ -241,7 +308,33 @@ fn pick_directory(root: &Path, config: &Config) -> Result<PathBuf> {
     if selected.is_empty() {
         bail!("directory picker cancelled");
     }
-    Ok(root.join(selected))
+    Ok(selected)
+}
+
+/// The todo store, never a place for a note.
+const TODOS_DIR: &str = "_todos";
+
+/// Every visible folder under `root` as a relative path, parents before
+/// their children, siblings sorted (`work`, `work/meetings`, `zeta`). Skips
+/// dot-dirs and `_todos`, and lists symlinked folders without entering them.
+fn nested_subdirs(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    collect_subdirs(root, "", &mut found);
+    found
+}
+
+fn collect_subdirs(dir: &Path, prefix: &str, found: &mut Vec<String>) {
+    for name in subdirs(dir).unwrap_or_default() {
+        if prefix.is_empty() && name == TODOS_DIR {
+            continue;
+        }
+        let path = dir.join(&name);
+        let relative = format!("{prefix}{name}");
+        found.push(relative.clone());
+        if !path.is_symlink() {
+            collect_subdirs(&path, &format!("{relative}/"), found);
+        }
+    }
 }
 
 /// Immediate visible subdirectories of `root`, sorted.
@@ -555,6 +648,182 @@ mod tests {
         .unwrap()
         .path;
         assert_eq!(path.parent().unwrap(), root.path().join("ideas"));
+    }
+
+    fn word_list(ws: &[&str]) -> Vec<String> {
+        ws.iter().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn trailing_slash_word_is_the_target_dir() {
+        let mut title = word_list(&["work/meetings/", "standup", "notes"]);
+        assert_eq!(take_dir_shorthand(&mut title), Some("work/meetings".into()));
+        assert_eq!(title, word_list(&["standup", "notes"]));
+    }
+
+    #[test]
+    fn word_without_trailing_slash_stays_in_the_title() {
+        for ws in [&["work", "x"][..], &["work/x", "y"], &["x", "work/"], &[]] {
+            let mut title = word_list(ws);
+            assert_eq!(take_dir_shorthand(&mut title), None, "{ws:?}");
+            assert_eq!(title, word_list(ws));
+        }
+    }
+
+    #[test]
+    fn quoted_title_with_a_slash_word_stays_a_title() {
+        for quoted in ["and/or/ tradeoffs", "read up on tcp/"] {
+            let mut title = word_list(&[quoted]);
+            assert_eq!(take_dir_shorthand(&mut title), None, "{quoted:?}");
+            assert_eq!(title, word_list(&[quoted]));
+        }
+    }
+
+    #[test]
+    fn lone_slash_asks_for_the_picker() {
+        let mut title = word_list(&["/", "standup"]);
+        assert_eq!(take_dir_shorthand(&mut title), Some(String::new()));
+        assert_eq!(title, word_list(&["standup"]));
+    }
+
+    #[test]
+    fn shorthand_writes_where_in_does() {
+        let root = tempdir().unwrap();
+        let config = config_in(root.path());
+        std::fs::create_dir_all(root.path().join("work/meetings")).unwrap();
+        let add = |title_words: Vec<String>, in_arg: Option<String>| {
+            run(title_words, in_arg, false, false, Scope::Global, &config)
+                .unwrap()
+                .path
+        };
+
+        let mut title = word_list(&["work/meetings/", "standup"]);
+        let target = take_dir_shorthand(&mut title);
+        let by_shorthand = add(title, target);
+        std::fs::remove_file(&by_shorthand).unwrap();
+        let by_in = add(word_list(&["standup"]), Some("work/meetings".into()));
+
+        assert_eq!(by_shorthand, by_in);
+        assert_eq!(by_in, root.path().join("work/meetings/standup.md"));
+    }
+
+    #[test]
+    fn empty_target_runs_the_injected_picker_over_nested_folders() {
+        let root = tempdir().unwrap();
+        let config = config_in(root.path());
+        std::fs::create_dir_all(root.path().join("work/meetings")).unwrap();
+        let seen = std::cell::RefCell::new(Vec::new());
+        let pick = |names: &[String]| {
+            seen.replace(names.to_vec());
+            Ok("work/meetings".to_string())
+        };
+
+        let mut title = word_list(&["/", "standup"]);
+        let target = take_dir_shorthand(&mut title);
+        let path = run_with_picker(title, target, false, false, Scope::Global, &config, &pick)
+            .unwrap()
+            .path;
+
+        assert_eq!(seen.into_inner(), word_list(&["work", "work/meetings"]));
+        assert_eq!(path, root.path().join("work/meetings/standup.md"));
+    }
+
+    #[test]
+    fn nested_subdirs_list_parents_first_and_skip_dot_dirs_and_todos() {
+        let root = tempdir().unwrap();
+        for dir in [
+            "zeta",
+            "work/meetings",
+            "work/archive/2025",
+            "work/.hidden",
+            "work-log",
+            ".git/objects",
+            "_todos/home",
+            "ideas/_todos",
+        ] {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        std::fs::write(root.path().join("work/note.md"), "").unwrap();
+
+        assert_eq!(
+            nested_subdirs(root.path()),
+            word_list(&[
+                "ideas",
+                "ideas/_todos",
+                "work",
+                "work/archive",
+                "work/archive/2025",
+                "work/meetings",
+                "work-log",
+                "zeta",
+            ])
+        );
+    }
+
+    #[test]
+    fn in_arg_fuzzy_matches_each_segment() {
+        let root = tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("reference/kotlin-notes")).unwrap();
+        let dir = resolve_target_dir(root.path(), "ref/Kotlin/coroutines").unwrap();
+        assert_eq!(dir, root.path().join("reference/kotlin-notes/coroutines"));
+    }
+
+    #[test]
+    fn in_arg_prefers_an_exact_segment_over_a_substring_match() {
+        let root = tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("homework")).unwrap();
+        std::fs::create_dir_all(root.path().join("work")).unwrap();
+        let dir = resolve_target_dir(root.path(), "work/new").unwrap();
+        assert_eq!(dir, root.path().join("work/new"));
+    }
+
+    #[test]
+    fn in_arg_never_leaves_the_root() {
+        let parent = tempdir().unwrap();
+        let root = parent.path().join("notez");
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        for target in [
+            "../x", "a/../x", "..", "../", "a/./x", "a//x", "/x", "", "/",
+        ] {
+            let err = resolve_target_dir(&root, target).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid --in directory name"),
+                "{target:?}: {err}"
+            );
+        }
+        let mut entries: Vec<_> = std::fs::read_dir(parent.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        entries.sort();
+        assert_eq!(entries, ["notez"], "nothing created beside the root");
+    }
+
+    #[test]
+    fn in_arg_lone_dot_is_the_root() {
+        let root = tempdir().unwrap();
+        assert_eq!(resolve_target_dir(root.path(), ".").unwrap(), root.path());
+        let config = config_in(root.path());
+        let path = run(
+            word_list(&["tcp/"]),
+            Some(".".into()),
+            false,
+            false,
+            Scope::Global,
+            &config,
+        )
+        .unwrap()
+        .path;
+        assert_eq!(path.parent().unwrap(), root.path());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nested_subdirs_list_a_symlink_loop_once_without_entering_it() {
+        let root = tempdir().unwrap();
+        std::fs::create_dir(root.path().join("a")).unwrap();
+        std::os::unix::fs::symlink(root.path().join("a"), root.path().join("a/loop")).unwrap();
+        assert_eq!(nested_subdirs(root.path()), word_list(&["a", "a/loop"]));
     }
 
     #[test]

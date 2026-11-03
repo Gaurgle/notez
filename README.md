@@ -387,7 +387,17 @@ extension. Only quick notes carry the date in the name
 
 `notez add --in <dir>` targets a subdirectory (global root by default,
 the current scope's root with `--in-local`); bare `--in` opens an fzf
-picker. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
+picker over every folder, nested ones included (`work`, `work/meetings`),
+skipping dot-folders and `_todos`. A first word ending in `/` is the
+shorthand: `notez add work/meetings/ standup notes` is `notez add --in
+work/meetings standup notes`, and `notez add / standup notes` opens the
+picker. A typed folder resolves segment by segment: an existing folder, else
+the first one whose name contains the segment, else it is created
+(`notez add ref/kot/ x` lands in `reference/kotlin-notes` when those exist).
+To start a title with a word ending in `/`, pass a target so the title is
+kept as typed: `notez add --in . tcp/` writes `tcp/` to the global root
+(`--in-local --in .` for the scope root). `.` and `..` never walk out of the
+root: `--in ../x` is refused. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
 
 **Auto sync.** When an interactive session ends (`notez tree`, `todo`, `edit`,
 `logz`, or `add` that opened the editor), notez commits the vault, runs

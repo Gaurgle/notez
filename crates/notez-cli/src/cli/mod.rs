@@ -59,11 +59,17 @@ impl Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Create a new note in the scope root (`add quick ...` makes a quick note)
+    ///
+    /// A first word ending in `/` is the target folder: `notez add
+    /// work/meetings/ standup` equals `notez add --in work/meetings standup`,
+    /// and a lone `/` opens the folder picker. To start a title with such a
+    /// word, pass a target: `notez add --in . tcp/` (`.` is the root).
     Add {
-        /// Note title (defaults to "untitled")
+        /// Note title (defaults to "untitled"); a leading `dir/` sets --in
         title: Vec<String>,
-        /// Target subdirectory (bare --in opens an fzf picker).
-        /// Resolves under the global `~/notez/` root by default.
+        /// Target subdirectory (bare --in opens an fzf picker over all
+        /// folders, nested ones included). Resolves under the global
+        /// `~/notez/` root by default.
         #[arg(long, num_args = 0..=1, default_missing_value = "")]
         r#in: Option<String>,
         /// With `--in`: resolve under the current scope's root instead of global.
