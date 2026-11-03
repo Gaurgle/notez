@@ -1,16 +1,17 @@
 //! `notez agenda`: dated notes and due todos across every scope, overdue
 //! first, then one group per day. Design: `docs/design-nz47-dates.md`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use chrono::{Datelike, Days, NaiveDate, Timelike};
 use console::Style;
+use serde_json::{json, Value};
 
 use notez_core::config::{Config, NotezMetadata, ProjectRegistry};
 use notez_core::core::aggregate::{collect_all, NoteEntry, SourceKind};
 use notez_core::core::dates::{NoteDate, NoteDates};
-use notez_core::core::frontmatter;
+use notez_core::core::{frontmatter, Scope};
 use notez_core::todo::{load_board, CheckState, Task};
 
 /// How much of a note is read for its dates and title, the same limit as
@@ -48,6 +49,12 @@ pub struct AgendaEntry {
     /// Scope and project, the way `notez search` labels a hit; a task's
     /// section.
     pub label: String,
+    /// The note file, or the `TODO.md` the task lives in.
+    pub path: PathBuf,
+    /// `local`, `personal`, `public` or `global`; `docs` for a project doc.
+    pub scope: String,
+    /// The owning project; `None` for a global note or todo.
+    pub project: Option<String>,
 }
 
 /// The agenda for a window: entries before today, ascending, then the days
@@ -96,24 +103,45 @@ pub fn is_daily_log(path: &Path, dir: &str) -> bool {
 
 /// The agenda entries of the board's tasks: every task with a due date
 /// that is not checked. Header rows are skipped; a half-done task counts.
-pub fn todo_entries(tasks: &[Task]) -> Vec<AgendaEntry> {
+/// `notez_root` places each task's `TODO.md` in its scope.
+pub fn todo_entries(tasks: &[Task], notez_root: &Path) -> Vec<AgendaEntry> {
     tasks
         .iter()
         .filter(|t| !t.is_header && t.state != CheckState::Checked)
         .filter_map(|t| {
+            let (scope, project) = todo_scope(t, notez_root);
             Some(AgendaEntry {
                 when: t.due?,
                 kind: AgendaKind::Todo,
                 title: t.text.clone(),
                 label: t.section.clone(),
+                path: t.source.clone(),
+                scope: scope.to_string(),
+                project,
             })
         })
         .collect()
 }
 
+/// The scope and project of a board task, from where `load_board` found
+/// its `TODO.md`: `<root>/personal/<project>/` is personal, anything else
+/// under the notez root (its own `TODO.md`, `_todos/<category>/`) is global
+/// with no project, `<repo>/.notez/` is local and `<repo>/notez/` public.
+fn todo_scope(task: &Task, notez_root: &Path) -> (Scope, Option<String>) {
+    let project = Some(task.section.clone());
+    match task.source.strip_prefix(notez_root) {
+        Ok(rest) if rest.starts_with("personal") => (Scope::Personal, project),
+        Ok(_) => (Scope::Global, None),
+        Err(_) if task.source.parent().and_then(Path::file_name) == Some(".notez".as_ref()) => {
+            (Scope::Local, project)
+        }
+        Err(_) => (Scope::Public, project),
+    }
+}
+
 /// The agenda entries of one note: its `due` and its `event`, if set. A
 /// note with neither (only `created`, or nothing) gives none.
-pub fn note_entries(dates: &NoteDates, title: &str, label: &str) -> Vec<AgendaEntry> {
+pub fn note_entries(dates: &NoteDates, title: &str, note: &NoteEntry) -> Vec<AgendaEntry> {
     [(dates.due, AgendaKind::Due), (dates.event, AgendaKind::Event)]
         .into_iter()
         .filter_map(|(when, kind)| {
@@ -121,7 +149,10 @@ pub fn note_entries(dates: &NoteDates, title: &str, label: &str) -> Vec<AgendaEn
                 when: when?,
                 kind,
                 title: title.to_string(),
-                label: label.to_string(),
+                label: note_label(note),
+                path: note.path.clone(),
+                scope: note_source(note),
+                project: note.project.clone(),
             })
         })
         .collect()
@@ -148,7 +179,7 @@ pub fn notes_entries(
             continue;
         }
         let title = note_title(&head, &note.path);
-        entries.extend(note_entries(&dates, &title, &note_label(note)));
+        entries.extend(note_entries(&dates, &title, note));
     }
     entries
 }
@@ -170,13 +201,18 @@ pub fn note_title(text: &str, path: &Path) -> String {
 
 /// The scope label of a note, as `notez search` prints it.
 fn note_label(entry: &NoteEntry) -> String {
-    let source = match entry.kind {
-        SourceKind::Doc => "docs".to_string(),
-        SourceKind::Note => entry.scope.to_string(),
-    };
+    let source = note_source(entry);
     match &entry.project {
         Some(p) => format!("{p} ({source})"),
         None => source,
+    }
+}
+
+/// A note's scope word, `docs` for a project doc.
+fn note_source(entry: &NoteEntry) -> String {
+    match entry.kind {
+        SourceKind::Doc => "docs".to_string(),
+        SourceKind::Note => entry.scope.to_string(),
     }
 }
 
@@ -201,14 +237,54 @@ fn when_text(when: NoteDate) -> String {
     out
 }
 
-pub fn run(days: u32, config: &Config) -> Result<()> {
+/// The agenda as the `--json` document: `today`, `days`, `overdue` and
+/// `days_list` (each `{date, entries}`). An entry has `date`, `time`
+/// (`HH:MM` or null), `kind`, `title`, `path`, `scope` and `project` (or
+/// null). These names are a contract for scripts; keep them stable.
+pub fn agenda_json(today: NaiveDate, days: u32, agenda: &Agenda) -> Value {
+    let entries = |group: &[AgendaEntry]| group.iter().map(entry_json).collect::<Vec<_>>();
+    json!({
+        "today": today.format("%Y-%m-%d").to_string(),
+        "days": days,
+        "overdue": entries(&agenda.overdue),
+        "days_list": agenda
+            .days
+            .iter()
+            .map(|(day, group)| json!({
+                "date": day.format("%Y-%m-%d").to_string(),
+                "entries": entries(group),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn entry_json(entry: &AgendaEntry) -> Value {
+    json!({
+        "date": entry.when.date.format("%Y-%m-%d").to_string(),
+        "time": entry.when.time.map(|t| t.format("%H:%M").to_string()),
+        "kind": entry.kind.word(),
+        "title": entry.title,
+        "path": entry.path.to_string_lossy(),
+        "scope": entry.scope,
+        "project": entry.project,
+    })
+}
+
+pub fn run(days: u32, json: bool, config: &Config) -> Result<()> {
     let registry = ProjectRegistry::load().unwrap_or_default();
     let notes = collect_all(config, &registry, &NotezMetadata::default())?;
     let mut entries = notes_entries(&notes, &config.paths.daily_logs_dir, read_head);
-    entries.extend(todo_entries(&load_board(config, &registry)));
+    entries.extend(todo_entries(
+        &load_board(config, &registry),
+        &config.notez_root_path(),
+    ));
 
     let today = chrono::Local::now().date_naive();
     let agenda = agenda(today, days, entries);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&agenda_json(today, days, &agenda))?);
+        return Ok(());
+    }
     if agenda.is_empty() {
         let unit = if days == 1 { "day" } else { "days" };
         println!("nothing due or scheduled in the next {days} {unit}");
@@ -266,6 +342,9 @@ mod tests {
             kind,
             title: title.to_string(),
             label: "global".to_string(),
+            path: PathBuf::from(format!("/h/notez/{title}.md")),
+            scope: "global".to_string(),
+            project: None,
         }
     }
 
@@ -386,11 +465,12 @@ mod tests {
             task("done", CheckState::Checked, Some("2026-10-20")),
             task("undated", CheckState::Unchecked, None),
         ];
-        let entries = todo_entries(&tasks);
+        let entries = todo_entries(&tasks, Path::new("/v"));
         assert_eq!(titles(&entries), vec!["open", "half"]);
         assert!(entries.iter().all(|e| e.kind == AgendaKind::Todo));
         assert_eq!(entries[0].label, "NOTEZ");
         assert_eq!(entries[1].when, d("2026-10-28T10:00"));
+        assert_eq!(entries[0].path, PathBuf::from("/v/TODO.md"));
     }
 
     #[test]
@@ -412,7 +492,7 @@ mod tests {
             "---\ncreated: 2026-10-01\ndue: 2026-10-20\nevent: 2026-11-02T14:00\n---\n# Venue\n",
             "venue.md",
         );
-        let entries = note_entries(&dates, "Venue", "global");
+        let entries = note_entries(&dates, "Venue", &note_at("/h/notez/venue.md", None));
         assert_eq!(entries.len(), 2);
         assert_eq!((entries[0].kind, entries[0].when), (AgendaKind::Due, d("2026-10-20")));
         assert_eq!(
@@ -422,10 +502,10 @@ mod tests {
 
         let created_only = NoteDates::from_text("# Old\n\nDate: 2026-10-01\n", "2026-10-01-old.md");
         assert!(created_only.created.is_some());
-        assert!(note_entries(&created_only, "Old", "global").is_empty());
+        assert!(note_entries(&created_only, "Old", &note_at("/h/notez/old.md", None)).is_empty());
 
         let malformed = NoteDates::from_text("---\ndue: next friday\n---\n# X\n", "x.md");
-        assert!(note_entries(&malformed, "X", "global").is_empty());
+        assert!(note_entries(&malformed, "X", &note_at("/h/notez/x.md", None)).is_empty());
     }
 
     fn note_at(path: &str, project: Option<&str>) -> NoteEntry {
@@ -458,6 +538,69 @@ mod tests {
         assert_eq!(titles(&entries), vec!["Dated"]);
         assert_eq!(entries[0].label, "p (personal)");
         assert_eq!(entries[0].kind, AgendaKind::Due);
+        assert_eq!(entries[0].path, PathBuf::from("/h/notez/personal/p/plan.md"));
+        assert_eq!(entries[0].scope, "personal");
+        assert_eq!(entries[0].project.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn todo_scope_follows_where_the_board_found_the_todo_file() {
+        let root = Path::new("/h/notez");
+        let at = |source: &str, section: &str| {
+            let mut t = task("t", CheckState::Unchecked, Some("2026-10-27"));
+            t.source = PathBuf::from(source);
+            t.section = section.to_string();
+            let e = todo_entries(&[t], root).remove(0);
+            (e.scope, e.project)
+        };
+        let some = |p: &str| Some(p.to_string());
+        assert_eq!(at("/h/notez/TODO.md", "global"), ("global".into(), None));
+        assert_eq!(at("/h/notez/_todos/home/TODO.md", "home"), ("global".into(), None));
+        assert_eq!(at("/h/notez/personal/p/TODO.md", "p"), ("personal".into(), some("p")));
+        assert_eq!(at("/r/p/notez/TODO.md", "p"), ("public".into(), some("p")));
+        assert_eq!(at("/r/p/.notez/TODO.md", "p"), ("local".into(), some("p")));
+    }
+
+    #[test]
+    fn agenda_json_has_today_days_overdue_and_one_group_per_day() {
+        let mut todo = entry("2026-10-27T09:30", AgendaKind::Todo, "call");
+        todo.path = PathBuf::from("/r/p/notez/TODO.md");
+        todo.scope = "public".to_string();
+        todo.project = Some("p".to_string());
+        let a = agenda(
+            day(TODAY),
+            3,
+            vec![entry("2026-10-24", AgendaKind::Due, "late"), todo],
+        );
+        let text = serde_json::to_string(&agenda_json(day(TODAY), 3, &a)).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "today": "2026-10-26",
+                "days": 3,
+                "overdue": [{
+                    "date": "2026-10-24", "time": null, "kind": "due", "title": "late",
+                    "path": "/h/notez/late.md", "scope": "global", "project": null,
+                }],
+                "days_list": [{
+                    "date": "2026-10-27",
+                    "entries": [{
+                        "date": "2026-10-27", "time": "09:30", "kind": "todo", "title": "call",
+                        "path": "/r/p/notez/TODO.md", "scope": "public", "project": "p",
+                    }],
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_agenda_is_still_a_full_json_document() {
+        let value = agenda_json(day(TODAY), 7, &Agenda::default());
+        assert_eq!(
+            value,
+            json!({ "today": "2026-10-26", "days": 7, "overdue": [], "days_list": [] })
+        );
     }
 
     #[test]
