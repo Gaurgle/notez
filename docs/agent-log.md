@@ -14,6 +14,15 @@ line. Older records (2026-10-06 to 2026-10-08) are in
 
 Lead records that preceded the current one in the handoff, newest first.
 
+### `67917d20` (Claude, Fable 5.1), 2026-11-03: the owner's words
+
+Takeover instruction, verbatim: "Take over as lead. NZ-58: I've tried it,
+accepted, merge it. Then add NZ-59, NZ-60, NZ-61 (#85-87) to the queue
+right after NZ-57, in that order; set their milestone to 0.3.0. Same
+rules as the queue: look changes (NZ-60) stop at Ready to integrate for
+my try. NZ-62 (#88) is design only: brief a worker to write the design
+doc, no code, and bring it to me. NZ-18 and NZ-47d stay parked."
+
 ### `0bafc905` and `b5670714` (Claude), 2026-10-27
 
 Moved verbatim from the handoff on 2026-10-29 by lead `7c4dc6c8`.
@@ -345,6 +354,63 @@ One subsection per ticket, newest merge first: the ticket brief as it
 stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
+
+### NZ-57 (#83): footer hints read as one word with the bound key bold inside it
+
+Asked for by Andreas on 2026-10-27, brief in the issue body, P2, 0.3.0.
+Run by lead `67917d20` on 2026-11-03 under the 2026-10-15 queue
+authority: branch `feat/nz-57-footer-hints`, worktree
+`.claude/worktrees/NZ-57`, base `0c1a5c7`. Worker (opus, medium, about
+8 min, 101k tokens) blocked once on scope: the `y confirm` -> `yes`
+rename hit assertions in `tree/delete.rs` and `tree/move_prompt.rs`, and
+the `p` toggle words live in `tree/preview.rs`. Ruling on #83: scope
+widened to those three files (two assertion strings, `plain`/`pretty`
+in `PreviewToggle::desc`, README 273-274, the audit gap); not a fix
+cycle. Result: case-insensitive first-letter join in
+`KeyHint::footer_parts`, two audit tests over all key tables, renames
+(`new dir/`, `yes`, `git sync`, `look in`, `hide`, `x-check`, `new
+category`, `preview off`, `plain`/`pretty`), unread
+`PreviewToggle.markdown` removed. Reviewer (opus, about 2 min, 39k
+tokens) accepted first, diff id `6c0ed7081f5b`, reran two mutations.
+Committed `3c0a117`, branch CI `41626098416` green. Andreas tried it
+("functionality is good"). Gate held, merged `--no-ff` as `a6ce239`
+(Closes #83), CI on `main` run `41631392370` green, remote branch
+deleted, worktree swept. Follow-ups on #83: no non-ASCII key test;
+stale comments calling the `p` hint markdown-only. His try produced
+NZ-63 (#89) and NZ-64 (#90). Remember at the end: nothing to keep (the
+scope widening was ticket-specific).
+
+NZ-57: review accepted first; fix cycles 0; owner decisions 1; worker 8; review 2; models opus/opus; usage 101k; 39k
+
+### NZ-58 (#84): wrapped continuation lines indent 2 in the inspector and the todoz pane
+
+Asked for by Andreas on 2026-10-29 ("make the line wrap in the
+inspector/pane 2 indent"), created by lead `7c4dc6c8` under the standing
+board permission, P2, 0.3.0. Branch `feat/nz-58-wrap-indent`, worktree
+`.claude/worktrees/NZ-58`, base `b835e55`. Ruling: continuation lines
+get 2 columns beyond the text start in markdown prose (not code blocks)
+and in todo rows; the todoz board gets it too via the shared
+`tui/todo_rows.rs`. Worker (opus, medium, about 11 min, 109k tokens):
+`markdown.rs`, `todo_rows.rs`, README; one test in `tui/todo.rs`
+encoded the old same-column wrap, so the scope grew by that one test
+(not a fix cycle). Reviewer (opus, about 4 min, 45k tokens) accepted
+first, diff sha1 `fb5502c7`, five mutants killed. Committed `40b02fb`,
+branch CI `40877527593` green. Andreas accepted on 2026-11-02 by word
+and on 2026-11-03 after a try ("I've tried it, accepted, merge it").
+Lead `67917d20`: combined checks on `a4b7c84` green (714 + 5 + 191);
+`relay-gate` first refused because the recorded diff id `3af085d925c2`
+came from the pre-0.8.1 `relay-scope` (the current one gives
+`2ac80147ba67` for the same tree; the reviewer's sha1 matched `git diff
+b835e55 40b02fb`), ruling on #84, gate held with the current id. Merged
+`--no-ff` as `0c1a5c7` (Closes #84), CI on `main` run `41624441198`
+green. Follow-ups on #84: `no_wrapped_row_is_wider_than_the_list` does
+not catch an un-narrowed continuation chunk; a 2-column character with
+1 column left can exceed the pane (same as base). Remember at the end:
+method lesson, sent to the Relay changelog candidates: a diff id
+recorded before a `relay-scope` method change must be recomputed with
+the old script before the gate, not re-reviewed.
+
+NZ-58: review accepted first; fix cycles 0; owner decisions 2; worker 11; review 4; models opus/opus; usage 109k; 45k
 
 ### NZ-43 (#71): todoz preview pane
 
