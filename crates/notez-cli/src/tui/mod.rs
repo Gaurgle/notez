@@ -15,6 +15,7 @@ pub mod highlight;
 pub mod lint;
 pub mod markdown;
 pub mod move_path;
+pub mod notice;
 pub mod panes;
 pub mod sync;
 pub mod tags;

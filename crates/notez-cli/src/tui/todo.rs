@@ -10,7 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
@@ -28,6 +28,7 @@ use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, T
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::panes::{self, Pane, Panes, Press};
+use super::notice::Notice;
 use super::sync::VaultSync;
 use super::{VimCommandMode, VimKey, text, theme, todo_rows};
 #[cfg(test)]
@@ -1241,8 +1242,9 @@ fn event_loop(
     // in memory until the board saves on exit, so only creating a category,
     // which writes files, marks it stale; plain navigation never runs git.
     let mut vault_dirty = header::vault_dirty_count(config.notez_root_path(), ctx.sync);
-    // A one-off footer message (a reload's outcome); each key press clears it.
-    let mut status_message: Option<String> = None;
+    // A one-off footer message (a reload's outcome); each key press clears
+    // it, and a success also clears by itself (`Notice`).
+    let mut status_message = Notice::default();
     let todos_dir = ctx.global.then(|| config.notez_root_path().join("_todos"));
     // The file-change probe's last reading, taken fresh after every reload.
     let mut probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
@@ -1714,17 +1716,22 @@ fn event_loop(
         }
         // A running sync shortens the wait so its result shows promptly and
         // holds the probe off; once it ends the probe runs at once, so files
-        // the pull changed reload (or hold) as any outside change does.
+        // the pull changed reload (or hold) as any outside change does. A
+        // success message on the footer shortens the wait too, to clear on
+        // time.
         let wake = loop {
-            let wait = vault_sync.poll_interval(PROBE_INTERVAL);
+            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), Instant::now());
             if event::poll(wait).context("failed to poll for events")? {
                 break Wake::Input(event::read().context("failed to read event")?);
             }
             let finished = vault_sync.take_finished();
             if let Some(done) = &finished {
-                status_message = Some(done.message());
+                status_message.finished(done, Instant::now());
                 vault_dirty.mark_stale();
                 sync_pulled |= done.moved;
+            }
+            if status_message.expire(Instant::now()) {
+                break Wake::Redraw;
             }
             if vault_sync.running() || !can_probe {
                 if finished.is_some() {
@@ -1739,10 +1746,10 @@ fn event_loop(
                 // The board stays as it is; only the footer message changes.
                 ProbeStep::Hold(newly) if !newly.is_empty() => {
                     let hold = held_message(&newly);
-                    status_message = Some(match finished {
+                    status_message.set(Some(match finished {
                         Some(done) => format!("{}; {hold}", done.message()),
                         None => hold,
-                    });
+                    }));
                     break Wake::Redraw;
                 }
                 ProbeStep::Hold(_) | ProbeStep::Unchanged => {}
@@ -1772,11 +1779,11 @@ fn event_loop(
                         hover_flag = None;
                         preview_generation += 1;
                         if status_message.is_none() {
-                            status_message = Some("reloaded (files changed)".to_string());
+                            status_message.flash("reloaded (files changed)".to_string(), Instant::now());
                         }
                     }
                     // The change stays pending in `probe`; the next probe retries.
-                    Err(message) => status_message = Some(message),
+                    Err(message) => status_message.set(Some(message)),
                 }
                 continue;
             }
@@ -1950,7 +1957,7 @@ fn event_loop(
             if let Some(hold) =
                 quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
             {
-                status_message = Some(hold);
+                status_message.set(Some(hold));
                 continue;
             }
             break;
@@ -1961,7 +1968,7 @@ fn event_loop(
             continue;
         }
 
-        status_message = None;
+        status_message.set(None);
 
         if confirm_delete {
             if matches!(key.code, KeyCode::Char('y') | KeyCode::Enter) {
@@ -2289,7 +2296,7 @@ fn event_loop(
                 if let Some(hold) =
                     quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
                 {
-                    status_message = Some(hold);
+                    status_message.set(Some(hold));
                     continue;
                 }
                 break;
@@ -2319,14 +2326,14 @@ fn event_loop(
         match key.code {
             KeyCode::Char('p') => {
                 if let Err(message) = toggle_preview(&mut panes, body_area.width) {
-                    status_message = Some(message.to_string());
+                    status_message.set(Some(message.to_string()));
                 }
             }
             KeyCode::Char('q') => {
                 if let Some(hold) =
                     quit_after_sync(terminal, vault_sync, &mut sync_pulled, &mut probe, &dirty, &mut held)?
                 {
-                    status_message = Some(hold);
+                    status_message.set(Some(hold));
                     continue;
                 }
                 break;
@@ -2524,10 +2531,10 @@ fn event_loop(
                 };
                 // The save may have rewritten the shown file.
                 preview_generation += 1;
-                status_message = Some(match started {
+                status_message.set(Some(match started {
                     Ok(()) => "syncing the vault".to_string(),
                     Err(message) => message,
-                });
+                }));
             }
 
             KeyCode::Char('R') => match reload_board(
@@ -2546,9 +2553,9 @@ fn event_loop(
                     held.clear();
                     hover_flag = None;
                     preview_generation += 1;
-                    status_message = Some("reloaded".to_string());
+                    status_message.flash("reloaded".to_string(), Instant::now());
                 }
-                Err(message) => status_message = Some(message),
+                Err(message) => status_message.set(Some(message)),
             },
 
             KeyCode::Char('J') => {
@@ -2652,6 +2659,54 @@ mod tests {
     use notez_core::tags::{FLAG_BLOCKED, FLAG_IMPORTANT, FLAG_PRIO};
     use ratatui::widgets::StatefulWidget;
     use std::path::{Path, PathBuf};
+
+    fn sync_done(result: notez_core::sync::AutoSync, state: SyncState) -> super::super::sync::Finished {
+        super::super::sync::Finished {
+            result,
+            state,
+            moved: false,
+        }
+    }
+
+    #[test]
+    fn a_sync_success_clears_after_the_expiry_and_a_failure_stays() {
+        use super::super::notice::EXPIRY;
+        use notez_core::sync::AutoSync;
+        let t0 = Instant::now();
+        for done in [
+            sync_done(AutoSync::Done, SyncState::Synced),
+            sync_done(AutoSync::Idle, SyncState::Synced),
+        ] {
+            let mut status = Notice::default();
+            status.finished(&done, t0);
+            assert!(!status.expire(t0 + EXPIRY - Duration::from_millis(1)), "{done:?}");
+            assert!(status.expire(t0 + EXPIRY), "{done:?}");
+            assert!(status.is_none());
+        }
+        for done in [
+            sync_done(AutoSync::Idle, SyncState::Offline),
+            sync_done(AutoSync::Idle, SyncState::NoUpstream),
+            sync_done(AutoSync::Stopped("CONFLICT".into()), SyncState::Stopped),
+        ] {
+            let mut status = Notice::default();
+            status.finished(&done, t0);
+            assert!(!status.expire(t0 + EXPIRY * 10), "{done:?}");
+            assert_eq!(status.as_deref(), Some(done.message().as_str()));
+        }
+    }
+
+    #[test]
+    fn a_new_board_message_resets_the_timer() {
+        use super::super::notice::EXPIRY;
+        let t0 = Instant::now();
+        let mut status = Notice::default();
+        status.finished(&sync_done(notez_core::sync::AutoSync::Done, SyncState::Synced), t0);
+        let later = t0 + EXPIRY / 2;
+        status.flash("reloaded (files changed)".to_string(), later);
+        assert!(!status.expire(t0 + EXPIRY));
+        assert!(status.wait(PROBE_INTERVAL, t0 + EXPIRY) > Duration::ZERO);
+        assert!(status.expire(later + EXPIRY));
+    }
 
     #[test]
     fn esc_clears_the_filter_and_otherwise_does_nothing() {

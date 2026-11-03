@@ -84,6 +84,11 @@ pub struct Finished {
 }
 
 impl Finished {
+    /// The vault synced: its footer message clears by itself.
+    pub fn succeeded(&self) -> bool {
+        self.state == SyncState::Synced && !matches!(self.result, AutoSync::Stopped(_))
+    }
+
     /// The footer message: the outcome, or git's first line when it stopped.
     pub fn message(&self) -> String {
         if let AutoSync::Stopped(why) = &self.result {
@@ -268,6 +273,16 @@ mod tests {
             state,
             moved: false,
         }
+    }
+
+    #[test]
+    fn only_a_synced_vault_counts_as_a_success() {
+        assert!(finished(AutoSync::Done, SyncState::Synced).succeeded());
+        assert!(finished(AutoSync::Idle, SyncState::Synced).succeeded());
+        assert!(!finished(AutoSync::Idle, SyncState::Offline).succeeded());
+        assert!(!finished(AutoSync::Idle, SyncState::NoUpstream).succeeded());
+        assert!(!finished(AutoSync::Stopped("x".into()), SyncState::Stopped).succeeded());
+        assert!(!finished(AutoSync::Stopped("x".into()), SyncState::Synced).succeeded());
     }
 
     #[test]
