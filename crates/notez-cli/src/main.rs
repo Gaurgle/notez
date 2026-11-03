@@ -90,13 +90,13 @@ fn main() -> ExitCode {
     // everything, current project first; `-g` / `-p` / `-l` narrow it to
     // that scope, and a scope flag followed by words makes a quick note
     // there. See `decide`.
+    let fallback = fallback_hint(&action, scope, &config);
     let cmd = match action {
         Action::Browse(view) => return finish(browse(view, &config, sync)),
         Action::QuickNote(title) => {
-            return finish(
-                create_quick(title, scope, &config)
-                    .map(|created| report_created(&created, &config, sync)),
-            );
+            let result = create_quick(title, scope, &config)
+                .map(|created| report_created(&created, &config, sync));
+            return finish(hinted(result, fallback.as_deref()));
         }
         Action::Run(cmd) => cmd,
     };
@@ -186,7 +186,41 @@ fn main() -> ExitCode {
         }
     };
 
-    finish(result)
+    finish(hinted(result, fallback.as_deref()))
+}
+
+/// The personal-fallback hint for a write that resolves its directory with
+/// `resolve::root` under the invocation's scope: add (unless `--in` sends it
+/// to the global root), quick, log, mkdir and a todo quick-add.
+fn fallback_hint(action: &Action, scope: Scope, config: &Config) -> Option<String> {
+    let resolves_scope_root = match action {
+        Action::QuickNote(_) => true,
+        Action::Run(
+            Commands::Add { r#in, in_local, .. } | Commands::Znote { r#in, in_local, .. },
+        ) => r#in.is_none() || *in_local,
+        Action::Run(
+            Commands::Quick { .. }
+            | Commands::Log { .. }
+            | Commands::Zlog { .. }
+            | Commands::Mkdir { .. },
+        ) => true,
+        Action::Run(Commands::Todo { item } | Commands::Todoz { item }) => item.is_some(),
+        _ => false,
+    };
+    if resolves_scope_root {
+        commands::personal_fallback_hint(scope, config)
+    } else {
+        None
+    }
+}
+
+/// Print `hint` on stderr once the write succeeded; stdout stays the
+/// command's own output.
+fn hinted(result: anyhow::Result<()>, hint: Option<&str>) -> anyhow::Result<()> {
+    if let (Ok(()), Some(hint)) = (&result, hint) {
+        eprintln!("{hint}");
+    }
+    result
 }
 
 /// What an invocation asks for, decided from the parsed arguments alone.
@@ -772,6 +806,109 @@ mod tests {
             assert!(by_quick.exists(), "{flag}");
             assert!(by_quick.parent().unwrap().ends_with("00_quick-notes"), "{flag}");
         }
+    }
+
+    /// The fallback hint `main` decides for `args` run from `cwd`.
+    fn hint_in(cwd: &Path, args: &[&str], config: &Config) -> Option<String> {
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(cwd).unwrap();
+        let in_project = Project::try_detect().is_some();
+        let cli = parse(args).unwrap();
+        let scope = Scope::from_flags(cli.global, cli.private, cli.local, in_project);
+        let action = decide_for(cli, in_project);
+        let hint = action.map(|action| fallback_hint(&action, scope, config));
+        std::env::set_current_dir(saved).unwrap();
+        hint.unwrap()
+    }
+
+    /// Run `check` with a vault config, a cwd outside git and a fresh repo.
+    fn with_dirs(check: impl FnOnce(&Config, &Path, &Path)) {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        check(&config_for(root.path()), outside.path(), repo.path());
+    }
+
+    fn fallback_line(config: &Config) -> Option<String> {
+        let root = notez_core::util::tilde::contract(&config.notez_root_path());
+        Some(format!("notez: not in a git repo, -p wrote to global ({root})"))
+    }
+
+    /// The hint fires for `-p` outside git and not for `-p` in a repo, `-g`
+    /// or no flag.
+    fn assert_hint_only_for_personal_outside_git(args: &[&str]) {
+        with_dirs(|config, outside, repo| {
+            let with = |flag: &'static str| -> Vec<&str> {
+                let flag = (!flag.is_empty()).then_some(flag);
+                flag.into_iter().chain(args.iter().copied()).collect()
+            };
+            assert_eq!(hint_in(outside, &with("-p"), config), fallback_line(config), "{args:?}");
+            assert_eq!(hint_in(repo, &with("-p"), config), None, "-p in a repo {args:?}");
+            assert_eq!(hint_in(outside, &with("-g"), config), None, "-g {args:?}");
+            assert_eq!(hint_in(outside, &with(""), config), None, "no flag {args:?}");
+            assert_eq!(hint_in(repo, &with(""), config), None, "no flag in a repo {args:?}");
+        });
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn add_hints_when_personal_falls_back_to_global() {
+        assert_hint_only_for_personal_outside_git(&["add", "plan"]);
+        assert_hint_only_for_personal_outside_git(&["znote", "plan"]);
+        assert_hint_only_for_personal_outside_git(&["add", "quick", "plan"]);
+        assert_hint_only_for_personal_outside_git(&["add", "--in", "work", "--in-local", "plan"]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn add_in_the_global_root_never_hints() {
+        with_dirs(|config, outside, _repo| {
+            assert_eq!(hint_in(outside, &["-p", "add", "--in", "work", "plan"], config), None);
+        });
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn quick_hints_when_personal_falls_back_to_global() {
+        assert_hint_only_for_personal_outside_git(&["quick", "idea"]);
+        // A scope flag followed by words is a quick note too; without a
+        // flag those words are refused, so only the flags apply.
+        with_dirs(|config, outside, repo| {
+            assert_eq!(hint_in(outside, &["-p", "idea"], config), fallback_line(config));
+            assert_eq!(hint_in(repo, &["-p", "idea"], config), None);
+            assert_eq!(hint_in(outside, &["-g", "idea"], config), None);
+        });
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn log_hints_when_personal_falls_back_to_global() {
+        assert_hint_only_for_personal_outside_git(&["log", "shipped"]);
+        assert_hint_only_for_personal_outside_git(&["zlog", "shipped"]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn mkdir_hints_when_personal_falls_back_to_global() {
+        assert_hint_only_for_personal_outside_git(&["mkdir", "ideas"]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn todo_quick_add_hints_when_personal_falls_back_to_global() {
+        assert_hint_only_for_personal_outside_git(&["todo", "buy milk"]);
+        assert_hint_only_for_personal_outside_git(&["todoz", "buy milk"]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn reads_and_browsing_never_hint() {
+        with_dirs(|config, outside, _repo| {
+            for args in [&["-p"][..], &["-p", "tree"], &["-p", "todo"], &["-p", "logz"]] {
+                assert_eq!(hint_in(outside, args, config), None, "{args:?}");
+            }
+        });
     }
 
     #[test]

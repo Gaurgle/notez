@@ -23,3 +23,18 @@ pub mod setup;
 pub mod sync;
 pub mod todo;
 pub mod tree;
+
+use notez_core::config::Config;
+use notez_core::core::{Project, Scope};
+
+/// The stderr line for a write asked for personal (`-p`) outside a git
+/// repo, where `resolve::root` falls back to the global root. `None` for
+/// any other scope and inside a repo.
+pub fn personal_fallback_hint(scope: Scope, config: &Config) -> Option<String> {
+    (scope == Scope::Personal && Project::try_detect().is_none()).then(|| {
+        format!(
+            "notez: not in a git repo, -p wrote to global ({})",
+            notez_core::util::tilde::contract(&config.notez_root_path()),
+        )
+    })
+}
