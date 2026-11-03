@@ -144,6 +144,19 @@ pub(super) fn event_loop(
         if input_open {
             panes.focus(Pane::List);
         }
+        // The open prompt, in the footer's order: it picks the focused
+        // pane's border.
+        let border_mode = if confirm_delete.is_some() || confirm_bulk_delete.is_some() {
+            Mode::ConfirmDelete
+        } else if confirm_move.is_some() || confirm_bulk_move.is_some() {
+            Mode::ConfirmMove
+        } else if let Some(prompt) = &move_prompt {
+            if prompt.fixed { Mode::SetScope } else { Mode::Move }
+        } else if new_note.is_some() {
+            Mode::NewItem
+        } else {
+            footer_mode(rename_buffer.is_some(), vim.active, search_mode, flag_mode, focus_active)
+        };
         // Cached between actions that change files; see `DirtyCount`. No
         // `git status` while a sync runs git in the vault.
         let dirty_files = if vault_sync.running() {
@@ -285,7 +298,7 @@ pub(super) fn event_loop(
 
                 let block = list_block()
                     .title(header)
-                    .border_style(pane_border(Pane::List, panes.focus));
+                    .border_style(pane_border(Pane::List, panes.focus, border_mode));
                 let inner_chunks = list_chunks(list_area);
                 filter_strip_area = inner_chunks[0];
                 list_inner_area = inner_chunks[2];
@@ -395,7 +408,7 @@ pub(super) fn event_loop(
                     }
                     let preview_block = preview_block
                         .borders(Borders::ALL)
-                        .border_style(pane_border(Pane::Preview, panes.focus))
+                        .border_style(pane_border(Pane::Preview, panes.focus, border_mode))
                         .border_type(ratatui::widgets::BorderType::Rounded)
                         .padding(Padding::new(1, 1, 0, 0));
                     let preview_width = preview_block.inner(preview_area).width;

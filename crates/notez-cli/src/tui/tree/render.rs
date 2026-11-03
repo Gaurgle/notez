@@ -530,12 +530,19 @@ pub(super) fn pane_title(pane: Pane, focus: Pane, rest: Vec<Span<'static>>) -> L
     Line::from(spans)
 }
 
-/// The border style of `pane`: highlighted while it has focus.
-pub(super) fn pane_border(pane: Pane, focus: Pane) -> Style {
-    if pane == focus {
-        theme::border_focused()
-    } else {
+/// The prompt modes that type into a field: the focused pane's border takes
+/// the editing colour in them. The filter is a search field with its own look.
+const EDITING: &[Mode] = &[Mode::NewItem, Mode::Rename, Mode::Move, Mode::VimCommand];
+
+/// The border style of `pane`: highlighted while it has focus, and in the
+/// editing colour while `mode` is one of the `EDITING` prompts.
+pub(super) fn pane_border(pane: Pane, focus: Pane, mode: Mode) -> Style {
+    if pane != focus {
         theme::border()
+    } else if EDITING.contains(&mode) {
+        theme::border_editing()
+    } else {
+        theme::border_focused()
     }
 }
 
@@ -1176,10 +1183,10 @@ mod tests {
 
     #[test]
     fn the_focused_pane_has_the_highlighted_border_and_both_titles_carry_their_number() {
-        assert_eq!(pane_border(Pane::List, Pane::List), theme::border_focused());
-        assert_eq!(pane_border(Pane::Preview, Pane::List), theme::border());
+        assert_eq!(pane_border(Pane::List, Pane::List, Mode::Normal), theme::border_focused());
+        assert_eq!(pane_border(Pane::Preview, Pane::List, Mode::Normal), theme::border());
         assert_eq!(
-            pane_border(Pane::Preview, Pane::Preview),
+            pane_border(Pane::Preview, Pane::Preview, Mode::Normal),
             theme::border_focused()
         );
         assert_ne!(theme::border_focused(), theme::border());
@@ -1189,6 +1196,29 @@ mod tests {
         let preview = pane_title(Pane::Preview, Pane::List, vec![Span::raw("preview ")]);
         assert_eq!(text_of(&preview), " 2 preview ");
         assert_eq!(preview.spans[0].style, theme::pane_number(false));
+    }
+
+    #[test]
+    fn the_focused_pane_border_turns_editing_in_typed_prompts_only() {
+        let editing = [Mode::NewItem, Mode::Rename, Mode::Move, Mode::VimCommand];
+        let other = [
+            Mode::Normal,
+            Mode::Focus,
+            Mode::Filter,
+            Mode::Tag,
+            Mode::SetScope,
+            Mode::ConfirmDelete,
+            Mode::ConfirmMove,
+        ];
+        for mode in editing {
+            assert_eq!(pane_border(Pane::List, Pane::List, mode), theme::border_editing(), "{mode:?}");
+            assert_eq!(pane_border(Pane::Preview, Pane::List, mode), theme::border(), "{mode:?}");
+        }
+        for mode in other {
+            assert_eq!(pane_border(Pane::List, Pane::List, mode), theme::border_focused(), "{mode:?}");
+            assert_eq!(pane_border(Pane::Preview, Pane::List, mode), theme::border(), "{mode:?}");
+        }
+        assert_ne!(theme::border_editing(), theme::border_focused());
     }
 
     #[test]

@@ -101,6 +101,11 @@ pub fn border_focused() -> Style {
     Style::default().fg(LAVENDER)
 }
 
+/// The border of the focused pane while the user is typing into a prompt.
+pub fn border_editing() -> Style {
+    Style::default().fg(RED)
+}
+
 /// The grip on the border between two panes: furniture at rest, lit like a
 /// focused border while it is being dragged.
 pub fn grip(dragging: bool) -> Style {

@@ -898,9 +898,26 @@ fn pane_title(pane: Pane, focus: Pane, rest: Vec<Span<'static>>) -> Line<'static
     Line::from(spans)
 }
 
-/// The border style of `pane`: highlighted while it has focus.
-fn pane_border(pane: Pane, focus: Pane) -> Style {
-    if pane == focus { theme::border_focused() } else { theme::border() }
+/// The modes that type into a field: the focused pane's border takes the
+/// editing colour in them. The filter is a search field with its own look.
+const EDITING: &[Mode] = &[
+    Mode::NewItem,
+    Mode::NewCategory,
+    Mode::AddSubtask,
+    Mode::EditText,
+    Mode::VimCommand,
+];
+
+/// The border style of `pane`: highlighted while it has focus, and in the
+/// editing colour while `mode` is one of the `EDITING` modes.
+fn pane_border(pane: Pane, focus: Pane, mode: Mode) -> Style {
+    if pane != focus {
+        theme::border()
+    } else if EDITING.contains(&mode) {
+        theme::border_editing()
+    } else {
+        theme::border_focused()
+    }
 }
 
 // --- Reload (`R` and the file-change probe) ---
@@ -1292,6 +1309,19 @@ fn event_loop(
 
         terminal
             .draw(|frame| {
+                // Picks the footer hints and the focused pane's border.
+                let mode = InputFlags {
+                    confirm_delete,
+                    flag_mode,
+                    search_mode,
+                    edit_mode,
+                    subtask_mode,
+                    category_mode,
+                    input_mode,
+                    vim_active: vim.active,
+                    focus_active,
+                }
+                .footer_mode();
                 let full = frame.area();
                 let area = Rect::new(
                     full.x + 2,
@@ -1460,7 +1490,7 @@ fn event_loop(
                     .borders(Borders::ALL)
                     // With the preview folded the board is the only pane
                     // and has focus, so it takes the focused border.
-                    .border_style(pane_border(Pane::List, panes.focus))
+                    .border_style(pane_border(Pane::List, panes.focus, mode))
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .padding(Padding::new(1, 1, 1, 0));
                 if preview_rect.is_some() {
@@ -1517,7 +1547,7 @@ fn event_loop(
                     let mut preview_block = Block::default()
                         .title(pane_title(Pane::Preview, panes.focus, title))
                         .borders(Borders::ALL)
-                        .border_style(pane_border(Pane::Preview, panes.focus))
+                        .border_style(pane_border(Pane::Preview, panes.focus, mode))
                         .border_type(ratatui::widgets::BorderType::Rounded)
                         .padding(Padding::new(1, 1, 0, 0));
                     let today = chrono::Local::now().date_naive();
@@ -1561,18 +1591,6 @@ fn event_loop(
 
                 // Status bar.
                 let width = chunks[1].width as usize;
-                let mode = InputFlags {
-                    confirm_delete,
-                    flag_mode,
-                    search_mode,
-                    edit_mode,
-                    subtask_mode,
-                    category_mode,
-                    input_mode,
-                    vim_active: vim.active,
-                    focus_active,
-                }
-                .footer_mode();
                 let toggles = footer_toggles(
                     focus_active,
                     search_mode || !search_buffer.is_empty(),
@@ -3168,6 +3186,23 @@ mod tests {
             focus_active: true,
         };
         assert_eq!(all.footer_mode(), Mode::ConfirmDelete);
+    }
+
+    #[test]
+    fn the_focused_pane_border_turns_editing_in_text_entry_modes_only() {
+        let editing = [Mode::NewItem, Mode::NewCategory, Mode::AddSubtask, Mode::EditText, Mode::VimCommand];
+        let other = [Mode::Normal, Mode::Focus, Mode::Filter, Mode::Tag, Mode::ConfirmDelete];
+        for mode in editing {
+            assert_eq!(pane_border(Pane::List, Pane::List, mode), theme::border_editing(), "{mode:?}");
+            assert_eq!(pane_border(Pane::Preview, Pane::Preview, mode), theme::border_editing(), "{mode:?}");
+            assert_eq!(pane_border(Pane::Preview, Pane::List, mode), theme::border(), "{mode:?}");
+        }
+        for mode in other {
+            assert_eq!(pane_border(Pane::List, Pane::List, mode), theme::border_focused(), "{mode:?}");
+            assert_eq!(pane_border(Pane::Preview, Pane::List, mode), theme::border(), "{mode:?}");
+        }
+        assert_ne!(theme::border_editing(), theme::border_focused());
+        assert_ne!(theme::border_editing(), theme::border());
     }
 
     #[test]
