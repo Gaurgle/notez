@@ -38,6 +38,7 @@ notez sync       notez setup       notez completions
 notez init       notez --help      notez migrate-from-legacy
 notez search     todoz             todoz -g
 notez tree       notez -g tree     notez edit
+notez cp         notez cpwd
 notez            notez -g <title>  notez -p <title>
 notez nav        notez logz        notez logs
 notez agenda
@@ -198,6 +199,12 @@ the one before it). `n`, `Esc` or any other key cancels. The note's `.tags`
 entry goes on exit, and the exit sync commits the deletion like any other
 change. There is no trash and no undo. `d` on a folder is covered under
 **Folders in the tree** above.
+
+**Copying from the tree.** `yy` copies the selected note's content to the
+clipboard and `yp` its absolute path; on a folder both copy the folder's
+path. The footer confirms with `copied 1.2 KB` or `copied path`. `y`
+followed by any other key copies nothing. The clipboard tool is the one
+`notez cp` uses.
 
 **Moving notes in the tree.** `m` on a note or folder moves it: the footer
 asks `move <name> to <scope>/<folder>_`, prefilled with the folder it is in
@@ -449,6 +456,12 @@ considers in scope; a term matching one note skips the picker.
 A `YYYY-MM-DD-` prefix, if the note has one (quick notes), is kept, the title is slugified into the filename, and
 a leading `# heading` is rewritten to match. Omit the title to be prompted. It
 refuses to overwrite an existing note.
+
+**notez cp [term]** copies a note's content to the clipboard and **notez cpwd
+[term]** copies its absolute path; the note is found the same way as `edit`,
+and neither prints anything. The clipboard tool is `pbcopy` on macOS and
+`wl-copy`, else `xclip -selection clipboard`, on Linux; with none installed
+the command fails naming the tools to install.
 
 **notez nav** picks a directory in the vault and opens it, with `personal/`
 expanded one level so every project is one hop away.

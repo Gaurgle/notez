@@ -159,6 +159,18 @@ pub enum Commands {
         term: Option<String>,
     },
 
+    /// Copy a note's content to the clipboard
+    Cp {
+        /// Search term to fuzzy-match note filename
+        term: Option<String>,
+    },
+
+    /// Copy a note's absolute path to the clipboard
+    Cpwd {
+        /// Search term to fuzzy-match note filename
+        term: Option<String>,
+    },
+
     /// Rename an existing note
     Rename {
         /// Search term to fuzzy-match note filename

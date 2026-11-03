@@ -620,6 +620,8 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("bksp", "delete", "new note or folder: delete the last char", theme::TEXT, Group::Edit, NEW_NOTE, Slot::Priority(4), None),
     key("space", "mark", "mark", theme::LAVENDER, Group::Edit, BROWSE, Slot::Priority(8), None),
     key("d", "delete", "delete note or folder under the cursor (asks first; no undo)", theme::RED, Group::Edit, BROWSE, Slot::Priority(7), None),
+    key("yy", "yank", "copy the note's content to the clipboard (a folder copies its path)", theme::SAPPHIRE, Group::Edit, BROWSE, Slot::HelpOnly, None),
+    key("yp", "yank path", "copy the absolute path of the note or folder to the clipboard", theme::SAPPHIRE, Group::Edit, BROWSE, Slot::HelpOnly, None),
     key("y", "yes", "delete: yes, delete it", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
     key("n/esc", "cancel", "delete: cancel (any other key too), nothing is deleted", theme::PEACH, Group::Edit, CONFIRMING, Slot::Priority(2), None),
     key("enter", "move", "move: move it to the typed folder (a new scope asks first)", theme::GREEN, Group::Edit, MOVING, Slot::Priority(1), None),

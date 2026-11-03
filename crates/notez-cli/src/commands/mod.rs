@@ -7,6 +7,7 @@ pub mod add;
 pub mod agenda;
 pub mod attach;
 pub mod completions;
+pub mod cp;
 pub mod detach;
 pub mod edit;
 pub mod init;
