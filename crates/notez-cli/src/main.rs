@@ -253,7 +253,7 @@ fn decide(
     let view = View::for_flags(has_scope_flag, scope, in_project);
     match command {
         Some(Commands::Tree | Commands::Treez) => Ok(Action::Browse(view)),
-        Some(cmd) => Ok(Action::Run(cmd)),
+        Some(cmd) => Ok(Action::Run(with_dir_shorthand(cmd))),
         None if words.is_empty() => Ok(Action::Browse(view)),
         None if has_scope_flag => Ok(Action::QuickNote(words)),
         None => Err(format!(
@@ -261,6 +261,24 @@ fn decide(
              or a scope flag: `notez -p <title>` (also -g, -l)",
             words[0]
         )),
+    }
+}
+
+/// `add work/ title` is `add --in work title`: move the `dir/` shorthand
+/// into `--in` before anything reads it, so the fallback hint sees the
+/// global target. An explicit `--in` leaves the title alone.
+fn with_dir_shorthand(cmd: Commands) -> Commands {
+    use commands::add::take_dir_shorthand;
+    match cmd {
+        Commands::Add { mut title, r#in: None, in_local } => {
+            let r#in = take_dir_shorthand(&mut title);
+            Commands::Add { title, r#in, in_local }
+        }
+        Commands::Znote { mut title, r#in: None, in_local } => {
+            let r#in = take_dir_shorthand(&mut title);
+            Commands::Znote { title, r#in, in_local }
+        }
+        other => other,
     }
 }
 
@@ -473,6 +491,8 @@ fn print_help() {
     cmd("notez add [title]", "create a public note in the repo");
     cmd("notez add [title] \"body\"", "create with content");
     cmd("notez add --in <dir>", "create inside a subdirectory (bare --in: fzf picker)");
+    cmd("notez add <dir>/ [title]", "same as --in <dir>; a lone / opens the picker");
+    cmd("notez add --in . <word/>", "title starting with a word ending in / (. is the root)");
     cmd("notez -p add [title]", "create private note");
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
@@ -887,6 +907,38 @@ mod tests {
         with_dirs(|config, outside, _repo| {
             assert_eq!(hint_in(outside, &["-p", "add", "--in", "work", "plan"], config), None);
         });
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn add_dir_shorthand_hints_like_in() {
+        with_dirs(|config, outside, _repo| {
+            for args in [&["-p", "add", "work/", "plan"][..], &["-p", "znote", "/", "plan"]] {
+                assert_eq!(hint_in(outside, args, config), None, "{args:?}");
+            }
+        });
+        assert_hint_only_for_personal_outside_git(&["add", "--in-local", "work/", "plan"]);
+        assert_hint_only_for_personal_outside_git(&["add", "work", "plan"]);
+    }
+
+    #[test]
+    fn add_dir_shorthand_becomes_in() {
+        let action = decide_for(parse(&["add", "work/meetings/", "standup"]).unwrap(), false);
+        match action {
+            Ok(Action::Run(Commands::Add { title, r#in, .. })) => {
+                assert_eq!(r#in.as_deref(), Some("work/meetings"));
+                assert_eq!(title, words(&["standup"]));
+            }
+            other => panic!("{other:?}"),
+        }
+        let action = decide_for(parse(&["add", "--in", "a", "b/", "c"]).unwrap(), false);
+        match action {
+            Ok(Action::Run(Commands::Add { title, r#in, .. })) => {
+                assert_eq!(r#in.as_deref(), Some("a"));
+                assert_eq!(title, words(&["b/", "c"]));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
