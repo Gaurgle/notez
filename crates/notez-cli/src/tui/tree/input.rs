@@ -1,7 +1,9 @@
 //! The event loop and its key dispatch.
 
 use super::*;
+use crate::tui::notice::Notice;
 use crate::tui::sync::VaultSync;
+use std::time::Instant;
 
 /// What a browse key does while the preview is focused, before the list's
 /// own handling: scroll the preview by a number of lines, nothing, or the
@@ -70,7 +72,7 @@ pub(super) fn event_loop(
     // The text the open rename prompt was prefilled with: Enter on it
     // unchanged renames nothing.
     let mut rename_shown = String::new();
-    let mut status_message: Option<String> = None;
+    let mut status_message = Notice::default();
     // `y` was pressed: the next key finishes the copy chord (see `yank`).
     let mut yank_pending = false;
     let mut preview_scroll: u16 = 0;
@@ -631,21 +633,27 @@ pub(super) fn event_loop(
                     }
                     refresh_probe(&mut probe, forest);
                 }
-                Err(message) => status_message = Some(message),
+                Err(message) => status_message.set(Some(message)),
             }
             refresh_tag_baseline(forest);
             continue;
         }
         // A running sync shortens the wait so its result shows promptly,
         // and holds the probe off until it is done.
+        // A success message on the footer shortens it too, to clear on time.
         let mut finished = None;
+        let mut expired = false;
         let ev = loop {
-            let wait = vault_sync.poll_interval(PROBE_INTERVAL);
+            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), Instant::now());
             if event::poll(wait).context("failed to poll for events")? {
                 break Some(event::read().context("failed to read event")?);
             }
             if let Some(done) = vault_sync.take_finished() {
                 finished = Some(done);
+                break None;
+            }
+            if status_message.expire(Instant::now()) {
+                expired = true;
                 break None;
             }
             if vault_sync.running() || !can_probe {
@@ -663,9 +671,12 @@ pub(super) fn event_loop(
             }
         };
         if let Some(done) = finished {
-            status_message = Some(done.message());
+            status_message.finished(&done, Instant::now());
             dirty.mark_stale();
             sync_reload |= done.moved;
+            continue;
+        }
+        if expired {
             continue;
         }
         let Some(ev) = ev else {
@@ -683,10 +694,10 @@ pub(super) fn event_loop(
                     }
                     // A message already showing (an action's outcome) stays.
                     if status_message.is_none() {
-                        status_message = Some("reloaded (files changed)".to_string());
+                        status_message.flash("reloaded (files changed)".to_string(), Instant::now());
                     }
                 }
-                Err(message) => status_message = Some(message),
+                Err(message) => status_message.set(Some(message)),
             }
             continue;
         };
@@ -815,7 +826,11 @@ pub(super) fn event_loop(
                 .selected()
                 .and_then(|sel| visible.get(sel))
                 .and_then(|&i| nodes.get(i));
-            status_message = yank(key.code, row, &mut crate::tui::clipboard::copy);
+            show_yank(
+                &mut status_message,
+                yank(key.code, row, &mut crate::tui::clipboard::copy),
+                Instant::now(),
+            );
             continue;
         }
 
@@ -823,7 +838,7 @@ pub(super) fn event_loop(
             continue;
         }
 
-        status_message = None;
+        status_message.set(None);
 
         if let Some(prompt) = confirm_delete.take() {
             let old_nodes = forest.nodes.clone();
@@ -835,7 +850,7 @@ pub(super) fn event_loop(
                     refresh_probe(&mut probe, forest);
                 }
                 pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
-                status_message = Some(outcome.message);
+                status_message.set(Some(outcome.message));
                 let visible = compute_visible(&forest.nodes, &search_buffer);
                 let pos = outcome
                     .row
@@ -856,7 +871,7 @@ pub(super) fn event_loop(
                 }
                 marks.clear();
                 pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
-                status_message = Some(outcome.message);
+                status_message.set(Some(outcome.message));
                 let visible = compute_visible(&forest.nodes, &search_buffer);
                 let pos = outcome
                     .row
@@ -901,7 +916,7 @@ pub(super) fn event_loop(
                     let prompt = move_prompt.take().expect("the prompt is open");
                     if let Some(items) = move_set.take() {
                         match resolve_bulk_move(&prompt, &items, &ctx.new_note_roots) {
-                            Err(message) => status_message = Some(message),
+                            Err(message) => status_message.set(Some(message)),
                             Ok(None) => {}
                             Ok(Some(plan)) if plan.needs_confirm() => {
                                 confirm_bulk_move = Some(plan)
@@ -910,7 +925,7 @@ pub(super) fn event_loop(
                         }
                     } else {
                         match resolve_enter(&prompt, &ctx.new_note_roots) {
-                            Err(message) => status_message = Some(message),
+                            Err(message) => status_message.set(Some(message)),
                             Ok(None) => {}
                             Ok(Some(plan)) if plan.needs_confirm() => confirm_move = Some(plan),
                             Ok(Some(plan)) => run_move = Some(plan),
@@ -944,7 +959,7 @@ pub(super) fn event_loop(
             }
             marks.clear();
             pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
-            status_message = Some(outcome.message);
+            status_message.set(Some(outcome.message));
             let mut visible = compute_visible(&forest.nodes, &search_buffer);
             let pos = match outcome.row {
                 Some(row) => {
@@ -981,7 +996,7 @@ pub(super) fn event_loop(
                 refresh_probe(&mut probe, forest);
             }
             pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
-            status_message = Some(outcome.message);
+            status_message.set(Some(outcome.message));
             let Some(row) = outcome.row else {
                 continue;
             };
@@ -1010,7 +1025,7 @@ pub(super) fn event_loop(
                     );
                 }
                 KeyCode::Enter if new_item_refusal(prompt).is_some() => {
-                    status_message = new_item_refusal(prompt);
+                    status_message.set(new_item_refusal(prompt));
                 }
                 KeyCode::Enter if prompt.is_folder => {
                     let NewNotePrompt { target, buffer, .. } =
@@ -1022,7 +1037,7 @@ pub(super) fn event_loop(
                         refresh_probe(&mut probe, forest);
                     }
                     pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
-                    status_message = outcome.message;
+                    status_message.set(outcome.message);
                     let Some(row) = outcome.row else {
                         continue;
                     };
@@ -1035,7 +1050,7 @@ pub(super) fn event_loop(
                         }
                         visible = compute_visible(&forest.nodes, &search_buffer);
                         if let Some(message) = revealed.message("folder", forest.scope) {
-                            status_message = Some(message);
+                            status_message.set(Some(message));
                         }
                     }
                     state.select(visible.iter().position(|&i| i == row));
@@ -1049,7 +1064,7 @@ pub(super) fn event_loop(
                     {
                         Ok(created) => created,
                         Err(e) => {
-                            status_message = Some(format!("new note failed: {e:#}"));
+                            status_message.set(Some(format!("new note failed: {e:#}")));
                             continue;
                         }
                     };
@@ -1061,10 +1076,10 @@ pub(super) fn event_loop(
                     let sections = match rebuild() {
                         Ok(sections) => sections,
                         Err(e) => {
-                            status_message = Some(format!(
+                            status_message.set(Some(format!(
                                 "created {}, but the list could not be refreshed: {e:#}",
                                 created.path.display()
-                            ));
+                            )));
                             continue;
                         }
                     };
@@ -1073,7 +1088,7 @@ pub(super) fn event_loop(
                     refresh_probe(&mut probe, forest);
                     pre_focus_expanded = remap_rows(&old_nodes, &forest.nodes, &pre_focus_expanded);
                     let Some(row) = row else {
-                        status_message = Some(format!("created {}", created.path.display()));
+                        status_message.flash(format!("created {}", created.path.display()), Instant::now());
                         continue;
                     };
                     let mut visible = compute_visible(&forest.nodes, &search_buffer);
@@ -1085,7 +1100,7 @@ pub(super) fn event_loop(
                         }
                         visible = compute_visible(&forest.nodes, &search_buffer);
                         if let Some(message) = revealed.message("note", forest.scope) {
-                            status_message = Some(message);
+                            status_message.set(Some(message));
                         }
                     }
                     state.select(visible.iter().position(|&i| i == row));
@@ -1111,7 +1126,7 @@ pub(super) fn event_loop(
                     };
                     let before = nodes[ri].path.clone();
                     match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
-                        RenameEnter::Keep(message) => status_message = Some(message),
+                        RenameEnter::Keep(message) => status_message.set(Some(message)),
                         RenameEnter::Done(message) => {
                             dirty.mark_stale();
                             rename_buffer = None;
@@ -1121,7 +1136,7 @@ pub(super) fn event_loop(
                                     state.select(Some(pos));
                                 }
                             }
-                            status_message = message;
+                            status_message.set(message);
                             match relist_after_rename(
                                 forest,
                                 rebuild,
@@ -1133,7 +1148,7 @@ pub(super) fn event_loop(
                                 &before,
                             ) {
                                 Some(Ok(Some(row))) => last_preview_idx = row,
-                                Some(Err(failure)) => status_message = Some(failure),
+                                Some(Err(failure)) => status_message.set(Some(failure)),
                                 Some(Ok(None)) | None => {}
                             }
                         }
@@ -1248,7 +1263,7 @@ pub(super) fn event_loop(
                 if let Some(message) =
                     press_space(&mut marks, nodes, &mut state, &visible, focus_active)
                 {
-                    status_message = Some(message.to_string());
+                    status_message.set(Some(message.to_string()));
                 }
             }
             // Shift+Down/Up scroll the preview; matched before the plain
@@ -1389,10 +1404,10 @@ pub(super) fn event_loop(
                     None => flush_tag_maps(forest, retired, carried)
                         .and_then(|()| vault_sync.start().map_err(|why| why.message().to_string())),
                 };
-                status_message = Some(match started {
+                status_message.set(Some(match started {
                     Ok(()) => "syncing the vault".to_string(),
                     Err(message) => message,
-                });
+                }));
             }
             KeyCode::Char('R') => {
                 dirty.mark_stale();
@@ -1407,10 +1422,10 @@ pub(super) fn event_loop(
                         if let Some(row) = kept {
                             last_preview_idx = row;
                         }
-                        status_message = Some("reloaded".to_string());
+                        status_message.flash("reloaded".to_string(), Instant::now());
                         refresh_probe(&mut probe, forest);
                     }
-                    Err(message) => status_message = Some(message),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('/') => {
@@ -1449,7 +1464,7 @@ pub(super) fn event_loop(
                         rename_shown = text.clone().unwrap_or_default();
                         rename_buffer = text;
                     }
-                    Err(message) => status_message = Some(message.to_string()),
+                    Err(message) => status_message.set(Some(message.to_string())),
                 }
             }
             KeyCode::Char('n') => {
@@ -1468,7 +1483,7 @@ pub(super) fn event_loop(
                     ctx,
                 ) {
                     Ok(prompt) => new_note = Some(prompt),
-                    Err(message) => status_message = Some(message.to_string()),
+                    Err(message) => status_message.set(Some(message.to_string())),
                 }
             }
             KeyCode::Char(code @ ('m' | 'S')) if !marks.is_empty() => {
@@ -1477,7 +1492,7 @@ pub(super) fn event_loop(
                         move_prompt = Some(prompt);
                         move_set = Some(items);
                     }
-                    Err(message) => status_message = Some(message),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('d') if !marks.is_empty() => {
@@ -1489,13 +1504,13 @@ pub(super) fn event_loop(
                 ) {
                     Ok(items) if !items.is_empty() => confirm_bulk_delete = Some(items),
                     Ok(_) => {}
-                    Err(message) => status_message = Some(message),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('m') => {
                 match move_request(nodes, &forest.sections, visible.get(selected).copied(), ctx) {
                     Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message = Some(message.to_string()),
+                    Err(message) => status_message.set(Some(message.to_string())),
                 }
             }
             KeyCode::Char('S') => {
@@ -1506,7 +1521,7 @@ pub(super) fn event_loop(
                     ctx,
                 ) {
                     Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message = Some(message.to_string()),
+                    Err(message) => status_message.set(Some(message.to_string())),
                 }
             }
             KeyCode::Char('d') => {
@@ -1517,7 +1532,7 @@ pub(super) fn event_loop(
                     ctx.current_project.as_deref(),
                 ) {
                     Ok(prompt) => confirm_delete = prompt,
-                    Err(message) => status_message = Some(message.to_string()),
+                    Err(message) => status_message.set(Some(message.to_string())),
                 }
             }
             KeyCode::Char('y') => yank_pending = true,
@@ -1572,6 +1587,14 @@ pub(super) fn yank(
             })
     };
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
+}
+
+/// Show [`yank`]'s footer message: a copy flashes, a failure stays.
+pub(super) fn show_yank(status: &mut Notice, message: Option<String>, now: Instant) {
+    match message {
+        Some(text) if text.starts_with("copied") => status.flash(text, now),
+        other => status.set(other),
+    }
 }
 
 pub(super) fn file_name_of(path: &Path) -> String {
@@ -1714,6 +1737,48 @@ mod tests {
         assert!(want.is_absolute());
         assert_eq!(written, [want.to_string_lossy().into_owned()]);
         assert_eq!(message.as_deref(), Some("copied path"));
+    }
+
+    #[test]
+    fn a_copy_message_clears_after_the_expiry_and_a_failed_copy_stays() {
+        use crate::tui::notice::EXPIRY;
+        let t0 = Instant::now();
+        let mut status = Notice::default();
+        let (copied, _, _) = yank_at(KeyCode::Char('y'), "c.md");
+        show_yank(&mut status, copied, t0);
+        assert_eq!(status.as_deref(), Some("copied 7 B"));
+        assert!(status.expire(t0 + EXPIRY));
+        assert!(status.is_none());
+
+        let (_dir, roots) = test_support::temp_tree();
+        let forest = test_support::forest_of(test_support::list_sections(&roots));
+        let row = forest.nodes.iter().find(|n| n.path == roots[0].1.join("c.md"));
+        let failed = yank(KeyCode::Char('y'), row, &mut |_: &str| anyhow::bail!("no clipboard"));
+        show_yank(&mut status, failed, t0);
+        assert!(!status.expire(t0 + EXPIRY * 10));
+        assert_eq!(status.as_deref(), Some("copy failed: no clipboard"));
+    }
+
+    #[test]
+    fn a_synced_vault_message_clears_and_a_new_message_resets_the_timer() {
+        use crate::tui::notice::EXPIRY;
+        use crate::tui::sync::Finished;
+        use notez_core::sync::AutoSync;
+        let t0 = Instant::now();
+        let mut status = Notice::default();
+        let synced = Finished {
+            result: AutoSync::Done,
+            state: crate::tui::header::SyncState::Synced,
+            moved: false,
+        };
+        status.finished(&synced, t0);
+        assert_eq!(status.as_deref(), Some("vault synced"));
+        let later = t0 + EXPIRY / 2;
+        let (copied, _, _) = yank_at(KeyCode::Char('p'), "c.md");
+        show_yank(&mut status, copied, later);
+        assert!(!status.expire(t0 + EXPIRY), "the copy restarted the time");
+        assert_eq!(status.as_deref(), Some("copied path"));
+        assert!(status.expire(later + EXPIRY));
     }
 
     #[test]
