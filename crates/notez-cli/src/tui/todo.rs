@@ -64,14 +64,14 @@ const TODO_KEYS: &[KeyHint] = &[
     key("wheel", "move", "mouse wheel moves the selection; over the preview, scrolls it", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
     key("click", "select", "click a row to select it and fold a header or parent; click the preview to focus it", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
     key("drag", "reorder", "mouse drag to reorder", theme::TEXT, Group::Navigate, BOARD, Slot::HelpOnly, None),
-    key("x", "check", "check / uncheck (also Space, Enter)", theme::SAPPHIRE, Group::Edit, BOARD, Slot::Priority(1), None),
+    key("x", "x-check", "check / uncheck (also Space, Enter)", theme::SAPPHIRE, Group::Edit, BOARD, Slot::Priority(1), None),
     key("n", "new", "new todo", theme::GREEN, Group::Edit, BOARD, Slot::Priority(2), None),
     key("e", "edit", "edit text", theme::MAUVE, Group::Edit, BOARD, Slot::Priority(3), None),
     key("t", "tags", "tag mode on / off", theme::PEACH, Group::Edit, BOARD_AND_TAG, Slot::Priority(4), Some(Toggle::Tag)),
     key("s", "subtask", "add subtask", theme::LAVENDER, Group::Edit, BOARD, Slot::Priority(7), None),
     key("d", "delete", "delete (asks to confirm)", theme::RED, Group::Edit, BOARD, Slot::Priority(8), None),
     key("a", "almost", "almost done [/]", theme::YELLOW, Group::Edit, BOARD, Slot::Priority(9), None),
-    key("N", "category", "new category (global board only)", theme::GREEN, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("N", "new category", "new category (global board only)", theme::GREEN, Group::Edit, BOARD, Slot::HelpOnly, None),
     key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the todo", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(12), None),
     key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
     key("click dot", "tag", "click a todo's tag dot to toggle that tag", theme::PEACH, Group::Edit, BOARD, Slot::HelpOnly, None),
@@ -91,7 +91,7 @@ const TODO_KEYS: &[KeyHint] = &[
     key("f", "focus", "focus the current section (again to leave)", theme::GREEN, Group::View, BOARD, Slot::Priority(5), Some(Toggle::Focus)),
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the board from disk, saving unsaved edits first (it also reloads by itself, within 2 s of idle, when a shown TODO.md changes, unless it has unsaved edits here)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
-    key("g", "sync", "sync the vault now, as quitting does: save edits, commit, pull, push (in the background; the header shows syncing, then the result, and the board reloads if a shown TODO.md changed)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
+    key("g", "git sync", "sync the vault now, as quitting does: save edits, commit, pull, push (in the background; the header shows syncing, then the result, and the board reloads if a shown TODO.md changed)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
     // The pane keys; in the footer only while the preview is open, see
     // `todo_keys`.
     key(PREVIEW_KEY, "preview", "show / hide the preview of the selected todo's TODO.md (open at start from 120 columns)", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
@@ -612,7 +612,7 @@ fn todo_keys(preview_open: bool, focus: Pane) -> Vec<KeyHint> {
                 ("PgDn/PgUp", _) => shown("PgDn/PgUp", "page", 2),
                 (PANE_FOCUS_KEY, _) => shown("2", "fold", 3),
                 (PANE_CYCLE_KEY, _) => shown("1/tab", "list", 4),
-                (PREVIEW_KEY, _) => shown(PREVIEW_KEY, "hide", 5),
+                (PREVIEW_KEY, _) => shown(PREVIEW_KEY, "preview off", 5),
                 (_, Slot::Pinned | Slot::Quit) => hint,
                 _ => KeyHint { slot: Slot::HelpOnly, ..hint },
             }
@@ -3344,6 +3344,15 @@ mod tests {
             let rendered = text_of(&status_line(Vec::new(), true, Mode::Filter, &[], right, width));
             assert!(rendered.ends_with(scroll), "width {width}: {rendered:?}");
             assert_eq!(rendered.chars().count(), width, "width {width}");
+        }
+    }
+
+    #[test]
+    fn every_one_letter_todo_key_starts_its_footer_word() {
+        assert_eq!(KeyHint::unjoined_letter_keys(TODO_KEYS), Vec::<String>::new());
+        for (open, focus) in [(false, Pane::List), (true, Pane::List), (true, Pane::Preview)] {
+            let keys = todo_keys(open, focus);
+            assert_eq!(KeyHint::unjoined_letter_keys(&keys), Vec::<String>::new(), "{open} {focus:?}");
         }
     }
 

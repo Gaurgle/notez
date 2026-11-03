@@ -975,7 +975,7 @@ mod tests {
             "{rendered}"
         );
         assert!(
-            rendered.contains("y confirm") && rendered.contains("n/esc cancel"),
+            rendered.contains("yes") && rendered.contains("n/esc cancel"),
             "{rendered}"
         );
         assert!(!rendered.contains("quit"));

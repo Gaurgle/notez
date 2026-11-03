@@ -596,8 +596,8 @@ const fn key(
 /// order. Kept in step with `event_loop`.
 pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("j/k", "move", "move down / up (also Down / Up); with the preview focused, scroll it", theme::TEXT, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
-    key("l", "expand", "expand directory (also Right)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
-    key("h", "collapse", "collapse directory / go to parent (also Left)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("l", "look in", "expand directory (also Right)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
+    key("h", "hide", "collapse directory / go to parent (also Left)", theme::MAUVE, Group::Navigate, BROWSE_AND_TAG, Slot::HelpOnly, None),
     key("wheel", "scroll", "mouse wheel scrolls the pane under the pointer: the preview, or the list's cursor", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("click", "select", "click a pane to focus it; a row to select it and toggle a directory", theme::TEXT, Group::Navigate, BROWSE, Slot::HelpOnly, None),
     key("drag", "split", "drag the grip on the border between the panes to resize them", theme::LAVENDER, Group::View, BROWSE, Slot::HelpOnly, None),
@@ -611,7 +611,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("esc", "cancel", "rename: cancel", theme::PEACH, Group::Edit, RENAMING, Slot::Priority(2), None),
     key("bksp", "delete", "rename: delete the last char", theme::TEXT, Group::Edit, RENAMING, Slot::Priority(3), None),
     key("n", "new", "new note in the folder under the cursor (the prompt names the scope)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(3), None),
-    key("N", "folder", "new folder in the folder under the cursor (the prompt names the scope)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(8), None),
+    key("N", "new dir/", "new folder in the folder under the cursor (the prompt names the scope)", theme::GREEN, Group::Edit, BROWSE, Slot::Priority(8), None),
     key("m", "move", "move note or folder", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(9), None),
     key("S", "scope", "set scope", theme::MAUVE, Group::Edit, BROWSE, Slot::Priority(10), None),
     key("enter", "create", "new note or folder: create it (a note opens in the editor)", theme::GREEN, Group::Edit, NEW_NOTE, Slot::Priority(1), None),
@@ -620,7 +620,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("bksp", "delete", "new note or folder: delete the last char", theme::TEXT, Group::Edit, NEW_NOTE, Slot::Priority(4), None),
     key("space", "mark", "mark", theme::LAVENDER, Group::Edit, BROWSE, Slot::Priority(8), None),
     key("d", "delete", "delete note or folder under the cursor (asks first; no undo)", theme::RED, Group::Edit, BROWSE, Slot::Priority(7), None),
-    key("y", "confirm", "delete: yes, delete it", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
+    key("y", "yes", "delete: yes, delete it", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
     key("n/esc", "cancel", "delete: cancel (any other key too), nothing is deleted", theme::PEACH, Group::Edit, CONFIRMING, Slot::Priority(2), None),
     key("enter", "move", "move: move it to the typed folder (a new scope asks first)", theme::GREEN, Group::Edit, MOVING, Slot::Priority(1), None),
     key("esc", "cancel", "move: cancel, nothing moves", theme::PEACH, Group::Edit, MOVING, Slot::Priority(2), None),
@@ -629,7 +629,7 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("enter", "apply", "set scope: move it to the same folder in the shown scope (asks first)", theme::GREEN, Group::Edit, SETTING_SCOPE, Slot::Priority(1), None),
     key("esc", "cancel", "set scope: cancel, nothing moves", theme::PEACH, Group::Edit, SETTING_SCOPE, Slot::Priority(2), None),
     key("tab", "scope", "set scope: next scope (personal, public, local, global)", theme::SAPPHIRE, Group::Edit, SETTING_SCOPE, Slot::Priority(3), None),
-    key("y", "confirm", "move to another scope: yes, move it", theme::RED, Group::Edit, CONFIRMING_MOVE, Slot::Priority(1), None),
+    key("y", "yes", "move to another scope: yes, move it", theme::RED, Group::Edit, CONFIRMING_MOVE, Slot::Priority(1), None),
     key("n/esc", "cancel", "move to another scope: cancel (any other key too), nothing moves", theme::PEACH, Group::Edit, CONFIRMING_MOVE, Slot::Priority(2), None),
     key("/", "filter", "filter: fuzzy text (flz finds fleetz, matches lit) and #tag (starts a new filter)", theme::YELLOW, Group::Filter, BROWSE_AND_TAG, Slot::Priority(4), Some(Toggle::Filter)),
     key("@type", "type", "filter: @todo, @private, @public, @global, @docs, @scratch, @pinz (Pinz, none yet) show that type; several @ OR together", theme::YELLOW, Group::Filter, BROWSE, Slot::HelpOnly, None),
@@ -644,9 +644,9 @@ pub(super) const TREE_KEYS: &[KeyHint] = &[
     key("s", "scopes", "show the next scope: all, scratch, project, global, then the types private, public, docs, todo (the header names it; @type tokens narrow it further, and back on all they are dropped)", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(10), None),
     key("v", "view all", "expand all / collapse all sections", theme::SAPPHIRE, Group::View, BROWSE, Slot::Priority(5), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the tree from disk (it also reloads by itself, within 2 s of idle, when a shown folder changes)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
-    key("g", "sync", "sync the vault now, as quitting does: save tags, commit, pull, push (in the background; the header shows syncing, then the result, and the tree reloads if files changed)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
+    key("g", "git sync", "sync the vault now, as quitting does: save tags, commit, pull, push (in the background; the header shows syncing, then the result, and the tree reloads if files changed)", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     // In the footer only while a markdown note is selected; see `tree_keys`.
-    key(PREVIEW_TOGGLE_KEY, "raw", "toggle the preview: rendered / raw markdown, highlighted / plain code", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
+    key(PREVIEW_TOGGLE_KEY, "preview", "toggle the preview: rendered / raw markdown, highlighted / plain code", theme::SAPPHIRE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("?", "help", "this help (? or esc closes)", theme::MAUVE, Group::View, BROWSE, Slot::Pinned, Some(Toggle::Help)),
     key(":q", "quit", "vim-style quit (also :wq, :qa, :q!)", theme::MAUVE, Group::View, BROWSE, Slot::HelpOnly, None),
     key("enter", "run", ":command: run it", theme::GREEN, Group::View, COMMAND, Slot::Priority(1), None),
@@ -1077,6 +1077,28 @@ mod tests {
     }
 
     #[test]
+    fn every_one_letter_tree_key_starts_its_footer_word() {
+        assert_eq!(KeyHint::unjoined_letter_keys(TREE_KEYS), Vec::<String>::new());
+        let toggles = [PreviewMode::Rendered, PreviewMode::Raw].into_iter().flat_map(|mode| {
+            [
+                Some(PreviewToggle::markdown(mode)),
+                PreviewToggle::for_file(std::path::Path::new("main.rs"), mode),
+            ]
+        });
+        for toggle in std::iter::once(None).chain(toggles) {
+            for focus in [Pane::List, Pane::Preview] {
+                let keys = pane_keys(tree_keys(toggle), focus);
+                assert_eq!(
+                    KeyHint::unjoined_letter_keys(&keys),
+                    Vec::<String>::new(),
+                    "{:?} {focus:?}",
+                    toggle.map(PreviewToggle::desc)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_list_focused_footer_is_the_browse_footer() {
         let keys = pane_keys(tree_keys(None), Pane::List);
         let shown: Vec<&str> = footer::select(&keys, Mode::Normal, &[], 200)
@@ -1104,7 +1126,7 @@ mod tests {
             pane_footer(Pane::Preview, Some(PreviewMode::Rendered), 200),
             vec![
                 "j/k scroll",
-                "p raw",
+                "p plain",
                 "? help",
                 "PgDn/PgUp page",
                 "2 fold",
@@ -1116,7 +1138,7 @@ mod tests {
             pane_footer(Pane::Preview, Some(PreviewMode::Raw), 200),
             vec![
                 "j/k scroll",
-                "p rendered",
+                "p pretty",
                 "? help",
                 "PgDn/PgUp page",
                 "2 fold",
