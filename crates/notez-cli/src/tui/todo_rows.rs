@@ -125,6 +125,10 @@ fn continuation_prefix(items: &[Task], idx: usize, later: &[bool], has_visible_c
     prefix
 }
 
+/// The extra columns a wrapped todo's continuation lines are indented past
+/// its text, so a wrap reads as a continuation.
+const WRAP_INDENT: usize = 2;
+
 /// The display columns of every row's dot field: gutter, dots and space.
 fn dot_field_cols() -> usize {
     flags_slots(0).iter().map(Span::width).sum()
@@ -133,7 +137,8 @@ fn dot_field_cols() -> usize {
 /// Every row of `visible` drawn for a list `list_width` columns wide:
 /// the dot field (with the hover preview of `hover_flag`), the tree
 /// drawing in the tree's dim colour, then the header label, or the
-/// checkbox and text of a todo, wrapping long todos under their text.
+/// checkbox and text of a todo, wrapping long todos [`WRAP_INDENT`]
+/// columns past their text.
 /// The characters of each todo's text that the text tokens of the filter
 /// `search_buffer` matched are in [`theme::filter_match`], on every line of
 /// a wrapped todo; section headers are never lit. With no hover and an
@@ -229,16 +234,21 @@ pub(super) fn rows(
                 .is_some_and(|&next| parent_of(items, next) == Some(idx));
             let cont = continuation_prefix(items, idx, &later, has_visible_child);
             let field_blank = " ".repeat(dot_field_cols());
-            let checkbox_blank = " ".repeat(CHECKBOX_COLS);
+            let checkbox_blank = " ".repeat(CHECKBOX_COLS + WRAP_INDENT);
             // Wrap on char boundaries; slicing mid-char (å, ö, icons) would
             // panic on tiny widths.
             let mut lines = vec![];
             let mut remaining = item.text.as_str();
             let mut first = Some(first_line);
             while !remaining.is_empty() {
+                let chunk_width = if first.is_some() {
+                    text_width
+                } else {
+                    text_width.saturating_sub(WRAP_INDENT).max(1)
+                };
                 let split_at = remaining
                     .char_indices()
-                    .nth(text_width)
+                    .nth(chunk_width)
                     .map(|(i, _)| i)
                     .unwrap_or(remaining.len());
                 let split_at = if split_at < remaining.len() {
@@ -379,15 +389,18 @@ mod tests {
     /// The board's rows for [`every_kind_of_row`] as `todo.rs` drew them
     /// before the row drawing moved here (NZ-51): at width 60 with no hover
     /// or filter, at 34 with a hover dot and the filter `flt`, and at 3,
-    /// too narrow to wrap, with a hover dot on an open grandchild.
+    /// too narrow to wrap, with a hover dot on an open grandchild. Since
+    /// NZ-58 the continuation lines of wrapped todos are indented
+    /// [`WRAP_INDENT`] more and wrapped 2 columns narrower; every other line
+    /// is as before.
     const BOARD_ROWS_BEFORE_THE_MOVE: &str = r##"0: " " "·"#323241 "●"#fab387 "·"#323241 "·"#323241 "·"#323241 " " "▼ "#45475a "WORK "#cba6f7+BOLD "/nz51/none"#6c7086
 1: " " "●"#f38ba8 "·"#323241 "·"#323241 "·"#323241 "●"#cba6f7 " " "├─▾ "#45475a "["#74c7ec " "#45475a "] "#74c7ec "parent flag"#cdd6f4
 2: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ ├─▾ "#45475a "["#6c7086 "/"#f9e2af "] "#6c7086 "half child"#a6adc8
 3: " " "·"#323241 "●"#fab387 "·"#323241 "·"#323241 "·"#323241 " " "│ │ ├─  "#45475a "["#6c7086 "x"#74c7ec "] "#6c7086 "done grandchild"#6c7086
 4: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ │ └─  "#45475a "["#388bb0 " "#45475a "] "#388bb0 "open grandchild"#cdd6f4
 5: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ └─▾ "#45475a "["#56a9ce " "#45475a "] "#56a9ce "a long todo that wraps over several "#cdd6f4
-5: "       " "│   │ "#45475a "    " "lines of the fleet with åäö ünïcode "#cdd6f4
-5: "       " "│   │ "#45475a "    " "and more words"#cdd6f4
+5: "       " "│   │ "#45475a "      " "lines of the fleet with åäö ünïcode "#cdd6f4
+5: "       " "│   │ "#45475a "      " "and more words"#cdd6f4
 6: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│   └─  "#45475a "["#388bb0 " "#45475a "] "#388bb0 "child of the long one"#cdd6f4
 7: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "├─▸ "#45475a "["#74c7ec " "#45475a "] "#74c7ec "collapsed parent"#cdd6f4
 8: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "└─  "#45475a "["#6c7086 "x"#74c7ec "] "#6c7086 "last top flz"#6c7086
@@ -397,22 +410,26 @@ mod tests {
 1: " " "●"#f38ba8 "·"#323241 "·"#323241 "●"#74c7ec+DIM "●"#cba6f7 " " "├─▾ "#45475a "["#74c7ec " "#45475a "] "#74c7ec "parent flag"#cdd6f4
 2: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ ├─▾ "#45475a "["#6c7086 "/"#f9e2af "] "#6c7086 "half child"#a6adc8
 3: " " "·"#323241 "●"#fab387 "·"#323241 "·"#323241 "·"#323241 " " "│ │ ├─  "#45475a "["#6c7086 "x"#74c7ec "] "#6c7086 "done "#6c7086
-3: "       " "│ │ │   "#45475a "    " "grandchild"#6c7086
+3: "       " "│ │ │   "#45475a "      " "grandchil"#6c7086
+3: "       " "│ │ │   "#45475a "      " "d"#6c7086
 4: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ │ └─  "#45475a "["#388bb0 " "#45475a "] "#388bb0 "open "#cdd6f4
-4: "       " "│ │     "#45475a "    " "grandchild"#cdd6f4
+4: "       " "│ │     "#45475a "      " "grandchil"#cdd6f4
+4: "       " "│ │     "#45475a "      " "d"#cdd6f4
 5: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│ └─▾ "#45475a "["#56a9ce " "#45475a "] "#56a9ce "a long todo "#cdd6f4
-5: "       " "│   │ "#45475a "    " "that wraps "#cdd6f4
-5: "       " "│   │ "#45475a "    " "over several "#cdd6f4
-5: "       " "│   │ "#45475a "    " "lines o"#cdd6f4 "f"#f9e2af+BOLD " the "#cdd6f4
-5: "       " "│   │ "#45475a "    " "f"#cdd6f4 "l"#f9e2af+BOLD "ee"#cdd6f4 "t"#f9e2af+BOLD " with "#cdd6f4
-5: "       " "│   │ "#45475a "    " "åäö ünïcode "#cdd6f4
-5: "       " "│   │ "#45475a "    " "and more "#cdd6f4
-5: "       " "│   │ "#45475a "    " "words"#cdd6f4
+5: "       " "│   │ "#45475a "      " "that wraps "#cdd6f4
+5: "       " "│   │ "#45475a "      " "over "#cdd6f4
+5: "       " "│   │ "#45475a "      " "several "#cdd6f4
+5: "       " "│   │ "#45475a "      " "lines o"#cdd6f4 "f"#f9e2af+BOLD " "#cdd6f4
+5: "       " "│   │ "#45475a "      " "the f"#cdd6f4 "l"#f9e2af+BOLD "ee"#cdd6f4 "t"#f9e2af+BOLD " "#cdd6f4
+5: "       " "│   │ "#45475a "      " "with åäö "#cdd6f4
+5: "       " "│   │ "#45475a "      " "ünïcode "#cdd6f4
+5: "       " "│   │ "#45475a "      " "and more "#cdd6f4
+5: "       " "│   │ "#45475a "      " "words"#cdd6f4
 6: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "│   └─  "#45475a "["#388bb0 " "#45475a "] "#388bb0 "child of "#cdd6f4
-6: "       " "│       "#45475a "    " "the long "#cdd6f4
-6: "       " "│       "#45475a "    " "one"#cdd6f4
+6: "       " "│       "#45475a "      " "the long "#cdd6f4
+6: "       " "│       "#45475a "      " "one"#cdd6f4
 7: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "├─▸ "#45475a "["#74c7ec " "#45475a "] "#74c7ec "collapsed "#cdd6f4
-7: "       " "│   "#45475a "    " "parent"#cdd6f4
+7: "       " "│   "#45475a "      " "parent"#cdd6f4
 8: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "└─  "#45475a "["#6c7086 "x"#74c7ec "] "#6c7086 "last top flz"#6c7086
 9: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "▼ "#45475a "CODE "#f9e2af+BOLD "/nz51/none"#6c7086
 10: " " "·"#323241 "·"#323241 "·"#323241 "·"#323241 "·"#323241 " " "└─  "#45475a "src/x.rs:3 "#6c7086 "f"#f9e2af+BOLD "ix the f"#6c7086 "l"#f9e2af+BOLD "ee"#6c7086 "t"#f9e2af+BOLD
@@ -468,14 +485,41 @@ mod tests {
     }
 
     #[test]
-    fn a_long_todo_wraps_under_its_text() {
+    fn a_long_todo_wraps_two_columns_past_its_text() {
         let items = vec![task("one two three four five six seven", 0, 0, CheckState::Unchecked)];
         let drawn = rows(&items, &[0], None, 30, "");
         let lines = plain(&drawn[0]);
-        assert!(lines.len() > 1, "{lines:?}");
+        assert!(lines.len() > 2, "{lines:?}");
         let text_col = |s: &str| s.chars().position(char::is_alphabetic).unwrap();
-        assert_eq!(text_col(&lines[0]), text_col(&lines[1]), "{lines:?}");
+        for line in &lines[1..] {
+            assert_eq!(
+                text_col(line),
+                text_col(&lines[0]) + WRAP_INDENT,
+                "{lines:?}"
+            );
+        }
         assert_eq!(lines.concat().split_whitespace().filter(|w| w.chars().all(char::is_alphabetic)).count(), 7);
+    }
+
+    #[test]
+    fn no_wrapped_row_is_wider_than_the_list() {
+        let text = "a long todo that wraps over several lines of the fleet with åäö ünïcode and \
+                    a_word_longer_than_any_line_can_hold";
+        let items = vec![
+            task("parent", 0, 0, CheckState::Unchecked),
+            task(text, 1, 0, CheckState::Unchecked),
+            task(text, 2, 0, CheckState::Unchecked),
+            task(text, 0, 0, CheckState::Unchecked),
+        ];
+        for width in 24..=40 {
+            let drawn = rows(&items, &[0, 1, 2, 3], None, width, "");
+            for row in &drawn {
+                for line in &row.lines {
+                    assert!(line.width() <= usize::from(width), "{width}: {line:?}");
+                }
+            }
+            assert!(drawn[2].lines.len() > 1, "{width}: the deepest todo wraps");
+        }
     }
 
     #[test]

@@ -2982,7 +2982,7 @@ mod tests {
     }
 
     #[test]
-    fn a_wrapped_todo_continues_under_its_text_with_the_branch_line_carried_on() {
+    fn a_wrapped_todo_continues_two_past_its_text_with_the_branch_line_carried_on() {
         let mut items = nested_board();
         items[2].text = "word ".repeat(30).trim_end().to_string();
         let visible = compute_visible(&items, "");
@@ -2992,7 +2992,7 @@ mod tests {
         let first = row_text(&cells[2]);
         let second = row_text(&cells[3]);
         let text_col = |s: &str| s.chars().position(|c| c == 'w').unwrap();
-        assert_eq!(text_col(&first), text_col(&second), "{first:?} / {second:?}");
+        assert_eq!(text_col(&second), text_col(&first) + 2, "{first:?} / {second:?}");
         assert!(second.starts_with("       │ │"), "{second:?}");
     }
 
