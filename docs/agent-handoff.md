@@ -9,10 +9,9 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 None. Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) RELEASED the
 baton 2026-11-04 16:15 on Andreas's "lets stop for today then". No
-workers or reviewers running. `main` = `origin/main` at `6343eb5`
-(NZ-72 merged as `312410d`; CI run 41854087161 was still queued on
-GitHub's side at release: confirm green, then `scripts/relay-sweep main`
-removes `.claude/worktrees/NZ-72`). He installs from `main`.
+workers or reviewers running. `main` = `origin/main` (NZ-72 merged as
+`312410d`; CI run 41854087161 green; NZ-72 worktree swept). He installs
+from `main`.
 
 ## Standing authority
 
