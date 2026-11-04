@@ -1118,6 +1118,15 @@ fn parse_due_input(input: &str, today: chrono::NaiveDate) -> Result<Option<NoteD
     }
 }
 
+/// The live colour of the `D` prompt's typed value: green when Enter would
+/// accept it, red when it would refuse it, `None` (default text) while empty.
+fn due_input_color(input: &str, today: chrono::NaiveDate) -> Option<Color> {
+    if input.trim().is_empty() {
+        return None;
+    }
+    Some(if parse_due_input(input, today).is_ok() { theme::GREEN } else { theme::RED })
+}
+
 /// What one key did in the `D` prompt.
 #[derive(Debug, PartialEq, Eq)]
 enum DueKey {
@@ -1760,14 +1769,18 @@ fn event_loop(
                     } else {
                         ""
                     };
+                    let value_color = due_mode
+                        .then(|| due_input_color(&input_buffer, chrono::Local::now().date_naive()))
+                        .flatten()
+                        .unwrap_or(theme::TEXT);
                     let mut spans = vec![
                         Span::styled(label, Style::default().fg(label_color)),
-                        Span::styled(before.to_string(), Style::default().fg(theme::TEXT)),
+                        Span::styled(before.to_string(), Style::default().fg(value_color)),
                         Span::styled(
                             cursor_char,
                             Style::default().fg(theme::BASE).bg(theme::SAPPHIRE),
                         ),
-                        Span::styled(rest.to_string(), Style::default().fg(theme::TEXT)),
+                        Span::styled(rest.to_string(), Style::default().fg(value_color)),
                     ];
                     if let Some(err) = &category_error {
                         spans.push(Span::styled(
@@ -3664,6 +3677,19 @@ mod tests {
             let DueKey::Invalid(message) = outcome else { panic!("{bad}: {outcome:?}") };
             assert!(message.contains(bad) && message.contains("+3d"), "{bad}: {message}");
             assert_eq!(line, "- [ ] ship it @2026-10-20", "{bad}");
+        }
+    }
+
+    #[test]
+    fn due_input_color_is_green_when_enter_would_accept_red_when_not_none_when_empty() {
+        for good in ["+1d", "2026-11-20", "clear", "CLEAR", "+2W", " +1w "] {
+            assert_eq!(due_input_color(good, today()), Some(theme::GREEN), "{good}");
+        }
+        for bad in ["=1d", "+1m", "friday", "+", "2026-11-2"] {
+            assert_eq!(due_input_color(bad, today()), Some(theme::RED), "{bad}");
+        }
+        for empty in ["", "  "] {
+            assert_eq!(due_input_color(empty, today()), None, "{empty:?}");
         }
     }
 
