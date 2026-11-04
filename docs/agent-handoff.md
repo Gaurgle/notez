@@ -9,8 +9,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton again
 since 2026-11-04 afternoon (his "continue" after the usage pause). Took over 2026-11-04, taken from the released state of lead `67917d20`
-(2026-11-03). `main` = `origin/main` at `de71d36` (NZ-50c merged; CI run
-41823800494 green). Andreas 2026-11-04: "continue" (the queue below).
+(2026-11-03). `main` = `origin/main` at `ae81d5f` (NZ-73 merged; CI run
+41847873074 green). Andreas 2026-11-04: "continue" (the queue below).
 
 ## Standing authority
 
@@ -28,8 +28,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-50b (#98): Ready to integrate, gate owner look; ee253ef (round 3, diff
-  3da6bc4f5265), CI green, gate holds on 2acb1ba; `.claude/worktrees/NZ-50b`. Record on #98.
+- NZ-72 (#101): Ready to integrate, gate owner look; fa479aa (diff
+  e3c666686df4), CI green, gate holds on ae81d5f; `.claude/worktrees/NZ-72`.
+  Record on #101. His last round today; merge then he installs.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
@@ -38,8 +39,7 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## Open questions
 
-- NZ-72 (#101, Ready, popup prompt for rename and due, after NZ-50b, on his
-  go) and NZ-71 (#100, Backlog, intuitive dated-todo creation, design) from his 2026-11-04 words.
+- NZ-71 (#100, Backlog): intuitive dated-todo creation, design first (his 2026-11-04 note).
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
@@ -50,7 +50,7 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-50b (#98, his look); NZ-65 (his call); NZ-69, NZ-70 (#95, #96, on his go);
+tickets can go ahead"): NZ-72 (#101, his look, last today); NZ-65 (his call); NZ-69, NZ-70 (#95, #96, on his go);
 NZ-67 (#93, parked until he queues it); NZ-30 (#59, no brief yet). Per ticket: worktree from `main`, worker, separate
 reviewer, lead verify, commit, push, CI, `relay-gate`, Done.
 

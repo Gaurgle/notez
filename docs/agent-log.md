@@ -362,6 +362,60 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-73 (#102): notez --help lists add --due and --on
+
+Follow-up from the NZ-50c review, created 2026-11-04 by lead
+`018zBNkK` for his last round ("one more round of tickets ... end at a
+place where i can install"). Branch `fix/nz-73-help-due-on`, worktree
+`.claude/worktrees/NZ-73`, base `7069bf5`, beside NZ-72. Worker nz-small
+(sonnet, 1 min, 19k tokens): one `cmd(..)` line from a constant plus a
+test; its test run died on a full `/tmp` (old scratch cargo builds;
+lead pruned 8 GB and reran green). Reviewer (opus, 1 min, 19k) needs
+change: the name was 38 chars against the 32-column pad. Rework
+(sonnet, 1 min, 14k): 29 chars, `--on DATE[THH:MM]`. Re-review (1 min,
+19k) raised only the lead's own 80-column bar from the brief; ruled
+accepted (neighbours run to 107 columns), diff `e097789dd31d`.
+Committed `75f9fb7`, CI 41845560904 green, combined check on `7069bf5`
+clean (794 + 5 + 203), gate held, merged `--no-ff` as `ae81d5f`
+(Closes #102), CI on `main` 41847873074 green, remote branch deleted,
+worktree swept. Follow-up on #102: the test pins the constant, not
+`print_help` output. Remember at the end: a method fact for the Relay
+failure table: a review brief must not add bars the ticket does not
+set; the reviewer spent a round on one (home: relay changelog, not
+written yet; noted here).
+
+NZ-73: review changes 1; fix cycles 1; owner decisions 0; worker 2; review 2; models sonnet/opus; usage 33k; 38k
+
+### NZ-50b (#98): todoz D sets or clears a todo's due date
+
+Consumer 1 of the dates design, created 2026-11-04 by lead `018zBNkK`
+in the NZ-50 split, look change. Branch `feat/nz-50b-todoz-due`,
+worktree `.claude/worktrees/NZ-50b`, base `5bdb4a1`, beside NZ-50c.
+Worker (opus, about 6 min, 62k tokens): `D` prompt reusing the `e`
+prompt's mode (footer.rs out of scope), `parse_due_input` (`YYYY-MM-DD`,
+`+Nd`, `+Nw`, `clear`), saved through the existing serializer, help-only
+row, nine mutations killed. Reviewer (opus, 3 min, 51k) needs change:
+B1 high, a multibyte character after `+` panicked the TUI (a panic
+loses unsaved edits); M1 low, a year past 9999 cannot round-trip; and a
+pre-existing note, mouse drags and filter clicks are handled while any
+prompt is open. Rework (1 min, 21k): char-based suffix split, year cap.
+Re-review (2 min, 23k) accepted, diff `9da6e201a8c5`, commit `f7751d9`.
+Andreas tried it, then: "let's have badly and incorrectly formatted
+input be red as well, and turn green when it's a correct format".
+Amendment (3 min, 27k): `due_input_color` beside the parser, live red
+or green value; review (2 min, 19k) accepted first, diff
+`3da6bc4f5265`, commit `ee253ef`, CI 41827590400 green, combined check
+on `2acb1ba` clean (793 + 5 + 203), gate held. Andreas: "nice", then
+asked for a popup prompt instead of the footer input (NZ-72, #101) and
+"one more round of tickets ... end at a place where i can install";
+merged `--no-ff` as `7069bf5` (Closes #98), CI on `main` 41843749917
+green, remote branch deleted, worktree swept. Remember at the end: a
+code fact, written into the NZ-72 brief rather than a rule: any prompt
+parser must split on chars, never byte indices; the reviewer's probe,
+not the tests, caught it.
+
+NZ-50b: review changes 1; fix cycles 1; owner decisions 1; worker 10; review 7; models opus/opus; usage 110k; 93k
+
 ### NZ-50c (#99): notez add --due and --on write the frontmatter at creation
 
 Consumer 4 of the dates design, created 2026-11-04 by lead `018zBNkK`
