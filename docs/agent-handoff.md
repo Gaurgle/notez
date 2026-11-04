@@ -7,8 +7,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
-since 2026-11-04, taken from the released state of lead `67917d20`
+Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) RELEASED the baton
+2026-11-04 afternoon at its usage limit; no workers running. Took over 2026-11-04, taken from the released state of lead `67917d20`
 (2026-11-03). `main` = `origin/main` at `de71d36` (NZ-50c merged; CI run
 41823800494 green). Andreas 2026-11-04: "continue" (the queue below).
 
@@ -28,8 +28,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-50b (#98): Ready to integrate, gate owner look; f7751d9, CI green, gate
-  holds on de71d36; `.claude/worktrees/NZ-50b`. Record on #98.
+- NZ-50b (#98): Ready to integrate, gate owner look; ee253ef (round 3, diff
+  3da6bc4f5265), CI green, gate holds on 2acb1ba; `.claude/worktrees/NZ-50b`. Record on #98.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
@@ -38,8 +38,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## Open questions
 
-- NZ-71 (#100, Backlog): his 2026-11-04 note, creating a dated todo or
-  note must be intuitive (forms such as +1y, +1mo, +2h; surfaces); design first.
+- NZ-72 (#101, Ready, popup prompt for rename and due, after NZ-50b, on his
+  go) and NZ-71 (#100, Backlog, intuitive dated-todo creation, design) from his 2026-11-04 words.
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
