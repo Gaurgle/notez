@@ -465,6 +465,12 @@ fn install_panic_hook() {
     }));
 }
 
+/// Name and description of the `add --due` / `--on` help line.
+const ADD_DATE_HELP: (&str, &str) = (
+    "notez add --due <d> --on <dt>",
+    "date it: --due DATE|+3d|+1w, --on DATE[THH:MM]",
+);
+
 fn print_help() {
     use console::Style;
     let lavender = Style::new().color256(183).bold();
@@ -498,6 +504,7 @@ fn print_help() {
     cmd("notez add --in <dir>", "create inside a subdirectory (bare --in: fzf picker)");
     cmd("notez add <dir>/ [title]", "same as --in <dir>; a lone / opens the picker");
     cmd("notez add --in . <word/>", "title starting with a word ending in / (. is the root)");
+    cmd(ADD_DATE_HELP.0, ADD_DATE_HELP.1);
     cmd("notez -p add [title]", "create private note");
     cmd("notez -g add [title]", "create global note");
     cmd("notez quick [title]", "private quick note (same as add quick)");
@@ -710,6 +717,14 @@ mod tests {
         assert!(parse(&["-g", "-x"]).is_err());
         let cli = parse(&["-g", "--", "-x", "marks"]).unwrap();
         assert_eq!(cli.words, words(&["-x", "marks"]));
+    }
+
+    #[test]
+    fn help_lists_add_due_and_on() {
+        let line = format!("{} {}", ADD_DATE_HELP.0, ADD_DATE_HELP.1);
+        assert!(line.contains("--due"), "{line}");
+        assert!(line.contains("--on"), "{line}");
+        assert!(ADD_DATE_HELP.0.len() <= 32, "{line}");
     }
 
     #[test]
