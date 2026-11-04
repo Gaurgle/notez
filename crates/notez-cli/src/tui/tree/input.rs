@@ -72,6 +72,8 @@ pub(super) fn event_loop(
     // The text the open rename prompt was prefilled with: Enter on it
     // unchanged renames nothing.
     let mut rename_shown = String::new();
+    // Why Enter refused the rename popup's name, until the next key.
+    let mut rename_error: Option<String> = None;
     let mut status_message = Notice::default();
     // `y` was pressed: the next key finishes the copy chord (see `yank`).
     let mut yank_pending = false;
@@ -580,9 +582,7 @@ pub(super) fn event_loop(
                         };
                         lead_with_hints(lead, Mode::NewItem, &toggles, width)
                     }
-                    StatusSlot::Rename(buffer) => {
-                        lead_with_hints(rename_lead(buffer), Mode::Rename, &toggles, width)
-                    }
+                    StatusSlot::Rename(_) => rename_footer(&toggles, width),
                     StatusSlot::Message(message) => Line::from(Span::styled(
                         format!(" {message}"),
                         Style::default().fg(theme::PEACH),
@@ -627,6 +627,9 @@ pub(super) fn event_loop(
                 };
                 frame.render_widget(Paragraph::new(status), rows[1]);
 
+                if let Some(buffer) = &rename_buffer {
+                    rename_popup(buffer, rename_error.as_deref()).render(frame, full);
+                }
                 if help.open {
                     help::render(frame, full, TREE_KEYS, &mut help);
                 }
@@ -1151,8 +1154,8 @@ pub(super) fn event_loop(
 
         if let Some(buffer) = rename_buffer.as_mut() {
             match key.code {
-                KeyCode::Esc => rename_buffer = None,
                 KeyCode::Enter => {
+                    rename_error = None;
                     let visible = compute_visible(nodes, &search_buffer);
                     let vs = state.selected().unwrap_or(0);
                     let Some(&ri) = visible.get(vs) else {
@@ -1160,8 +1163,8 @@ pub(super) fn event_loop(
                         continue;
                     };
                     let before = nodes[ri].path.clone();
-                    match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
-                        RenameEnter::Keep(message) => status_message.set(Some(message)),
+                    match rename_popup_enter(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
+                        RenameEnter::Keep(message) => rename_error = Some(message),
                         RenameEnter::Done(message) => {
                             dirty.mark_stale();
                             rename_buffer = None;
@@ -1189,11 +1192,7 @@ pub(super) fn event_loop(
                         }
                     }
                 }
-                KeyCode::Backspace => {
-                    buffer.pop();
-                }
-                KeyCode::Char(c) => buffer.push(c),
-                _ => {}
+                code => rename_popup_key(code, &mut rename_buffer, &mut rename_error),
             }
             continue;
         }
@@ -1736,6 +1735,53 @@ pub(super) fn ends_yank_flash(ev: &Event) -> bool {
     }
 }
 
+/// A key other than `Enter` in the open rename popup: `esc` closes it with
+/// nothing renamed, backspace and characters edit the name at its end.
+/// Every one clears the last refusal's error line.
+pub(super) fn rename_popup_key(code: KeyCode, buffer: &mut Option<String>, error: &mut Option<String>) {
+    *error = None;
+    match code {
+        KeyCode::Esc => *buffer = None,
+        KeyCode::Backspace => {
+            if let Some(name) = buffer {
+                name.pop();
+            }
+        }
+        KeyCode::Char(c) => {
+            if let Some(name) = buffer {
+                name.push(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `Enter` in the rename popup: [`enter_rename`], with every refusal kept
+/// open as `Keep` so its message becomes the popup's error line. An altered
+/// name already comes back as `Keep`; an empty or clashing name (and any
+/// other failure that left the row's file where it was) comes back as
+/// `Done` with a message and is kept open too. A failure after the file
+/// moved still closes, so the relist picks up the move.
+pub(super) fn rename_popup_enter(
+    nodes: &mut [TreeNode],
+    sections: &mut [SectionSpec],
+    idx: usize,
+    shown: &str,
+    typed: &str,
+) -> RenameEnter {
+    let before = nodes.get(idx).map(|n| n.path.clone());
+    match enter_rename(nodes, sections, idx, shown, typed) {
+        RenameEnter::Done(Some(message))
+            if before.as_ref().is_some_and(|path| {
+                nodes[idx].path == *path && std::fs::symlink_metadata(path).is_ok()
+            }) =>
+        {
+            RenameEnter::Keep(message)
+        }
+        other => other,
+    }
+}
+
 pub(super) fn file_name_of(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1777,7 +1823,64 @@ pub(super) fn navigate(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::*;
     use super::*;
+
+    /// `r` on `path`, then `typed` replacing the shown name, then Enter.
+    fn rename_popup_on(forest: &mut Forest, path: &Path, typed: &str) -> RenameEnter {
+        let i = row(&forest.nodes, path_str(path));
+        let shown = rename_request(&forest.nodes, &forest.sections, Some(i))
+            .expect("the row opens the popup")
+            .expect("a row under the cursor");
+        rename_popup_enter(&mut forest.nodes, &mut forest.sections, i, &shown, typed)
+    }
+
+    #[test]
+    fn rename_popup_keeps_an_empty_or_clashing_name_open_with_its_error() {
+        let (_dir, notez, root) = vault();
+        std::fs::write(root.join("clash.md"), "# clash\n").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        let cases = [
+            (root.join("top.md"), "", "no usable characters"),
+            (root.join("top.md"), "clash", "already exists"),
+            (root.join("ideas"), "", "the name is empty"),
+            (root.join("ideas"), "plans", "already exists"),
+            (root.join("ideas"), "Bad_Name", "letters, digits and -"),
+        ];
+        for (path, typed, want) in cases {
+            let outcome = rename_popup_on(&mut forest, &path, typed);
+            let RenameEnter::Keep(message) = outcome else {
+                panic!("{typed:?} on {}: {outcome:?}", path.display())
+            };
+            assert!(message.contains(want), "{typed:?}: {message}");
+            assert_eq!(disk_entries(&notez), before, "{typed:?}: nothing moved");
+            assert!(forest.nodes.iter().any(|n| n.path == path), "{typed:?}: the row keeps its path");
+        }
+    }
+
+    #[test]
+    fn rename_popup_closes_on_a_rename_or_the_unchanged_name() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "top"), RenameEnter::Done(None));
+        assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "renamed"), RenameEnter::Done(None));
+        assert!(root.join("renamed.md").is_file());
+    }
+
+    #[test]
+    fn rename_popup_esc_closes_it_and_its_error_without_a_change() {
+        let mut buffer = Some("clash".to_string());
+        let mut error = Some("rename: clash already exists".to_string());
+        rename_popup_key(KeyCode::Char('x'), &mut buffer, &mut error);
+        assert_eq!((buffer.as_deref(), error.as_deref()), (Some("clashx"), None), "typing clears the error");
+        error = Some("refused".to_string());
+        rename_popup_key(KeyCode::Backspace, &mut buffer, &mut error);
+        assert_eq!((buffer.as_deref(), error.as_deref()), (Some("clash"), None));
+        error = Some("refused".to_string());
+        rename_popup_key(KeyCode::Esc, &mut buffer, &mut error);
+        assert_eq!((buffer, error), (None, None));
+    }
 
     #[test]
     fn with_the_preview_focused_j_k_arrows_and_pages_scroll_it() {

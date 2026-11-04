@@ -2,6 +2,7 @@
 //! titles, and the key table shared by the footer and the help overlay.
 
 use super::*;
+use crate::tui::prompt::Prompt;
 
 /// The filter strip's contiguous 5-dot geometry: dot 0 sits at
 /// `area_x + 1`, after a one-column lead, so each strip dot stands over
@@ -452,8 +453,8 @@ pub(super) fn status_slot<'a>(
     flag_mode: bool,
     warning: Option<&'a str>,
 ) -> StatusSlot<'a> {
-    // A message outranks the rename prompt: a refused name keeps the prompt
-    // open, and its message shows until the next key brings the prompt back.
+    // A message outranks the rename mode's hints until the next key; a
+    // refused name's message shows in the rename popup instead.
     if let Some(message) = message {
         StatusSlot::Message(message)
     } else if let Some(buffer) = rename {
@@ -469,13 +470,27 @@ pub(super) fn status_slot<'a>(
     }
 }
 
-/// The rename prompt that leads the footer in rename mode.
-pub(super) fn rename_lead(buffer: &str) -> Vec<Span<'static>> {
-    vec![
-        Span::styled(" rename: ", Style::default().fg(theme::MAUVE)),
-        Span::styled(buffer.to_string(), Style::default().fg(theme::TEXT)),
-        Span::styled("_", Style::default().fg(theme::OVERLAY)),
-    ]
+/// The accepted forms, the rename popup's hint line.
+pub(super) const RENAME_HINT: &str = "letters, digits and -";
+
+/// The rename popup over the tree: the typed name, the cursor at its end,
+/// and the refused name's message beneath it. No live colour: whether a
+/// name clashes is only known on Enter.
+pub(super) fn rename_popup<'a>(buffer: &'a str, error: Option<&'a str>) -> Prompt<'a> {
+    Prompt {
+        title: "rename",
+        hint: RENAME_HINT,
+        buffer,
+        cursor: buffer.len(),
+        error,
+        color: None,
+    }
+}
+
+/// The footer in rename mode: the mode's hints alone, the name being typed
+/// in the popup, so the footer does not move as it grows.
+pub(super) fn rename_footer(on: &[Toggle], width: usize) -> Line<'static> {
+    lead_with_hints(Vec::new(), Mode::Rename, on, width)
 }
 
 /// The `:` command buffer that leads the footer in command mode.
@@ -1516,18 +1531,31 @@ mod tests {
     }
 
     #[test]
-    fn rename_footer_draws_the_prompt_then_its_hints() {
-        let rendered = text_of(&lead_with_hints(
-            rename_lead("draft"),
-            Mode::Rename,
-            &[],
-            100,
-        ));
-        assert!(rendered.starts_with(" rename: draft_ "), "{rendered:?}");
+    fn rename_footer_draws_its_hints_without_the_typed_name() {
+        let rendered = text_of(&rename_footer(&[], 100));
+        assert!(!rendered.contains("rename:"), "the name is in the popup: {rendered:?}");
+        assert_eq!(rendered, text_of(&lead_with_hints(Vec::new(), Mode::Rename, &[], 100)));
         for hint in ["enter confirm", "esc cancel", "bksp delete"] {
             assert!(rendered.contains(hint), "{hint}: {rendered:?}");
         }
         assert!(!rendered.contains("quit"));
+        // Narrowing drops hints and never grows the line; with no lead the
+        // hints keep their one leading space, as the browse footer does.
+        let mut previous = rendered.chars().count();
+        for width in (0..=100).rev() {
+            let cols = text_of(&rename_footer(&[], width)).chars().count();
+            assert!(cols <= width.max(1) && cols <= previous, "width {width}: {cols}");
+            previous = cols;
+        }
+    }
+
+    #[test]
+    fn rename_popup_carries_the_name_the_hint_and_the_refusal() {
+        let popup = rename_popup("draft", Some("rename: plans already exists"));
+        assert_eq!((popup.title, popup.hint, popup.buffer), ("rename", RENAME_HINT, "draft"));
+        assert_eq!(popup.cursor, 5, "the cursor sits at the end, as backspace edits there");
+        assert_eq!(popup.error, Some("rename: plans already exists"));
+        assert_eq!(popup.color, None);
     }
 
     #[test]
@@ -1548,7 +1576,6 @@ mod tests {
     fn narrow_lead_footers_keep_the_lead_and_drop_hints_first() {
         let cases = [
             (tag_legend(0), Mode::Tag),
-            (rename_lead("a fairly long note name"), Mode::Rename),
             (command_lead(":something"), Mode::VimCommand),
         ];
         for (lead, mode) in cases {

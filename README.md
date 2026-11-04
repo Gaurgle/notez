@@ -49,11 +49,13 @@ notez agenda
 without opening it. Saves rewrite only the files you actually edited, and the
 footer warns if a `TODO.md` contains non-todo text a save would drop.
 
-**Due dates in todoz.** `D` on a todo opens a one-line prompt, like `e`,
+**Due dates in todoz.** `D` on a todo opens a small popup over the board
 holding its current due date: `2026-10-20` sets that date, `+3d` today plus
 three days, `+1w` today plus a week, and `clear` removes it; `Esc` cancels.
 The value turns green as you type once it reads as one of these, red while
-it does not. A value it cannot read changes nothing and says so in the footer. The date
+it does not. `Enter` on a value it cannot read changes nothing: the popup
+stays open with your text and says why beneath it. The footer keeps its
+keys while the popup is open. The date
 is written as an `@2026-10-20` token after the text, before the tags. Headers
 and code TODOs take no due date.
 
@@ -182,15 +184,17 @@ cancels. An empty name, or the name of anything already in the target
 folder, is refused in the footer and creates nothing. `N` does nothing in a
 `docs` section.
 
-`r` on a folder renames it in place: the prompt shows the current name,
+`r` on a folder renames it in place: a popup over the tree shows the current name,
 `Enter` renames it, and every note inside
 moves with it; their `.tags` entries move to the new paths on exit. `r` on
 a note shows its title (the file name without the date and `.md`) and
 renames it the way `notez rename` does; on a note or a folder, `Enter` on
 the name as shown changes nothing, even one like `My_Note` that sanitizing
 would alter. A name
-already taken in that folder (file or folder, in any case) is refused and
-nothing changes; changing only the case of a name works where the file
+already taken in that folder (file or folder, in any case), an empty name
+or one sanitizing would alter is refused and nothing changes: the popup
+stays open with the name and says why beneath it, and `Esc` closes it.
+Changing only the case of a name works where the file
 system allows it. `d` on a folder asks first, counting what goes, for
 example `delete ideas/ and its 2 notes from personal? y/n` (`and its 1 note`,
 or `(no notes)` for an empty folder), adding `and other files` when the folder holds anything but
@@ -327,7 +331,7 @@ current mode (browsing, filter, tags, focus, text entry such as rename, a
 new note or a new todo, a delete confirmation, `:` command) and lights the ones whose mode is on, such as `f`
 while a section is focused. In tag, text-entry and `:` command modes the
 tag legend, prompt or command comes first and the keys follow in the space
-left. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
+left; the rename and due popups leave the footer to the keys alone. On the `:` command line, `Esc` (or Backspace past the `:`) only closes
 it; `:q`, `:wq`, `:qa` or `:q!` then Enter quits. While browsing the tree,
 `Esc` clears the marks if there are any (and does nothing else), otherwise
 clears the filter, otherwise does nothing: `Esc` never quits (use `q` or

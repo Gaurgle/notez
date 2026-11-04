@@ -29,6 +29,7 @@ use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::panes::{self, Pane, Panes, Press};
 use super::notice::Notice;
+use super::prompt::Prompt;
 use super::sync::VaultSync;
 use super::{VimCommandMode, VimKey, text, theme, todo_rows};
 #[cfg(test)]
@@ -1137,13 +1138,14 @@ enum DueKey {
     Closed,
     /// Closed after setting or clearing the todo's due date.
     Changed,
-    /// Closed on an unparseable value, nothing changed; the footer message.
+    /// Enter on an unparseable value: nothing changed, the prompt stays open
+    /// with the typed text and this is its error line.
     Invalid(String),
 }
 
 /// One key in the `D` prompt editing `buffer` for `items[idx]`. Enter parses
 /// the value against `today` and sets the todo's due date; the serializer
-/// writes it on save. Every outcome but `Typing` empties the buffer.
+/// writes it on save. `Closed` and `Changed` empty the buffer.
 fn due_prompt_key(
     code: KeyCode,
     buffer: &mut String,
@@ -1189,11 +1191,86 @@ fn due_prompt_key(
         }
         _ => DueKey::Typing,
     };
-    if outcome != DueKey::Typing {
+    if matches!(outcome, DueKey::Closed | DueKey::Changed) {
         buffer.clear();
         *cursor = 0;
     }
     outcome
+}
+
+/// The accepted forms, the `D` popup's hint line.
+const DUE_HINT: &str = "2026-10-20, +3d, +1w or clear";
+
+/// The `D` popup over the board: the typed value coloured by whether Enter
+/// would take it on `today`, and the refused value's message beneath it.
+fn due_popup<'a>(buffer: &'a str, cursor: usize, error: Option<&'a str>, today: chrono::NaiveDate) -> Prompt<'a> {
+    Prompt {
+        title: "due",
+        hint: DUE_HINT,
+        buffer,
+        cursor,
+        error,
+        color: due_input_color(buffer, today),
+    }
+}
+
+/// Which typed prompt is open, as the footer's lead sees it.
+#[derive(Clone, Copy, Default)]
+struct OpenPrompt {
+    due: bool,
+    edit: bool,
+    subtask: bool,
+    category: bool,
+}
+
+/// The footer lead of the open typed prompt: its label, value and cursor
+/// for the footer prompts (`n`, `a`, `e`, `C`), and none while the `D` popup
+/// is open, so the footer keeps its hints and does not move as the value is
+/// typed.
+fn prompt_lead(
+    open: OpenPrompt,
+    buffer: &str,
+    cursor: usize,
+    category_error: Option<&str>,
+) -> Vec<Span<'static>> {
+    let (label, label_color) = if open.due {
+        return Vec::new();
+    } else if open.edit {
+        (" edit: ", Color::Rgb(165, 133, 202))
+    } else if open.subtask {
+        (" subtask: ", Color::Rgb(148, 157, 210))
+    } else if open.category {
+        (" new category: ", Color::Rgb(136, 190, 132))
+    } else {
+        (" new: ", Color::Rgb(136, 190, 132))
+    };
+    let (before, after) = buffer.split_at(cursor.min(buffer.len()));
+    let cursor_char = after
+        .chars()
+        .next()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| " ".to_string());
+    let rest = if after.len() > cursor_char.len() {
+        &after[cursor_char.len()..]
+    } else {
+        ""
+    };
+    let mut spans = vec![
+        Span::styled(label, Style::default().fg(label_color)),
+        Span::styled(before.to_string(), Style::default().fg(theme::TEXT)),
+        Span::styled(
+            cursor_char,
+            Style::default().fg(theme::BASE).bg(theme::SAPPHIRE),
+        ),
+        Span::styled(rest.to_string(), Style::default().fg(theme::TEXT)),
+    ];
+    if let Some(err) = category_error {
+        spans.push(Span::styled(
+            format!("  <- {}", err),
+            Style::default().fg(theme::RED),
+        ));
+    }
+    spans
 }
 
 /// The board as it is on disk now. The global board is listed again from
@@ -1339,8 +1416,10 @@ fn event_loop(
     let mut subtask_mode = false;
     let mut edit_mode = false;
     let mut edit_idx: usize = 0;
-    // The `D` due-date prompt on `items[edit_idx]`; its footer is edit's.
+    // The `D` due-date popup on `items[edit_idx]`; its footer is edit's.
     let mut due_mode = false;
+    // Why Enter refused the popup's value, until the next key.
+    let mut due_error: Option<String> = None;
     let mut input_buffer = String::new();
     let mut flag_mode = false;
     let mut search_mode = false;
@@ -1746,49 +1825,13 @@ fn event_loop(
                     }
                     hint_line(spans)
                 } else if input_mode || subtask_mode || edit_mode || due_mode || category_mode {
-                    let (label, label_color) = if due_mode {
-                        (" due (2026-10-20, +3d, +1w, clear): ", Color::Rgb(165, 133, 202))
-                    } else if edit_mode {
-                        (" edit: ", Color::Rgb(165, 133, 202))
-                    } else if subtask_mode {
-                        (" subtask: ", Color::Rgb(148, 157, 210))
-                    } else if category_mode {
-                        (" new category: ", Color::Rgb(136, 190, 132))
-                    } else {
-                        (" new: ", Color::Rgb(136, 190, 132))
+                    let open = OpenPrompt {
+                        due: due_mode,
+                        edit: edit_mode,
+                        subtask: subtask_mode,
+                        category: category_mode,
                     };
-                    let (before, after) =
-                        input_buffer.split_at(cursor_pos.min(input_buffer.len()));
-                    let cursor_char = after
-                        .chars()
-                        .next()
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| " ".to_string());
-                    let rest = if after.len() > cursor_char.len() {
-                        &after[cursor_char.len()..]
-                    } else {
-                        ""
-                    };
-                    let value_color = due_mode
-                        .then(|| due_input_color(&input_buffer, chrono::Local::now().date_naive()))
-                        .flatten()
-                        .unwrap_or(theme::TEXT);
-                    let mut spans = vec![
-                        Span::styled(label, Style::default().fg(label_color)),
-                        Span::styled(before.to_string(), Style::default().fg(value_color)),
-                        Span::styled(
-                            cursor_char,
-                            Style::default().fg(theme::BASE).bg(theme::SAPPHIRE),
-                        ),
-                        Span::styled(rest.to_string(), Style::default().fg(value_color)),
-                    ];
-                    if let Some(err) = &category_error {
-                        spans.push(Span::styled(
-                            format!("  <- {}", err),
-                            Style::default().fg(theme::RED),
-                        ));
-                    }
-                    hint_line(spans)
+                    hint_line(prompt_lead(open, &input_buffer, cursor_pos, category_error.as_deref()))
                 } else if vim.active {
                     hint_line(vec![Span::styled(
                         vim.buffer.clone(),
@@ -1826,6 +1869,10 @@ fn event_loop(
                 };
                 frame.render_widget(Paragraph::new(status), chunks[1]);
 
+                if due_mode {
+                    let today = chrono::Local::now().date_naive();
+                    due_popup(&input_buffer, cursor_pos, due_error.as_deref(), today).render(frame, full);
+                }
                 if help.open {
                     help::render(frame, full, TODO_KEYS, &mut help);
                 }
@@ -2393,6 +2440,7 @@ fn event_loop(
 
         if due_mode {
             let today = chrono::Local::now().date_naive();
+            due_error = None;
             match due_prompt_key(key.code, &mut input_buffer, &mut cursor_pos, &mut items, edit_idx, today) {
                 DueKey::Typing => {}
                 DueKey::Closed => due_mode = false,
@@ -2400,10 +2448,7 @@ fn event_loop(
                     dirty.insert(items[edit_idx].source.clone());
                     due_mode = false;
                 }
-                DueKey::Invalid(message) => {
-                    status_message.set(Some(message));
-                    due_mode = false;
-                }
+                DueKey::Invalid(message) => due_error = Some(message),
             }
             continue;
         }
@@ -3624,8 +3669,13 @@ mod tests {
             let key = if c == '\u{8}' { KeyCode::Backspace } else { KeyCode::Char(c) };
             assert_eq!(due_prompt_key(key, &mut buffer, &mut cursor, items, idx, today()), DueKey::Typing);
         }
+        let typed_value = buffer.clone();
         let outcome = due_prompt_key(last, &mut buffer, &mut cursor, items, idx, today());
-        assert!(buffer.is_empty() && cursor == 0, "{outcome:?} leaves the buffer {buffer:?}");
+        if matches!(outcome, DueKey::Invalid(_)) {
+            assert_eq!(buffer, typed_value, "a refused value stays in the open prompt");
+        } else {
+            assert!(buffer.is_empty() && cursor == 0, "{outcome:?} leaves the buffer {buffer:?}");
+        }
         let file = todo::serialize_tasks_for_file(items, Path::new("/tmp/TODO.md"));
         (outcome, file.lines().last().unwrap_or_default().to_string())
     }
@@ -3678,6 +3728,57 @@ mod tests {
             assert!(message.contains(bad) && message.contains("+3d"), "{bad}: {message}");
             assert_eq!(line, "- [ ] ship it @2026-10-20", "{bad}");
         }
+    }
+
+    #[test]
+    fn due_popup_refuses_then_applies_with_the_prompt_kept_open_in_between() {
+        let mut items = vec![task("ship it", 0, 0)];
+        items[0].due = NoteDate::parse("2026-10-20");
+        let mut buffer = String::new();
+        let mut cursor = 0;
+        for c in "=1d".chars() {
+            due_prompt_key(KeyCode::Char(c), &mut buffer, &mut cursor, &mut items, 0, today());
+        }
+        let outcome = due_prompt_key(KeyCode::Enter, &mut buffer, &mut cursor, &mut items, 0, today());
+        let DueKey::Invalid(message) = outcome else { panic!("{outcome:?}") };
+        assert_eq!((buffer.as_str(), cursor), ("=1d", 3), "the prompt stays open with the typed text");
+        let file = todo::serialize_tasks_for_file(&items, Path::new("/tmp/TODO.md"));
+        assert_eq!(file.lines().last(), Some("- [ ] ship it @2026-10-20"), "the line is unchanged");
+        let popup = due_popup(&buffer, cursor, Some(&message), today());
+        assert_eq!(popup.error, Some(message.as_str()));
+        assert_eq!(popup.color, Some(theme::RED));
+        assert_eq!((popup.title, popup.hint), ("due", DUE_HINT));
+
+        for key in [KeyCode::Backspace, KeyCode::Backspace, KeyCode::Backspace] {
+            due_prompt_key(key, &mut buffer, &mut cursor, &mut items, 0, today());
+        }
+        for c in "+1d".chars() {
+            due_prompt_key(KeyCode::Char(c), &mut buffer, &mut cursor, &mut items, 0, today());
+        }
+        assert_eq!(due_popup(&buffer, cursor, None, today()).color, Some(theme::GREEN));
+        assert_eq!(due_prompt_key(KeyCode::Enter, &mut buffer, &mut cursor, &mut items, 0, today()), DueKey::Changed);
+        let file = todo::serialize_tasks_for_file(&items, Path::new("/tmp/TODO.md"));
+        assert_eq!(file.lines().last(), Some("- [ ] ship it @2026-11-05"));
+    }
+
+    #[test]
+    fn the_footer_keeps_its_hints_while_the_due_popup_is_typed_in() {
+        let keys = todo_keys(false, Pane::List);
+        let open = OpenPrompt { due: true, ..OpenPrompt::default() };
+        let footer = |buffer: &str| {
+            let lead = prompt_lead(open, buffer, buffer.len(), None);
+            let line = footer::status_line(&keys, lead, true, Mode::EditText, &[], Vec::new(), 120);
+            line.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
+        };
+        let empty = footer("");
+        assert!(empty.contains("enter") && empty.contains("esc"), "{empty:?}");
+        for typed in ["+1d", "=1d", "2026-10-20T09:30 and more"] {
+            assert_eq!(footer(typed), empty, "{typed}");
+        }
+        // The footer prompts still lead with their value.
+        let edit = prompt_lead(OpenPrompt { edit: true, ..OpenPrompt::default() }, "draft", 5, None);
+        let text: String = edit.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.starts_with(" edit: draft"), "{text:?}");
     }
 
     #[test]
