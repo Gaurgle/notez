@@ -75,6 +75,14 @@ pub enum Commands {
         /// With `--in`: resolve under the current scope's root instead of global.
         #[arg(long = "in-local")]
         in_local: bool,
+        /// Deadline written as `due:` in the note's frontmatter:
+        /// `YYYY-MM-DD`, or `+3d` / `+1w` from today.
+        #[arg(long, value_name = "DATE")]
+        due: Option<String>,
+        /// Date the note is about, written as `event:`:
+        /// `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
+        #[arg(long, value_name = "DATETIME")]
+        on: Option<String>,
     },
 
     /// Append a timestamped entry to today's daily log
@@ -210,6 +218,12 @@ pub enum Commands {
         /// With `--in`: resolve under the current scope's root instead of global.
         #[arg(long = "in-local")]
         in_local: bool,
+        /// Deadline (`due:`): `YYYY-MM-DD`, `+3d` or `+1w`.
+        #[arg(long, value_name = "DATE")]
+        due: Option<String>,
+        /// Event date (`event:`): `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
+        #[arg(long, value_name = "DATETIME")]
+        on: Option<String>,
     },
 
     /// Open the global directory picker, then launch yazi
