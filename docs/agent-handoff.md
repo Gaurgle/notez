@@ -7,10 +7,12 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton again
-since 2026-11-04 afternoon (his "continue" after the usage pause). Took over 2026-11-04, taken from the released state of lead `67917d20`
-(2026-11-03). `main` = `origin/main` at `312410d` (NZ-72 merged; CI run
-41854087161, confirm green). Andreas 2026-11-04: "continue" (the queue below).
+None. Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) RELEASED the
+baton 2026-11-04 16:15 on Andreas's "lets stop for today then". No
+workers or reviewers running. `main` = `origin/main` at `6343eb5`
+(NZ-72 merged as `312410d`; CI run 41854087161 was still queued on
+GitHub's side at release: confirm green, then `scripts/relay-sweep main`
+removes `.claude/worktrees/NZ-72`). He installs from `main`.
 
 ## Standing authority
 
