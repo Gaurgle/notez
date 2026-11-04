@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use chrono::{Days, NaiveDate};
+use chrono::{Datelike, Days, Months, NaiveDate};
 
 use crate::cli;
 use notez_core::config::Config;
@@ -81,24 +81,31 @@ impl DateArgs {
     }
 }
 
-/// `--due`: `YYYY-MM-DD`, or `+Nd` / `+Nw` counted from `today`.
+/// `--due`: `YYYY-MM-DD`, or `+Nd` / `+Nw` / `+Nm` / `+Ny` (days, weeks,
+/// months, years) counted from `today`. A month step past a short month's
+/// end lands on its last day (`+1m` from 01-31 is 02-28).
 fn parse_due(text: &str, today: NaiveDate) -> Result<NoteDate> {
-    let refuse = || anyhow::anyhow!("invalid --due {text:?}: expected YYYY-MM-DD, +3d or +1w");
+    let refuse =
+        || anyhow::anyhow!("invalid --due {text:?}: expected YYYY-MM-DD, +3d, +1w, +2m or +1y");
     if let Some(rel) = text.strip_prefix('+') {
-        let (count, per_unit) = match rel.as_bytes().last() {
-            Some(b'd') => (&rel[..rel.len() - 1], 1),
-            Some(b'w') => (&rel[..rel.len() - 1], 7),
-            _ => return Err(refuse()),
+        let Some(&unit) = rel.as_bytes().last().filter(|b| b.is_ascii()) else {
+            return Err(refuse());
         };
+        let count = &rel[..rel.len() - 1];
         if count.is_empty() || !count.bytes().all(|b| b.is_ascii_digit()) {
             return Err(refuse());
         }
-        let days = count
-            .parse::<u64>()
-            .ok()
-            .and_then(|n| n.checked_mul(per_unit))
-            .ok_or_else(refuse)?;
-        let date = today.checked_add_days(Days::new(days)).ok_or_else(refuse)?;
+        let count = count.parse::<u32>().map_err(|_| refuse())?;
+        let date = match unit {
+            b'd' => today.checked_add_days(Days::new(u64::from(count))),
+            b'w' => today.checked_add_days(Days::new(u64::from(count) * 7)),
+            b'm' => today.checked_add_months(Months::new(count)),
+            b'y' => count.checked_mul(12).and_then(|n| today.checked_add_months(Months::new(n))),
+            _ => None,
+        }
+        // `NoteDate` is fixed width: a five-digit year would not read back.
+        .filter(|date| date.year() <= 9999)
+        .ok_or_else(refuse)?;
         return Ok(NoteDate { date, time: None });
     }
     match NoteDate::parse(text) {
@@ -1233,6 +1240,23 @@ mod tests {
         assert_eq!(due("+0d"), "2026-11-04");
         assert_eq!(due("+1w"), "2026-11-11");
         assert_eq!(due("+4w"), "2026-12-02");
+    }
+
+    /// NZ-72: months and years, clamped to the last day of a shorter month.
+    #[test]
+    fn relative_due_counts_months_and_years_from_today() {
+        let due = |t: &str, from: &str| parse_due(t, day(from)).unwrap().to_string();
+        assert_eq!(due("+2m", "2026-01-31"), "2026-03-31");
+        assert_eq!(due("+1m", "2026-01-31"), "2026-02-28");
+        assert_eq!(due("+0m", "2026-01-31"), "2026-01-31");
+        assert_eq!(due("+13m", "2026-11-04"), "2027-12-04");
+        assert_eq!(due("+1y", "2024-02-29"), "2025-02-28");
+        assert_eq!(due("+4y", "2024-02-29"), "2028-02-29");
+        for refused in ["+8000y", "+96000m", "+4294967295y", "+1M", "+1Y", "+m", "+1é"] {
+            let message = parse_due(refused, day("2026-11-04")).unwrap_err().to_string();
+            assert!(message.contains("+2m or +1y"), "{refused}: {message}");
+        }
+        assert_eq!(due("+7973y", "2026-11-04"), "9999-11-04");
     }
 
     #[test]

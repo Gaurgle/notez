@@ -17,6 +17,7 @@ pub mod markdown;
 pub mod move_path;
 pub mod notice;
 pub mod panes;
+pub mod prompt;
 pub mod sync;
 pub mod tags;
 pub mod text;
