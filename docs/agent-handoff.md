@@ -7,8 +7,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) RELEASED the baton
-2026-11-04 afternoon at its usage limit; no workers running. Took over 2026-11-04, taken from the released state of lead `67917d20`
+Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton again
+since 2026-11-04 afternoon (his "continue" after the usage pause). Took over 2026-11-04, taken from the released state of lead `67917d20`
 (2026-11-03). `main` = `origin/main` at `de71d36` (NZ-50c merged; CI run
 41823800494 green). Andreas 2026-11-04: "continue" (the queue below).
 
