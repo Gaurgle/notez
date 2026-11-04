@@ -362,6 +362,35 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-50a (#97): frontmatter::set is safe to write on any note (rule, CRLF, BOM, remove)
+
+The core third of NZ-50 ("create when reached" in the 2026-10-15
+queue), split by lead `018zBNkK` on 2026-11-04 into NZ-50a/b/c (#97-#99)
+from the dates design note's "Requirements for the write path". Branch
+`feat/nz-50a-frontmatter-write`, worktree `.claude/worktrees/NZ-50a`,
+base `9d0aace`. Worker (opus, about 4 min, 44k tokens): one block finder
+with the "at least one pair" rule for writing, CRLF and BOM kept,
+replace, append, remove (block too when the last key goes), body byte
+identical, 13 mutations killed; it reported that `split` could not read
+the CRLF and BOM blocks `set` now writes. Lead ruling before review
+(on #97): the reader accepts what the writer writes; `split` reads BOM
+and CRLF blocks, byte zero otherwise, the one CRLF expectation in
+`split_requires_block_at_byte_zero` reversed, round-trip test added.
+Rework (3 min, 36k) did that with one shared finder. Reviewer (opus,
+2 min, 38k) accepted first, diff `8008653d4855`, 7 mutations and a
+13-case LF probe against the base (identical output); follow-ups on
+#97: `set` does not refuse a newline in a value (callers validate),
+removing the last key drops non-pair lines, a glued `----` close now
+reads its tail as body. Committed `33835d1`, CI 41821582957 green,
+combined check on `62b5657` clean (776 + 5 + 203), gate held, merged
+`--no-ff` as `5bdb4a1` (Closes #97), CI on `main` 41821766995 green,
+remote branch deleted, worktree swept. Remember at the end: a fact for
+the dates design note, written there: a write path's rules bind the
+reader too; a reader that cannot read what the writer writes is the
+bug the NZ-48 review missed (home: `docs/design-nz47-dates.md`).
+
+NZ-50a: review accepted first; fix cycles 0; owner decisions 0; worker 7; review 2; models opus/opus; usage 80k; 38k
+
 ### NZ-66 (#92): the selected row flashes once when yy or yp copies it
 
 From Andreas's 2026-11-03 words after NZ-60 ("can we make the

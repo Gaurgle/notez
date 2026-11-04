@@ -9,8 +9,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
 since 2026-11-04, taken from the released state of lead `67917d20`
-(2026-11-03). `main` = `origin/main` at `9d0aace` (NZ-66 merged; CI run
-41818843867 green). Andreas 2026-11-04: "continue" (the queue below).
+(2026-11-03). `main` = `origin/main` at `5bdb4a1` (NZ-50a merged; CI run
+41821766995 green). Andreas 2026-11-04: "continue" (the queue below).
 
 ## Standing authority
 
@@ -28,6 +28,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
+- NZ-50b (#98, look) and NZ-50c (#99): In progress side by side, base
+  `5bdb4a1`, nz-worker (opus) each. Records on #98, #99.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
@@ -46,10 +48,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-65 (his call), NZ-69, NZ-70 (#95, #96,
-on his go), NZ-67 (#93, look, "dont
-start implementing" until he queues it), NZ-30 (#59), NZ-50 (create
-when reached). Per ticket: worktree from `main`, worker, separate
+tickets can go ahead"): NZ-50b, NZ-50c running (#98, #99); NZ-65 (his call); NZ-69, NZ-70 (#95, #96, on his go);
+NZ-67 (#93, parked until he queues it); NZ-30 (#59, no brief yet). Per ticket: worktree from `main`, worker, separate
 reviewer, lead verify, commit, push, CI, `relay-gate`, Done.
 
 ## Start the lead

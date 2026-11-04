@@ -234,6 +234,12 @@ caller (NZ-50: todoz `D`, `notez add --due/--on`), it must handle:
 Tests for each case ship with the write-path ticket, and `set` is
 only ever called from an explicit user action.
 
+The reader follows the writer (NZ-50a, 2026-11-04): `split` reads a
+block after a BOM and a block with CRLF markers, so what `set` writes
+is always read back by `agenda` and the inspector. Reading stays
+lenient (a block with no pair reads as empty); only writing applies
+the one-pair rule.
+
 ## Later, deliberately not in the first version
 
 Recurrence (`every monday`), reminders and notifications, done-dates
