@@ -1086,6 +1086,29 @@ mod tests {
     }
 
     #[test]
+    fn the_preview_key_is_in_the_browse_footer_on_a_file_with_a_preview() {
+        for (mode, word) in [(PreviewMode::Rendered, "p plain"), (PreviewMode::Raw, "p pretty")] {
+            let toggles = [
+                Some(PreviewToggle::markdown(mode)),
+                PreviewToggle::for_file(std::path::Path::new("main.rs"), mode),
+            ];
+            for toggle in toggles {
+                assert!(toggle.is_some());
+                let keys = pane_keys(tree_keys(toggle), Pane::List);
+                let sel = footer::select(&keys, Mode::Normal, &[], 200);
+                let shown: Vec<String> = sel
+                    .left
+                    .iter()
+                    .map(|&(i, _)| format!("{} {}", keys[i].key, keys[i].desc))
+                    .collect();
+                assert!(shown.iter().any(|s| s == word), "{shown:?}");
+            }
+        }
+        // A folder or a file without a language: `p` changes nothing.
+        assert!(!pane_footer(Pane::List, None, 200).iter().any(|s| s.starts_with("p ")));
+    }
+
+    #[test]
     fn every_one_letter_tree_key_starts_its_footer_word() {
         assert_eq!(KeyHint::unjoined_letter_keys(TREE_KEYS), Vec::<String>::new());
         let toggles = [PreviewMode::Rendered, PreviewMode::Raw].into_iter().flat_map(|mode| {

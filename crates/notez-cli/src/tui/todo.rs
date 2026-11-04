@@ -93,8 +93,8 @@ const TODO_KEYS: &[KeyHint] = &[
     key("v", "view all", "expand all / collapse all", theme::SAPPHIRE, Group::View, BOARD, Slot::Priority(10), Some(Toggle::ExpandAll)),
     key("R", "reload", "reload the board from disk, saving unsaved edits first (it also reloads by itself, within 2 s of idle, when a shown TODO.md changes, unless it has unsaved edits here)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
     key("g", "git sync", "sync the vault now, as quitting does: save edits, commit, pull, push (in the background; the header shows syncing, then the result, and the board reloads if a shown TODO.md changed)", theme::SAPPHIRE, Group::View, BOARD, Slot::HelpOnly, None),
-    // The pane keys; in the footer only while the preview is open, see
-    // `todo_keys`.
+    // The pane keys; in the footer only while the preview is open, `p`
+    // also while it is folded, see `todo_keys`.
     key(PREVIEW_KEY, "preview", "show / hide the preview of the selected todo's TODO.md (open at start from 120 columns)", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
     key(PANE_FOCUS_KEY, "focus", "focus the list / the preview; 2 on the focused preview folds it, 2 on a folded one unfolds and focuses it", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
     key(PANE_CYCLE_KEY, "pane", "focus the other pane", theme::LAVENDER, Group::View, BOARD, Slot::HelpOnly, None),
@@ -584,20 +584,27 @@ fn toggle_preview(panes: &mut Panes, body_width: u16) -> std::result::Result<(),
     Ok(())
 }
 
-/// The footer table for the board's panes. Folded, `TODO_KEYS` unchanged.
-/// Open with the list focused, the pane keys join the hints last, so they
-/// drop first. With the preview focused, only the preview set: `j/k
-/// scroll`, `PgDn/PgUp page`, `2 fold`, `1/tab list`, `p`, `?` and quit;
-/// every other browse row is help only. Same rows in the same order, so
-/// the footer and the help overlay agree.
+/// The footer table for the board's panes. Folded, `TODO_KEYS` with only
+/// `p preview` joining the hints last, so it drops first. Open with the
+/// list focused, `p` and the pane keys join the hints last, so they drop
+/// first. With the preview focused, only the preview set: `j/k scroll`,
+/// `PgDn/PgUp page`, `2 fold`, `1/tab list`, `p`, `?` and quit; every
+/// other browse row is help only. Same rows in the same order, so the
+/// footer and the help overlay agree.
 fn todo_keys(preview_open: bool, focus: Pane) -> Vec<KeyHint> {
     TODO_KEYS
         .iter()
         .map(|&hint| {
-            if !preview_open || !hint.applies_in(Mode::Normal) {
+            if !hint.applies_in(Mode::Normal) {
                 return hint;
             }
             let shown = |key, desc, priority| KeyHint { key, desc, slot: Slot::Priority(priority), ..hint };
+            if !preview_open {
+                return match hint.key {
+                    PREVIEW_KEY => shown(PREVIEW_KEY, hint.desc, 13),
+                    _ => hint,
+                };
+            }
             if focus == Pane::List {
                 return match hint.key {
                     PREVIEW_KEY => shown(PREVIEW_KEY, hint.desc, 13),
@@ -4170,7 +4177,11 @@ mod tests {
             footer::select(keys, Mode::Normal, &[], 300).left.iter().map(|&(i, _)| keys[i].key).collect()
         };
         let folded = todo_keys(false, Pane::List);
-        assert_eq!(shown(&folded), shown(TODO_KEYS));
+        assert_eq!(
+            shown(&folded),
+            vec!["x", "n", "e", "t", "s", "d", "a", "/", "f", "v", "p", "?"],
+            "folded, only p joins the hints (NZ-65)"
+        );
         let open = todo_keys(true, Pane::List);
         assert_eq!(
             shown(&open),
@@ -4186,6 +4197,21 @@ mod tests {
             assert_eq!(footer::select(keys, Mode::Filter, &[], 300).left, footer::select(TODO_KEYS, Mode::Filter, &[], 300).left);
             assert!(footer::select(keys, Mode::Normal, &[], 300).quit.is_some());
         }
+    }
+
+    #[test]
+    fn the_preview_key_is_in_the_footer_while_the_pane_is_closed_or_the_list_is_focused() {
+        for (open, focus, word) in [(false, Pane::List, "preview"), (true, Pane::List, "preview"), (true, Pane::Preview, "preview off")] {
+            let keys = todo_keys(open, focus);
+            assert!(shown_at(&keys, 300).contains(&"p"), "{open} {focus:?}");
+            let line = text_of(&footer::line(&keys, Mode::Normal, &[], 300));
+            assert!(line.contains(&format!("  {word}  ")), "{open} {focus:?}: {line}");
+        }
+        // Folded, `p` drops first, so the narrow footer is the plain table's.
+        let folded = todo_keys(false, Pane::List);
+        let first_width = (0..300).find(|&w| shown_at(&folded, w).contains(&"p")).unwrap();
+        assert_eq!(shown_at(&folded, first_width - 1), shown_at(TODO_KEYS, first_width - 1));
+        assert_eq!(shown_at(&folded, 80), shown_at(TODO_KEYS, 80));
     }
 
     fn shown_at(keys: &[KeyHint], width: usize) -> Vec<&'static str> {
