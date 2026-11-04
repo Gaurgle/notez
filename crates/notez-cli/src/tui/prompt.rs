@@ -1,5 +1,5 @@
 //! The popup prompt: one typed value in a titled box drawn centred over the
-//! board, like the help overlay. The footer under it keeps its hints, so
+//! list pane (pane 1), never over the preview. The footer under it keeps its hints, so
 //! typing never moves it. Key handling stays in each TUI's loop; this only
 //! draws.
 
@@ -153,6 +153,40 @@ mod tests {
         assert_eq!((area.x, area.y), (28, 12));
         let offset = prompt.area(Rect::new(10, 4, 100, 30));
         assert_eq!((offset.x, offset.y), (38, 16));
+    }
+
+    /// NZ-72: the TUIs pass the list pane's rect, so the box sits centred in
+    /// it, never over the preview beside it, and a narrow pane clips it.
+    #[test]
+    fn the_box_is_centred_in_a_pane_and_clipped_to_it() {
+        let prompt = due("+1d", None, None);
+        let inside = |area: Rect, pane: Rect| {
+            area.x >= pane.x && area.y >= pane.y && area.right() <= pane.right() && area.bottom() <= pane.bottom()
+        };
+        let pane = Rect::new(0, 1, 60, 29);
+        let area = prompt.area(pane);
+        assert!(inside(area, pane), "{area:?}");
+        assert_eq!((area.x, area.y), (8, 13), "centred: (60 - 44) / 2, 1 + (29 - 5) / 2");
+        assert_eq!(area.x - pane.x, pane.right() - area.right());
+
+        let right_pane = Rect::new(61, 1, 50, 29);
+        let area = prompt.area(right_pane);
+        assert!(inside(area, right_pane), "{area:?}");
+        assert_eq!(area.x, 64);
+
+        for pane in [Rect::new(7, 2, 30, 20), Rect::new(7, 2, 30, 3), Rect::new(7, 2, 1, 1), Rect::new(7, 2, 0, 0)] {
+            let area = prompt.area(pane);
+            assert!(inside(area, pane), "{pane:?}: {area:?}");
+            assert_eq!(area.width, pane.width.min(44), "{pane:?}: the box fills a narrow pane");
+        }
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let pane = Rect::new(7, 2, 30, 20);
+        terminal.draw(|frame| prompt.render(frame, pane)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let area = prompt.area(pane);
+        assert_eq!(buf[(pane.x, area.y)].symbol(), "\u{256d}", "the border starts at the pane's edge");
+        assert_eq!(buf[(pane.right() - 1, area.y)].symbol(), "\u{256e}");
+        assert_eq!(buf[(pane.right(), area.y)].symbol(), " ", "nothing drawn past the pane");
     }
 
     #[test]

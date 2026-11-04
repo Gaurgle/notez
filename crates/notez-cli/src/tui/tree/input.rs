@@ -628,7 +628,8 @@ pub(super) fn event_loop(
                 frame.render_widget(Paragraph::new(status), rows[1]);
 
                 if let Some(buffer) = &rename_buffer {
-                    rename_popup(buffer, rename_error.as_deref()).render(frame, full);
+                    // Over the list pane, never the preview.
+                    rename_popup(buffer, rename_error.as_deref()).render(frame, list_area);
                 }
                 if help.open {
                     help::render(frame, full, TREE_KEYS, &mut help);
@@ -1163,7 +1164,7 @@ pub(super) fn event_loop(
                         continue;
                     };
                     let before = nodes[ri].path.clone();
-                    match rename_popup_enter(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
+                    match enter_rename(nodes, &mut forest.sections, ri, &rename_shown, buffer) {
                         RenameEnter::Keep(message) => rename_error = Some(message),
                         RenameEnter::Done(message) => {
                             dirty.mark_stale();
@@ -1756,32 +1757,6 @@ pub(super) fn rename_popup_key(code: KeyCode, buffer: &mut Option<String>, error
     }
 }
 
-/// `Enter` in the rename popup: [`enter_rename`], with every refusal kept
-/// open as `Keep` so its message becomes the popup's error line. An altered
-/// name already comes back as `Keep`; an empty or clashing name (and any
-/// other failure that left the row's file where it was) comes back as
-/// `Done` with a message and is kept open too. A failure after the file
-/// moved still closes, so the relist picks up the move.
-pub(super) fn rename_popup_enter(
-    nodes: &mut [TreeNode],
-    sections: &mut [SectionSpec],
-    idx: usize,
-    shown: &str,
-    typed: &str,
-) -> RenameEnter {
-    let before = nodes.get(idx).map(|n| n.path.clone());
-    match enter_rename(nodes, sections, idx, shown, typed) {
-        RenameEnter::Done(Some(message))
-            if before.as_ref().is_some_and(|path| {
-                nodes[idx].path == *path && std::fs::symlink_metadata(path).is_ok()
-            }) =>
-        {
-            RenameEnter::Keep(message)
-        }
-        other => other,
-    }
-}
-
 pub(super) fn file_name_of(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1826,13 +1801,10 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
 
-    /// `r` on `path`, then `typed` replacing the shown name, then Enter.
+    /// `r` on `path`, then `typed` replacing the shown name, then Enter:
+    /// [`enter_rename`] owns whether the popup stays open.
     fn rename_popup_on(forest: &mut Forest, path: &Path, typed: &str) -> RenameEnter {
-        let i = row(&forest.nodes, path_str(path));
-        let shown = rename_request(&forest.nodes, &forest.sections, Some(i))
-            .expect("the row opens the popup")
-            .expect("a row under the cursor");
-        rename_popup_enter(&mut forest.nodes, &mut forest.sections, i, &shown, typed)
+        rename_enter_at(forest, path, typed)
     }
 
     #[test]

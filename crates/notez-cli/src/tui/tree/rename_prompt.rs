@@ -116,13 +116,45 @@ pub(super) enum RenameEnter {
     Done(Option<String>),
 }
 
+/// The refusal for a note name typed with an extension other than `.md`.
+const NOTE_EXTENSION: &str = "rename: notes are .md";
+
+/// A note name as typed, with one trailing `.md` (any case) dropped: the
+/// note keeps its `.md` either way. `Err` for a name ending in another
+/// extension (`foo.txt`): a dot, then two or more ASCII letters and digits
+/// starting with a letter. A shorter tail (`a.b`) is no extension; the
+/// altered-name refusal answers it.
+fn note_title(typed: &str) -> std::result::Result<&str, &'static str> {
+    let trimmed = typed.trim();
+    let split = trimmed.len().checked_sub(3).filter(|&i| trimmed.is_char_boundary(i));
+    if let Some(i) = split.filter(|&i| trimmed[i..].eq_ignore_ascii_case(".md")) {
+        return Ok(&trimmed[..i]);
+    }
+    match trimmed.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty()
+                && ext.len() >= 2
+                && ext.starts_with(|c: char| c.is_ascii_alphabetic())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            Err(NOTE_EXTENSION)
+        }
+        _ => Ok(trimmed),
+    }
+}
+
 /// `Enter` in the rename prompt opened on the row at `idx` showing `shown`
 /// (the text the prompt was prefilled with), with `typed` in the buffer.
 /// `typed` trimmed equal to `shown` changes nothing: no file, heading or
 /// `.tags` key moves, even for a name sanitizing would alter (`My_Note`,
-/// `x.MD`). Otherwise a name [`name_would_change`] alters is refused before
-/// any disk work, and the rest renames the folder ([`rename_folder`]) or
-/// the note (`notez rename`'s [`rename::rename_note`]).
+/// `x.MD`). A note's typed `.md` is dropped ([`note_title`]) and another
+/// extension refused. Otherwise a name [`name_would_change`] alters is
+/// refused before any disk work, and the rest renames the folder
+/// ([`rename_folder`]) or the note (`notez rename`'s [`rename::rename_note`]).
+///
+/// Every refusal that left the row where it was on disk (an empty name, a
+/// clash, an extension) is `Keep`, so the prompt stays open with it; a
+/// failure after the entry moved is `Done`, so the relist picks up the move.
 pub(super) fn enter_rename(
     nodes: &mut [TreeNode],
     sections: &mut [SectionSpec],
@@ -133,22 +165,42 @@ pub(super) fn enter_rename(
     if typed.trim() == shown {
         return RenameEnter::Done(None);
     }
-    if let Some(cleaned) = name_would_change(typed) {
-        return RenameEnter::Keep(altered_name_message(&cleaned));
-    }
     let Some(node) = nodes.get(idx) else {
         return RenameEnter::Done(None);
     };
-    if node.is_dir {
-        return RenameEnter::Done(rename_folder(nodes, sections, idx, typed).err());
-    }
-    match rename::rename_note(&node.path, typed) {
-        Ok(new_path) => {
-            nodes[idx].name = file_name_of(&new_path);
-            nodes[idx].path = new_path;
-            RenameEnter::Done(None)
+    let typed = if node.is_dir {
+        typed
+    } else {
+        match note_title(typed) {
+            Ok(title) if title == shown => return RenameEnter::Done(None),
+            Ok(title) => title,
+            Err(message) => return RenameEnter::Keep(message.to_string()),
         }
-        Err(e) => RenameEnter::Done(Some(format!("rename failed: {e}"))),
+    };
+    if let Some(cleaned) = name_would_change(typed) {
+        return RenameEnter::Keep(altered_name_message(&cleaned));
+    }
+    let before = node.path.clone();
+    let failed = if node.is_dir {
+        rename_folder(nodes, sections, idx, typed).err()
+    } else {
+        match rename::rename_note(&before, typed) {
+            Ok(new_path) => {
+                nodes[idx].name = file_name_of(&new_path);
+                nodes[idx].path = new_path;
+                None
+            }
+            Err(e) => Some(format!("rename failed: {e}")),
+        }
+    };
+    match failed {
+        None => RenameEnter::Done(None),
+        Some(message)
+            if nodes[idx].path == before && std::fs::symlink_metadata(&before).is_ok() =>
+        {
+            RenameEnter::Keep(message)
+        }
+        Some(message) => RenameEnter::Done(Some(message)),
     }
 }
 
@@ -440,6 +492,63 @@ mod tests {
             RenameEnter::Done(None)
         );
         assert!(root.join("my-ideas/a.md").is_file() && !root.join("ideas").exists());
+    }
+
+    /// NZ-72: a note keeps its `.md` whether or not the name is typed with
+    /// it; another extension keeps the prompt open with the refusal.
+    #[test]
+    fn note_rename_keeps_md_and_refuses_another_extension() {
+        let (_dir, notez, root) = vault();
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        for typed in ["b.txt", "b.TXT", "b.markdown", "b.md.txt"] {
+            assert_eq!(
+                rename_enter_at(&mut forest, &root.join("top.md"), typed),
+                RenameEnter::Keep(NOTE_EXTENSION.to_string()),
+                "{typed}"
+            );
+        }
+        assert_eq!(disk_entries(&notez), before, "nothing renamed");
+        assert_eq!(
+            rename_enter_at(&mut forest, &root.join("top.md"), "top.md"),
+            RenameEnter::Done(None),
+            "the shown title with its .md: nothing to do"
+        );
+        assert_eq!(disk_entries(&notez), before);
+
+        assert_eq!(rename_enter_at(&mut forest, &root.join("top.md"), "b"), RenameEnter::Done(None));
+        assert!(root.join("b.md").is_file() && !root.join("top.md").exists());
+        assert_eq!(rename_enter_at(&mut forest, &root.join("b.md"), "c.md"), RenameEnter::Done(None));
+        assert!(root.join("c.md").is_file() && !root.join("c.md.md").exists());
+        assert_eq!(std::fs::read_to_string(root.join("c.md")).unwrap().lines().next(), Some("# c"));
+        assert_eq!(rename_enter_at(&mut forest, &root.join("c.md"), "D.MD"), RenameEnter::Done(None));
+        assert!(has_entry_named(&root, "d.md"));
+        assert_eq!(forest.nodes[row(&forest.nodes, path_str(&root.join("d.md")))].name, "d.md");
+    }
+
+    /// An empty or clashing name, for a note or a folder, keeps the prompt
+    /// open with its message: `enter_rename` decides that, not its caller.
+    #[test]
+    fn rename_enter_keeps_an_empty_or_clashing_name() {
+        let (_dir, notez, root) = vault();
+        std::fs::write(root.join("clash.md"), "# clash\n").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let before = disk_entries(&notez);
+        for (path, typed, want) in [
+            (root.join("top.md"), "", "no usable characters"),
+            (root.join("top.md"), ".md", "no usable characters"),
+            (root.join("top.md"), "clash", "already exists"),
+            (root.join("top.md"), "clash.md", "already exists"),
+            (root.join("ideas"), "", "the name is empty"),
+            (root.join("ideas"), "plans", "already exists"),
+        ] {
+            let outcome = rename_enter_at(&mut forest, &path, typed);
+            let RenameEnter::Keep(message) = outcome else {
+                panic!("{typed:?} on {}: {outcome:?}", path.display())
+            };
+            assert!(message.contains(want), "{typed:?}: {message}");
+        }
+        assert_eq!(disk_entries(&notez), before, "nothing moved");
     }
 
     #[test]
