@@ -49,6 +49,13 @@ notez agenda
 without opening it. Saves rewrite only the files you actually edited, and the
 footer warns if a `TODO.md` contains non-todo text a save would drop.
 
+**Due dates in todoz.** `D` on a todo opens a one-line prompt, like `e`,
+holding its current due date: `2026-10-20` sets that date, `+3d` today plus
+three days, `+1w` today plus a week, and `clear` removes it; `Esc` cancels.
+A value it cannot read changes nothing and says so in the footer. The date
+is written as an `@2026-10-20` token after the text, before the tags. Headers
+and code TODOs take no due date.
+
 **The todoz preview.** A right pane shows the selected todo's `TODO.md`
 rendered as markdown, scrolled to the todo, whose rows are highlighted; its
 bottom border shows the todo's due date (red when overdue). A section header

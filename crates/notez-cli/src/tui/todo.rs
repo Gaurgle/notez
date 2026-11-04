@@ -73,13 +73,14 @@ const TODO_KEYS: &[KeyHint] = &[
     key("d", "delete", "delete (asks to confirm)", theme::RED, Group::Edit, BOARD, Slot::Priority(8), None),
     key("a", "almost", "almost done [/]", theme::YELLOW, Group::Edit, BOARD, Slot::Priority(9), None),
     key("N", "new category", "new category (global board only)", theme::GREEN, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("D", "due", "set or clear the due date: 2026-10-20, +3d (days from today, +1w weeks) or clear", theme::MAUVE, Group::Edit, BOARD, Slot::HelpOnly, None),
     key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the todo", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(12), None),
     key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
     key("click dot", "tag", "click a todo's tag dot to toggle that tag", theme::PEACH, Group::Edit, BOARD, Slot::HelpOnly, None),
     key("y", "yes", "delete: confirm (also Enter)", theme::RED, Group::Edit, CONFIRMING, Slot::Priority(1), None),
     key("n", "no", "delete: cancel (any other key)", theme::SAPPHIRE, Group::Edit, CONFIRMING, Slot::Priority(2), None),
-    key("enter", "save", "new / subtask / edit / category: save", theme::GREEN, Group::Edit, TEXT_ENTRY, Slot::Priority(1), None),
-    key("esc", "cancel", "new / subtask / edit / category: cancel", theme::PEACH, Group::Edit, TEXT_ENTRY, Slot::Priority(2), None),
+    key("enter", "save", "new / subtask / edit / due / category: save", theme::GREEN, Group::Edit, TEXT_ENTRY, Slot::Priority(1), None),
+    key("esc", "cancel", "new / subtask / edit / due / category: cancel", theme::PEACH, Group::Edit, TEXT_ENTRY, Slot::Priority(2), None),
     key("\u{2190}/\u{2192}", "cursor", "text input: move the cursor", theme::TEXT, Group::Edit, TEXT_ENTRY, Slot::Priority(3), None),
     key("bksp", "delete", "text input: delete the char before the cursor", theme::TEXT, Group::Edit, TEXT_ENTRY, Slot::Priority(4), None),
     key("/", "filter", "filter: fuzzy text + #tagname (starts a new filter)", theme::SAPPHIRE, Group::Filter, BOARD_AND_TAG, Slot::Priority(6), Some(Toggle::Filter)),
@@ -1085,6 +1086,107 @@ fn probe_allowed(flags: &InputFlags, help_open: bool, dragging: bool) -> bool {
         || dragging)
 }
 
+/// Whether `task` can take a due date: the same guard as `e`, so headers
+/// and code todos cannot.
+fn takes_due(task: &Task) -> bool {
+    !task.is_header && !task.is_code_todo
+}
+
+/// The `D` prompt's value: `YYYY-MM-DD` (or `YYYY-MM-DDTHH:MM`), `+Nd` days
+/// or `+Nw` weeks from `today`, or `clear` (`None`). Anything else is the
+/// footer message to show.
+fn parse_due_input(input: &str, today: chrono::NaiveDate) -> Result<Option<NoteDate>, String> {
+    let value = input.trim();
+    if value.eq_ignore_ascii_case("clear") {
+        return Ok(None);
+    }
+    if let Some(date) = NoteDate::parse(value) {
+        return Ok(Some(date));
+    }
+    let relative = value.strip_prefix('+').and_then(|rest| {
+        let (count, per) = match rest.strip_suffix(['d', 'D']) {
+            Some(count) => (count, 1),
+            None => (rest.strip_suffix(['w', 'W'])?, 7),
+        };
+        let days = count.parse::<u64>().ok()?.checked_mul(per)?;
+        // `NoteDate` is fixed width: a five-digit year would not read back.
+        today.checked_add_days(chrono::Days::new(days)).filter(|date| chrono::Datelike::year(date) <= 9999)
+    });
+    match relative {
+        Some(date) => Ok(Some(NoteDate { date, time: None })),
+        None => Err(format!("due: {value:?} is not a date (2026-10-20, +3d, +1w or clear)")),
+    }
+}
+
+/// What one key did in the `D` prompt.
+#[derive(Debug, PartialEq, Eq)]
+enum DueKey {
+    /// The prompt stays open.
+    Typing,
+    /// Closed, nothing changed: `esc`, an empty value, or a todo that
+    /// cannot take a due date.
+    Closed,
+    /// Closed after setting or clearing the todo's due date.
+    Changed,
+    /// Closed on an unparseable value, nothing changed; the footer message.
+    Invalid(String),
+}
+
+/// One key in the `D` prompt editing `buffer` for `items[idx]`. Enter parses
+/// the value against `today` and sets the todo's due date; the serializer
+/// writes it on save. Every outcome but `Typing` empties the buffer.
+fn due_prompt_key(
+    code: KeyCode,
+    buffer: &mut String,
+    cursor: &mut usize,
+    items: &mut [Task],
+    idx: usize,
+    today: chrono::NaiveDate,
+) -> DueKey {
+    let outcome = match code {
+        KeyCode::Enter => match items.get(idx) {
+            Some(task) if takes_due(task) && !buffer.trim().is_empty() => {
+                match parse_due_input(buffer, today) {
+                    Ok(due) => {
+                        items[idx].due = due;
+                        DueKey::Changed
+                    }
+                    Err(message) => DueKey::Invalid(message),
+                }
+            }
+            _ => DueKey::Closed,
+        },
+        KeyCode::Esc => DueKey::Closed,
+        KeyCode::Left => {
+            *cursor = text::prev_char_boundary(buffer, *cursor);
+            DueKey::Typing
+        }
+        KeyCode::Right => {
+            *cursor = text::next_char_boundary(buffer, *cursor);
+            DueKey::Typing
+        }
+        KeyCode::Backspace => {
+            if *cursor > 0 {
+                let prev = text::prev_char_boundary(buffer, *cursor);
+                buffer.remove(prev);
+                *cursor = prev;
+            }
+            DueKey::Typing
+        }
+        KeyCode::Char(c) => {
+            buffer.insert(*cursor, c);
+            *cursor += c.len_utf8();
+            DueKey::Typing
+        }
+        _ => DueKey::Typing,
+    };
+    if outcome != DueKey::Typing {
+        buffer.clear();
+        *cursor = 0;
+    }
+    outcome
+}
+
 /// The board as it is on disk now. The global board is listed again from
 /// the registry, as after `N`; a single-scope board keeps its synthesized
 /// header and code TODOs and reads each section's file again.
@@ -1228,6 +1330,8 @@ fn event_loop(
     let mut subtask_mode = false;
     let mut edit_mode = false;
     let mut edit_idx: usize = 0;
+    // The `D` due-date prompt on `items[edit_idx]`; its footer is edit's.
+    let mut due_mode = false;
     let mut input_buffer = String::new();
     let mut flag_mode = false;
     let mut search_mode = false;
@@ -1292,6 +1396,7 @@ fn event_loop(
             || flag_mode
             || search_mode
             || edit_mode
+            || due_mode
             || subtask_mode
             || category_mode
             || input_mode
@@ -1314,7 +1419,7 @@ fn event_loop(
                     confirm_delete,
                     flag_mode,
                     search_mode,
-                    edit_mode,
+                    edit_mode: edit_mode || due_mode,
                     subtask_mode,
                     category_mode,
                     input_mode,
@@ -1631,8 +1736,10 @@ fn event_loop(
                         spans.push(Span::styled(" ", Style::default()));
                     }
                     hint_line(spans)
-                } else if input_mode || subtask_mode || edit_mode || category_mode {
-                    let (label, label_color) = if edit_mode {
+                } else if input_mode || subtask_mode || edit_mode || due_mode || category_mode {
+                    let (label, label_color) = if due_mode {
+                        (" due (2026-10-20, +3d, +1w, clear): ", Color::Rgb(165, 133, 202))
+                    } else if edit_mode {
                         (" edit: ", Color::Rgb(165, 133, 202))
                     } else if subtask_mode {
                         (" subtask: ", Color::Rgb(148, 157, 210))
@@ -1719,7 +1826,7 @@ fn event_loop(
             confirm_delete,
             flag_mode,
             search_mode,
-            edit_mode,
+            edit_mode: edit_mode || due_mode,
             subtask_mode,
             category_mode,
             input_mode,
@@ -2271,6 +2378,23 @@ fn event_loop(
             continue;
         }
 
+        if due_mode {
+            let today = chrono::Local::now().date_naive();
+            match due_prompt_key(key.code, &mut input_buffer, &mut cursor_pos, &mut items, edit_idx, today) {
+                DueKey::Typing => {}
+                DueKey::Closed => due_mode = false,
+                DueKey::Changed => {
+                    dirty.insert(items[edit_idx].source.clone());
+                    due_mode = false;
+                }
+                DueKey::Invalid(message) => {
+                    status_message.set(Some(message));
+                    due_mode = false;
+                }
+            }
+            continue;
+        }
+
         if edit_mode {
             match key.code {
                 KeyCode::Enter => {
@@ -2490,6 +2614,15 @@ fn event_loop(
                     edit_mode = true;
                     edit_idx = real_idx;
                     input_buffer = items[real_idx].text.clone();
+                    cursor_pos = input_buffer.len();
+                }
+            }
+
+            KeyCode::Char('D') => {
+                if items.get(real_idx).is_some_and(takes_due) {
+                    due_mode = true;
+                    edit_idx = real_idx;
+                    input_buffer = items[real_idx].due.map(|d| d.to_string()).unwrap_or_default();
                     cursor_pos = input_buffer.len();
                 }
             }
@@ -3461,6 +3594,101 @@ mod tests {
             })
             .collect();
         assert_eq!(headings, Group::ALL.to_vec());
+    }
+
+    // --- `D` due date prompt ---
+
+    fn today() -> chrono::NaiveDate {
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 4).unwrap()
+    }
+
+    /// Opens the prompt on `items[idx]` as `D` does, types `typed`, then
+    /// presses `last`; returns the outcome and the todo's saved line.
+    fn due_prompt(items: &mut [Task], idx: usize, typed: &str, last: KeyCode) -> (DueKey, String) {
+        let mut buffer = items[idx].due.map(|d| d.to_string()).unwrap_or_default();
+        let mut cursor = buffer.len();
+        for c in typed.chars() {
+            let key = if c == '\u{8}' { KeyCode::Backspace } else { KeyCode::Char(c) };
+            assert_eq!(due_prompt_key(key, &mut buffer, &mut cursor, items, idx, today()), DueKey::Typing);
+        }
+        let outcome = due_prompt_key(last, &mut buffer, &mut cursor, items, idx, today());
+        assert!(buffer.is_empty() && cursor == 0, "{outcome:?} leaves the buffer {buffer:?}");
+        let file = todo::serialize_tasks_for_file(items, Path::new("/tmp/TODO.md"));
+        (outcome, file.lines().last().unwrap_or_default().to_string())
+    }
+
+    #[test]
+    fn help_has_one_help_only_d_row_naming_the_three_forms() {
+        let rows: Vec<&KeyHint> = TODO_KEYS.iter().filter(|k| k.key == "D").collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].slot, Slot::HelpOnly);
+        for form in ["2026-10-20", "+3d", "+1w", "clear"] {
+            assert!(rows[0].help.contains(form), "{form}: {}", rows[0].help);
+        }
+    }
+
+    #[test]
+    fn due_prompt_sets_an_absolute_date_on_the_line() {
+        let mut items = vec![task("ship it", 0, FLAG_PRIO)];
+        let (outcome, line) = due_prompt(&mut items, 0, "2026-10-20", KeyCode::Enter);
+        assert_eq!(outcome, DueKey::Changed);
+        assert_eq!(line, "- [ ] ship it @2026-10-20 #prio");
+    }
+
+    #[test]
+    fn due_prompt_counts_days_and_weeks_from_today() {
+        let mut items = vec![task("ship it", 0, 0)];
+        assert_eq!(due_prompt(&mut items, 0, "+3d", KeyCode::Enter), (DueKey::Changed, "- [ ] ship it @2026-11-07".into()));
+        // The prompt opens on the current date; backspace it away first.
+        let erase = "\u{8}".repeat(10);
+        assert_eq!(due_prompt(&mut items, 0, &format!("{erase}+1w"), KeyCode::Enter), (DueKey::Changed, "- [ ] ship it @2026-11-11".into()));
+        assert_eq!(due_prompt(&mut items, 0, &format!("{erase}+0d"), KeyCode::Enter).1, "- [ ] ship it @2026-11-04");
+    }
+
+    #[test]
+    fn due_prompt_clear_removes_the_token() {
+        let mut items = vec![task("ship it", 0, 0)];
+        items[0].due = NoteDate::parse("2026-10-20");
+        let (outcome, line) = due_prompt(&mut items, 0, &format!("{}clear", "\u{8}".repeat(10)), KeyCode::Enter);
+        assert_eq!(outcome, DueKey::Changed);
+        assert_eq!(line, "- [ ] ship it");
+        assert_eq!(items[0].due, None);
+    }
+
+    #[test]
+    fn due_prompt_rejects_a_bad_value_without_changing_the_line() {
+        for bad in ["tomorrow", "2026-13-45", "+3", "+d", "+3m", "+-1d", "20261020", "+é", "+3日", "+3ß", "+3000000d"] {
+            let mut items = vec![task("ship it", 0, 0)];
+            items[0].due = NoteDate::parse("2026-10-20");
+            let (outcome, line) = due_prompt(&mut items, 0, &format!("{}{bad}", "\u{8}".repeat(10)), KeyCode::Enter);
+            let DueKey::Invalid(message) = outcome else { panic!("{bad}: {outcome:?}") };
+            assert!(message.contains(bad) && message.contains("+3d"), "{bad}: {message}");
+            assert_eq!(line, "- [ ] ship it @2026-10-20", "{bad}");
+        }
+    }
+
+    #[test]
+    fn due_prompt_esc_and_an_empty_value_change_nothing() {
+        let mut items = vec![task("ship it", 0, 0)];
+        items[0].due = NoteDate::parse("2026-10-20");
+        assert_eq!(due_prompt(&mut items, 0, "\u{8}+3d", KeyCode::Esc), (DueKey::Closed, "- [ ] ship it @2026-10-20".into()));
+        let erase = "\u{8}".repeat(10);
+        assert_eq!(due_prompt(&mut items, 0, &format!("{erase}  "), KeyCode::Enter), (DueKey::Closed, "- [ ] ship it @2026-10-20".into()));
+    }
+
+    #[test]
+    fn headers_and_code_todos_take_no_due_date() {
+        assert!(takes_due(&task("ship it", 1, 0)));
+        assert!(!takes_due(&header("s")));
+        let code = code_todo("fix me", "/tmp/TODO.md");
+        assert!(!takes_due(&code));
+        let mut items = vec![header("s"), code];
+        for idx in 0..items.len() {
+            let mut buffer = String::from("2026-10-20");
+            let mut cursor = buffer.len();
+            assert_eq!(due_prompt_key(KeyCode::Enter, &mut buffer, &mut cursor, &mut items, idx, today()), DueKey::Closed);
+            assert_eq!(items[idx].due, None);
+        }
     }
 
     // --- Reload (`R` and the file-change probe) ---
