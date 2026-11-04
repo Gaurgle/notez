@@ -362,6 +362,42 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-66 (#92): the selected row flashes once when yy or yp copies it
+
+From Andreas's 2026-11-03 words after NZ-60 ("can we make the
+selection blink swiftly as we copy?"), P2, 0.3.0, look change. Run by
+lead `018zBNkK` on 2026-11-04: branch `feat/nz-66-yank-flash`, worktree
+`.claude/worktrees/NZ-66`, base `c51a378`. Three rounds, each accepted
+first by a separate reviewer, the second and third on owner amendments
+after his try, not defects. Round 1 (worker opus about 4 min, 51k
+tokens; reviewer opus 3 min, 37k): a 150 ms flat flash, `yanked_row()`
+bold on a new `SURFACE2`, a deadline in the loop state read at draw
+time, no thread; diff `55d881dcceae`, commit `323c58a`, CI 41812161549
+green. Andreas: "the flash is perfect. but have it fade slightly ...
+two different flashes ... yy goes left to right ... yp goes right to
+left 0.2s, both fade out after, 0.2s". Round 2 (worker 6 min, 72k;
+reviewer 3 min, 48k): sweep painted into the buffer after the List,
+RGB `mix` fade, 30 ms frames, mouse motion no longer ends it; diff
+`2be62bed07e2`, commit `19b5572`, CI 41815076117 green. Andreas: "lets
+try 0.1 flash speed on both directions. possible to make it smoother?".
+Round 3 (worker 4 min, 51k; reviewer 2 min, 42k): 100 ms sweep, 12 ms
+frames, soft leading edge (the front cell mixed by its fractional
+position), overdue wait returns zero, scrolled-list render case; diff
+`562ab731e853`, commit `5f03873`, CI 41816296352 green. Combined checks
+on `acb0119` clean (one run tripped the 5 s bound of the 200 KB
+highlight test under load, clean on rerun). Gate held; Andreas:
+"perfect! merge and ship it."; merged `--no-ff` as `9d0aace` (Closes
+#92), CI on `main` run 41818843867, remote branch deleted. GitHub had a
+minor outage all morning: pushes and API calls needed retries. Optional
+follow-ups on #92: pin that the front shade scales with the fraction;
+the `'p'` direction expression at the call site is untested. Remember
+at the end: a method fact for the owner's notes, not a rule: a look
+change the owner has not seen is a first draft; budget two amendment
+rounds for animation tickets and dispatch them as amendments, not
+defects.
+
+NZ-66: review accepted first; fix cycles 0; owner decisions 3; worker 14; review 8; models opus/opus; usage 174k; 127k
+
 ### NZ-68 (#94): the sync runner test must not observe another test's cwd (serial)
 
 Follow-up found during NZ-61, NZ-63 and NZ-54 (Andreas's yes
