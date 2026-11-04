@@ -14,6 +14,13 @@ line. Older records (2026-10-06 to 2026-10-08) are in
 
 Lead records that preceded the current one in the handoff, newest first.
 
+### `018zBNkK` (Claude, Fable 5.1), 2026-11-04: the owner's words
+
+"continue" on start (resume the queue). On the NZ-62 design doc shown
+in full: "Other tickets can go ahead" (verdict on the doc still open).
+After NZ-65 reached Ready to integrate: "You may commit and push this
+session" (coordination docs, this lead session only).
+
 ### `67917d20` (Claude, Fable 5.1), 2026-11-03: the owner's words
 
 Takeover instruction, verbatim: "Take over as lead. NZ-58: I've tried it,
@@ -354,6 +361,30 @@ One subsection per ticket, newest merge first: the ticket brief as it
 stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
+
+### NZ-68 (#94): the sync runner test must not observe another test's cwd (serial)
+
+Follow-up found during NZ-61, NZ-63 and NZ-54 (Andreas's yes
+2026-11-03), test-only, first in the 2026-11-04 queue. Run by lead
+`018zBNkK` on 2026-11-04 after Andreas's "continue": branch
+`fix/nz-68-serial-sync-test`, worktree `.claude/worktrees/NZ-68`, base
+`448d1cb`. Worker nz-small (sonnet, medium, about 2.5 min, 24k tokens):
+both git-spawning tests in `tui/sync.rs` and all 20 tests in
+`notez-core/src/sync.rs` marked `#[serial_test::serial]`, the two bare
+`git clone` commands given `current_dir` on the tempdir root; no
+production or assertion change; five clean workspace runs. Reviewer
+(opus, about 2 min, 30k tokens) accepted first, diff id `6e68d50417ee`,
+noting the core marks are justified by seven serial chdir tests in
+`core/resolve.rs` (the worker had said there were none) and that the
+race cannot be proven by a deterministic failing test. Lead verify on
+`cf0a5de` (main its ancestor): two clean runs, 771 + 5 + 191. Branch CI
+`41798827822` green, gate held, merged `--no-ff` as `c51a378` (Closes
+#94), CI on `main` run `41799098406`, remote branch deleted. Remember
+at the end: nothing to keep (the rule "a test that spawns a process is
+serial" is a fact about this code, but it is in the issue's cause
+section and the pattern is now visible in both sync test modules).
+
+NZ-68: review accepted first; fix cycles 0; owner decisions 0; worker 3; review 2; models sonnet/opus; usage 24k; 30k
 
 ### NZ-64 (#90): pane border in a third colour while typing (todoz and notez)
 
