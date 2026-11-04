@@ -38,6 +38,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## Open questions
 
+- NZ-71 (#100, Backlog): his 2026-11-04 note, creating a dated todo or
+  note must be intuitive (forms such as +1y, +1mo, +2h; surfaces); design first.
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
