@@ -1641,14 +1641,14 @@ pub(super) fn show_yank(status: &mut Notice, message: Option<String>, now: Insta
 
 /// How long a copy's [`theme::yanked_row`] takes to sweep over the cursor
 /// row: `yy` from the left edge, `yp` from the right.
-pub(super) const YANK_SWEEP: Duration = Duration::from_millis(200);
+pub(super) const YANK_SWEEP: Duration = Duration::from_millis(100);
 /// How long the swept row then takes to fade back to
 /// [`theme::selected_row`].
 pub(super) const YANK_FADE: Duration = Duration::from_millis(200);
 /// The whole copy flash: the sweep, then the fade.
 pub(super) const YANK_FLASH: Duration = YANK_SWEEP.saturating_add(YANK_FADE);
-/// The redraw interval while the flash is live.
-pub(super) const YANK_FRAME: Duration = Duration::from_millis(30);
+/// The redraw interval while the flash is live: 8 frames over the sweep.
+pub(super) const YANK_FRAME: Duration = Duration::from_millis(12);
 
 /// The cursor row's one flash after a copy: when it started and which way
 /// it sweeps. Read at draw time; while it lasts the event loop cuts its
@@ -1712,10 +1712,13 @@ impl YankFlash {
         true
     }
 
-    /// `wait`, or no longer than the next frame while the flash lasts.
+    /// `wait`, or no longer than the next frame while the flash lasts, or
+    /// no wait at all once its time is up but [`YankFlash::tick`] has not
+    /// ended it yet, so a late frame does not leave the row a shade off.
     pub(super) fn wait(&self, wait: Duration, now: Instant) -> Duration {
         match self.elapsed(now) {
             Some(elapsed) => wait.min(YANK_FRAME).min(YANK_FLASH - elapsed),
+            None if self.start.is_some() => Duration::ZERO,
             None => wait,
         }
     }
@@ -1904,17 +1907,18 @@ mod tests {
         let (copied, _, _) = yank_at(KeyCode::Char('y'), "c.md");
         flash.show(show_yank(&mut status, copied, t0), false, t0);
         let ms = |n: u64| t0 + Duration::from_millis(n);
-        assert_eq!(YANK_FLASH, Duration::from_millis(400), "a 200 ms sweep, then a 200 ms fade");
+        assert_eq!(YANK_FLASH, Duration::from_millis(300), "a 100 ms sweep, then a 200 ms fade");
+        assert_eq!(YANK_FRAME, Duration::from_millis(12), "8 frames over the sweep");
 
         // The sweep: the row's own style under it, the yanked part growing.
         assert_eq!(flash.row_style(t0), theme::selected_row());
         assert_eq!(flash.sweep(t0), Some(Sweep { reached: 0.0, from_right: false }));
-        assert_eq!(flash.row_style(ms(100)), theme::selected_row());
-        assert_eq!(flash.sweep(ms(100)), Some(Sweep { reached: 0.5, from_right: false }));
-        // The fade: the whole row yanked at 200 ms, mixing back after.
-        assert_eq!(flash.sweep(ms(200)), None, "the row is full");
-        assert_eq!(flash.row_style(ms(200)), theme::yanked_row());
-        let Some(Color::Rgb(r, g, b)) = flash.row_style(ms(300)).bg else {
+        assert_eq!(flash.row_style(ms(50)), theme::selected_row());
+        assert_eq!(flash.sweep(ms(50)), Some(Sweep { reached: 0.5, from_right: false }));
+        // The fade: the whole row yanked at 100 ms, mixing back after.
+        assert_eq!(flash.sweep(ms(100)), None, "the row is full");
+        assert_eq!(flash.row_style(ms(100)), theme::yanked_row());
+        let Some(Color::Rgb(r, g, b)) = flash.row_style(ms(200)).bg else {
             panic!("an RGB background mid-fade");
         };
         let (Color::Rgb(r0, g0, b0), Color::Rgb(r1, g1, b1)) = (theme::SURFACE0, theme::SURFACE2)
@@ -1924,32 +1928,36 @@ mod tests {
         for (c, lo, hi) in [(r, r0, r1), (g, g0, g1), (b, b0, b1)] {
             assert!(lo < c && c < hi, "{c} strictly between {lo} and {hi}");
         }
-        assert!(flash.row_style(ms(300)).add_modifier.contains(Modifier::BOLD));
+        assert!(flash.row_style(ms(200)).add_modifier.contains(Modifier::BOLD));
+        assert_eq!(flash.sweep(ms(200)), None);
+        assert_eq!(flash.row_style(ms(300)), theme::selected_row(), "over at 300 ms");
         assert_eq!(flash.sweep(ms(300)), None);
-        assert_eq!(flash.row_style(ms(400)), theme::selected_row(), "over at 400 ms");
-        assert_eq!(flash.sweep(ms(400)), None);
 
         // While it lasts the wait is one frame, and each frame redraws.
         let wait = Duration::from_secs(1);
         assert_eq!(flash.wait(wait, t0), YANK_FRAME, "the wait is cut to a frame");
-        assert_eq!(flash.wait(wait, ms(390)), Duration::from_millis(10), "to the end at most");
+        assert_eq!(flash.wait(wait, ms(295)), Duration::from_millis(5), "to the end at most");
         assert_eq!(flash.wait(Duration::from_millis(5), t0), Duration::from_millis(5));
-        assert!(flash.tick(ms(100)), "a live flash redraws");
-        assert!(flash.tick(ms(300)));
-        assert_eq!(flash.wait(wait, ms(300)), YANK_FRAME, "a frame does not end it");
-        assert!(flash.tick(ms(400)), "one last redraw as it ends");
-        assert_eq!(flash.row_style(ms(100)), theme::selected_row(), "ended, not replayed");
-        assert_eq!(flash.sweep(ms(100)), None);
-        assert_eq!(flash.wait(wait, ms(100)), wait);
+        // A late frame: the time is up but no tick has ended it, so no wait.
+        assert_eq!(flash.wait(wait, ms(300)), Duration::ZERO, "overdue at 300 ms");
+        assert_eq!(flash.wait(wait, ms(350)), Duration::ZERO, "overdue at 350 ms");
+        assert!(flash.tick(ms(50)), "a live flash redraws");
+        assert!(flash.tick(ms(200)));
+        assert_eq!(flash.wait(wait, ms(200)), YANK_FRAME, "a frame does not end it");
+        assert!(flash.tick(ms(300)), "one last redraw as it ends");
+        assert_eq!(flash.row_style(ms(50)), theme::selected_row(), "ended, not replayed");
+        assert_eq!(flash.sweep(ms(50)), None);
+        assert_eq!(flash.wait(wait, ms(50)), wait);
+        assert_eq!(flash.wait(wait, ms(350)), wait, "ended, so no longer overdue");
         assert!(!flash.tick(ms(4000)), "it does not come back");
 
         // `yp` sweeps from the right edge.
         flash.show(true, true, t0);
-        assert_eq!(flash.sweep(ms(100)), Some(Sweep { reached: 0.5, from_right: true }));
+        assert_eq!(flash.sweep(ms(50)), Some(Sweep { reached: 0.5, from_right: true }));
         flash.clear();
-        assert_eq!(flash.sweep(ms(100)), None);
-        assert_eq!(flash.row_style(ms(300)), theme::selected_row());
-        assert_eq!(flash.wait(wait, ms(100)), wait);
+        assert_eq!(flash.sweep(ms(50)), None);
+        assert_eq!(flash.row_style(ms(200)), theme::selected_row());
+        assert_eq!(flash.wait(wait, ms(50)), wait);
 
         let (_dir, roots) = test_support::temp_tree();
         let forest = test_support::forest_of(test_support::list_sections(&roots));
@@ -1957,10 +1965,11 @@ mod tests {
         let failed = yank(KeyCode::Char('y'), row, &mut |_: &str| anyhow::bail!("no clipboard"));
         flash.show(show_yank(&mut status, failed, t0), false, t0);
         assert_eq!(flash.row_style(t0), theme::selected_row());
-        assert_eq!(flash.row_style(ms(300)), theme::selected_row());
-        assert_eq!(flash.sweep(ms(100)), None);
+        assert_eq!(flash.row_style(ms(200)), theme::selected_row());
+        assert_eq!(flash.sweep(ms(50)), None);
         assert_eq!(flash.wait(wait, t0), wait);
-        assert!(!flash.tick(ms(100)), "nothing to redraw");
+        assert_eq!(flash.wait(wait, ms(350)), wait, "never overdue");
+        assert!(!flash.tick(ms(50)), "nothing to redraw");
     }
 
     #[test]
