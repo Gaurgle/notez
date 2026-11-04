@@ -85,6 +85,16 @@ pub(super) fn list_items(
     lines: Vec<Line<'static>>,
     selected: Option<usize>,
 ) -> Vec<ListItem<'static>> {
+    list_items_styled(lines, selected, theme::selected_row())
+}
+
+/// [`list_items`] with the `selected` row in `cursor` instead, for the
+/// copy flash (see [`theme::yanked_row`]).
+pub(super) fn list_items_styled(
+    lines: Vec<Line<'static>>,
+    selected: Option<usize>,
+    cursor: Style,
+) -> Vec<ListItem<'static>> {
     let selected = selected.map(|s| s.min(lines.len().saturating_sub(1)));
     lines
         .into_iter()
@@ -92,7 +102,7 @@ pub(super) fn list_items(
         .map(|(i, line)| {
             let item = ListItem::new(line);
             if Some(i) == selected {
-                item.style(theme::selected_row())
+                item.style(cursor)
             } else {
                 item
             }
@@ -2148,6 +2158,23 @@ mod tests {
         for (x, (_, style)) in cells.iter().enumerate() {
             assert_eq!(style.bg, theme::selected_row().bg, "column {x}");
             assert!(style.add_modifier.contains(Modifier::BOLD), "column {x}");
+        }
+    }
+
+    #[test]
+    fn the_copy_flash_draws_the_cursor_row_in_the_yanked_style_across_the_line() {
+        use ratatui::buffer::Buffer;
+        let (sections, nodes) = aligned_forest();
+        let lines = vec![line_of(&sections, &nodes, 0), line_of(&sections, &nodes, 1)];
+        let area = Rect::new(0, 0, 40, 2);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListState::default();
+        state.select(Some(1));
+        let list = List::new(list_items_styled(lines, Some(1), theme::yanked_row()));
+        StatefulWidget::render(list, area, &mut buf, &mut state);
+        for x in 0..40 {
+            assert_eq!(buf[(x, 1)].style().bg, theme::yanked_row().bg, "column {x}");
+            assert_ne!(buf[(x, 0)].style().bg, theme::yanked_row().bg, "column {x}");
         }
     }
 

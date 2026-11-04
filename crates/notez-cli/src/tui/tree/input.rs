@@ -75,6 +75,7 @@ pub(super) fn event_loop(
     let mut status_message = Notice::default();
     // `y` was pressed: the next key finishes the copy chord (see `yank`).
     let mut yank_pending = false;
+    let mut yank_flash = YankFlash::default();
     let mut preview_scroll: u16 = 0;
     // Set on every draw: the last scroll offset that still fills the preview
     // pane, and the pane's inner height, for the scroll keys.
@@ -202,7 +203,7 @@ pub(super) fn event_loop(
                 body_area = rows[0];
                 let inner_width = list_text_width(list_area.width);
 
-                let items = list_items(
+                let items = list_items_styled(
                     list_lines(
                         nodes,
                         sections,
@@ -212,6 +213,7 @@ pub(super) fn event_loop(
                         &search_buffer,
                     ),
                     state.selected(),
+                    yank_flash.row_style(Instant::now()),
                 );
 
                 let header = pane_title(Pane::List, panes.focus, Vec::new());
@@ -653,11 +655,14 @@ pub(super) fn event_loop(
         }
         // A running sync shortens the wait so its result shows promptly,
         // and holds the probe off until it is done.
-        // A success message on the footer shortens it too, to clear on time.
+        // A success message on the footer shortens it too, to clear on time,
+        // and so does the copy flash on the cursor row.
         let mut finished = None;
         let mut expired = false;
         let ev = loop {
-            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), Instant::now());
+            let now = Instant::now();
+            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), now);
+            let wait = yank_flash.wait(wait, now);
             if event::poll(wait).context("failed to poll for events")? {
                 break Some(event::read().context("failed to read event")?);
             }
@@ -665,7 +670,10 @@ pub(super) fn event_loop(
                 finished = Some(done);
                 break None;
             }
-            if status_message.expire(Instant::now()) {
+            let now = Instant::now();
+            // Both, not `||`: a flash and a message ending together both go.
+            let flash_ended = yank_flash.expire(now);
+            if status_message.expire(now) | flash_ended {
                 expired = true;
                 break None;
             }
@@ -714,6 +722,9 @@ pub(super) fn event_loop(
             }
             continue;
         };
+        // Any input ends the flash, so it never lands on a row the cursor
+        // moved to.
+        yank_flash.clear();
 
         if let Event::Mouse(mouse) = ev {
             // A drag owns every mouse event until the button comes up,
@@ -839,11 +850,13 @@ pub(super) fn event_loop(
                 .selected()
                 .and_then(|sel| visible.get(sel))
                 .and_then(|&i| nodes.get(i));
-            show_yank(
+            let now = Instant::now();
+            let copied = show_yank(
                 &mut status_message,
                 yank(key.code, row, &mut crate::tui::clipboard::copy),
-                Instant::now(),
+                now,
             );
+            yank_flash.show(copied, now);
             continue;
         }
 
@@ -1602,11 +1615,68 @@ pub(super) fn yank(
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
 }
 
-/// Show [`yank`]'s footer message: a copy flashes, a failure stays.
-pub(super) fn show_yank(status: &mut Notice, message: Option<String>, now: Instant) {
+/// Show [`yank`]'s footer message: a copy flashes, a failure stays. True
+/// for a copy, which also flashes the cursor row (see [`YankFlash`]).
+pub(super) fn show_yank(status: &mut Notice, message: Option<String>, now: Instant) -> bool {
     match message {
-        Some(text) if text.starts_with("copied") => status.flash(text, now),
-        other => status.set(other),
+        Some(text) if text.starts_with("copied") => {
+            status.flash(text, now);
+            true
+        }
+        other => {
+            status.set(other);
+            false
+        }
+    }
+}
+
+/// How long the cursor row shows [`theme::yanked_row`] after a copy.
+pub(super) const YANK_FLASH: Duration = Duration::from_millis(150);
+
+/// The cursor row's one flash after a copy: until when it lasts. Read at
+/// draw time; the event loop shortens its wait with [`YankFlash::wait`]
+/// and ends it with [`YankFlash::expire`], as it does for [`Notice`].
+#[derive(Debug, Default)]
+pub(super) struct YankFlash {
+    until: Option<Instant>,
+}
+
+impl YankFlash {
+    /// Start the flash at `now` when `copied`; a failed copy ends any flash.
+    pub(super) fn show(&mut self, copied: bool, now: Instant) {
+        self.until = copied.then(|| now + YANK_FLASH);
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.until = None;
+    }
+
+    /// The cursor row's style at `now`.
+    pub(super) fn row_style(&self, now: Instant) -> Style {
+        match self.until {
+            Some(until) if now < until => theme::yanked_row(),
+            _ => theme::selected_row(),
+        }
+    }
+
+    /// End a flash whose time is up at `now`. True when it ended, so the
+    /// view redraws.
+    pub(super) fn expire(&mut self, now: Instant) -> bool {
+        match self.until {
+            Some(until) if now >= until => {
+                self.until = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `wait`, or less while the flash lasts, so it ends on time.
+    pub(super) fn wait(&self, wait: Duration, now: Instant) -> Duration {
+        match self.until {
+            Some(until) => wait.min(until.saturating_duration_since(now)),
+            None => wait,
+        }
     }
 }
 
@@ -1770,6 +1840,34 @@ mod tests {
         show_yank(&mut status, failed, t0);
         assert!(!status.expire(t0 + EXPIRY * 10));
         assert_eq!(status.as_deref(), Some("copy failed: no clipboard"));
+    }
+
+    #[test]
+    fn a_copy_flashes_the_cursor_row_once_and_a_failed_copy_does_not() {
+        let t0 = Instant::now();
+        let mut status = Notice::default();
+        let mut flash = YankFlash::default();
+        assert_ne!(theme::yanked_row(), theme::selected_row());
+        let (copied, _, _) = yank_at(KeyCode::Char('y'), "c.md");
+        flash.show(show_yank(&mut status, copied, t0), t0);
+        assert_eq!(flash.row_style(t0), theme::yanked_row());
+        assert_eq!(flash.row_style(t0 + YANK_FLASH / 2), theme::yanked_row());
+        assert_eq!(flash.row_style(t0 + YANK_FLASH), theme::selected_row(), "over at the deadline");
+        let wait = Duration::from_secs(1);
+        assert_eq!(flash.wait(wait, t0), YANK_FLASH, "the wait ends with the flash");
+        assert!(!flash.expire(t0 + YANK_FLASH / 2));
+        assert!(flash.expire(t0 + YANK_FLASH), "one flash, then it is over");
+        assert_eq!(flash.row_style(t0 + YANK_FLASH), theme::selected_row());
+        assert_eq!(flash.wait(wait, t0), wait);
+        assert!(!flash.expire(t0 + YANK_FLASH * 10), "it does not come back");
+
+        let (_dir, roots) = test_support::temp_tree();
+        let forest = test_support::forest_of(test_support::list_sections(&roots));
+        let row = forest.nodes.iter().find(|n| n.path == roots[0].1.join("c.md"));
+        let failed = yank(KeyCode::Char('y'), row, &mut |_: &str| anyhow::bail!("no clipboard"));
+        flash.show(show_yank(&mut status, failed, t0), t0);
+        assert_eq!(flash.row_style(t0), theme::selected_row());
+        assert_eq!(flash.wait(wait, t0), wait);
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub const FLAMINGO: Color = Color::Rgb(242, 205, 205);
 pub const OVERLAY: Color = Color::Rgb(108, 112, 134);
 pub const SURFACE: Color = Color::Rgb(69, 71, 90);
 pub const SURFACE0: Color = Color::Rgb(49, 50, 68);
+pub const SURFACE2: Color = Color::Rgb(88, 91, 112);
 pub const BASE: Color = Color::Rgb(30, 30, 46);
 pub const TEXT: Color = Color::Rgb(205, 214, 244);
 pub const SUBTEXT: Color = Color::Rgb(166, 173, 200);
@@ -37,6 +38,13 @@ pub fn selected() -> Style {
 /// [`selected`] background plus bold, which brightens every glyph on it.
 pub fn selected_row() -> Style {
     selected().add_modifier(Modifier::BOLD)
+}
+
+/// The tree browser's cursor row for one short flash after a copy: bold
+/// as [`selected_row`], on a brighter background that is still a shade
+/// apart from the branch and dim tag glyphs, so the row stays readable.
+pub fn yanked_row() -> Style {
+    Style::default().bg(SURFACE2).add_modifier(Modifier::BOLD)
 }
 
 /// The glyphs that draw the tree browser's hierarchy, in one table so they
