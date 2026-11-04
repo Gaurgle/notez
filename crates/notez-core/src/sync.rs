@@ -173,6 +173,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_not_commit_when_tree_is_clean() {
         let tmp = repo();
         assert!(!commit_pending(tmp.path()).unwrap());
@@ -180,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_commit_untracked_note() {
         let tmp = repo();
         fs::create_dir_all(tmp.path().join("personal/p/01_daily-logs")).unwrap();
@@ -193,6 +195,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_commit_modified_tracked_note() {
         let tmp = repo();
         fs::write(tmp.path().join("a.md"), "one").unwrap();
@@ -204,6 +207,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_fail_outside_a_git_repo() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(commit_pending(tmp.path()).is_err());
@@ -239,6 +243,7 @@ mod tests {
         for name in ["one", "two"] {
             let dir = tmp.path().join(name);
             let out = Command::new("git")
+                .current_dir(tmp.path())
                 .args(["clone", "-q", remote.to_str().unwrap(), dir.to_str().unwrap()])
                 .output()
                 .unwrap();
@@ -258,6 +263,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_is_idle_outside_a_repo_or_without_upstream() {
         let plain = tempfile::tempdir().unwrap();
         assert_eq!(auto_sync(plain.path()), AutoSync::Idle);
@@ -269,6 +275,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_commits_and_pushes_a_new_note() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(one.join("new.md"), "hello\n").unwrap();
@@ -280,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_rebases_onto_remote_changes() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("theirs.md"), "t\n").unwrap();
@@ -294,6 +302,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_stops_on_conflict_and_leaves_no_rebase_behind() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("a.md"), "theirs\n").unwrap();
@@ -309,6 +318,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_is_idle_and_commits_locally_when_the_remote_is_unreachable() {
         let (tmp, one, _two) = remote_with_clones();
         fs::rename(tmp.path().join("remote.git"), tmp.path().join("gone.git")).unwrap();
@@ -326,6 +336,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_reports_a_conflict_with_a_reachable_remote_in_gits_words() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("a.md"), "theirs\n").unwrap();
@@ -341,6 +352,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn auto_sync_pushes_offline_commits_once_the_remote_is_reachable() {
         let (tmp, one, two) = remote_with_clones();
         let remote = tmp.path().join("remote.git");
@@ -370,6 +382,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn auto_sync_reports_a_failed_commit_even_when_the_remote_is_unreachable() {
         let (tmp, one, _two) = remote_with_clones();
         fs::rename(tmp.path().join("remote.git"), tmp.path().join("gone.git")).unwrap();
@@ -386,6 +399,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn auto_sync_reports_a_push_rejected_by_a_reachable_remote() {
         let (tmp, one, _two) = remote_with_clones();
         let remote = tmp.path().join("remote.git");
@@ -401,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_picks_up_a_remote_change() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("theirs.md"), "t\n").unwrap();
@@ -412,6 +427,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_commits_pending_work_but_never_pushes() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("theirs.md"), "t\n").unwrap();
@@ -431,12 +447,14 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_is_idle_when_already_up_to_date() {
         let (_tmp, one, _two) = remote_with_clones();
         assert_eq!(pull_on_open(&one), AutoSync::Idle);
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_stops_on_conflict_and_leaves_no_rebase_behind() {
         let (_tmp, one, two) = remote_with_clones();
         fs::write(two.join("a.md"), "theirs\n").unwrap();
@@ -454,6 +472,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_says_so_when_the_rebase_cannot_be_aborted() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -481,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_is_idle_outside_a_repo_or_without_upstream() {
         let plain = tempfile::tempdir().unwrap();
         assert_eq!(pull_on_open(plain.path()), AutoSync::Idle);
@@ -492,6 +512,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn pull_on_open_is_idle_when_the_remote_is_unreachable() {
         let (tmp, one, _two) = remote_with_clones();
         fs::rename(tmp.path().join("remote.git"), tmp.path().join("gone.git")).unwrap();

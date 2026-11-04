@@ -369,6 +369,7 @@ mod tests {
 
     fn clone_of(remote: &Path, dir: &Path) {
         let out = Command::new("git")
+            .current_dir(remote.parent().unwrap())
             .args(["clone", "-q"])
             .arg(remote)
             .arg(dir)
@@ -386,6 +387,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn the_runner_commits_pushes_and_pulls_a_second_clones_change() {
         let tmp = tempfile::tempdir().unwrap();
         let remote = tmp.path().join("remote.git");
@@ -435,6 +437,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn the_runner_on_the_background_thread_reports_through_take_finished() {
         let dir = tempfile::tempdir().unwrap();
         git(dir.path(), &["init", "-q"]);
