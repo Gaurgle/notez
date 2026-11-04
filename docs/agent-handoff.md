@@ -44,9 +44,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
-- NZ-52 (#78) position is his call. NZ-18 and NZ-47d parked (2026-11-03).
-- NZ-69 (#95), NZ-70 (#96): Ready from his 2026-11-04 words; assumptions
-  in the bodies await his go. DESIGN.md "one key, one function" line: proposed.
+- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69, NZ-70 (#95, #96) Ready
+  on his go; DESIGN.md "one key, one function" line proposed, not written.
 
 ## Next step
 
