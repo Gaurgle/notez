@@ -102,10 +102,15 @@ fn main() -> ExitCode {
     };
 
     let result: anyhow::Result<()> = match cmd {
-        Commands::Add { mut title, r#in, in_local }
-        | Commands::Znote { mut title, r#in, in_local } => {
+        Commands::Add { mut title, r#in, in_local, due, on }
+        | Commands::Znote { mut title, r#in, in_local, due, on } => {
             let is_quick = commands::add::take_quick_keyword(&mut title);
-            commands::add::run(title, r#in, in_local, is_quick, scope, &config)
+            let dates = commands::add::DateArgs {
+                due,
+                on,
+                today: chrono::Local::now().date_naive(),
+            };
+            commands::add::run_with_dates(title, r#in, in_local, is_quick, &dates, scope, &config)
                 .map(|created| report_created(&created, &config, sync))
         }
         Commands::Quick { title } => create_quick(title, scope, &config)
@@ -270,13 +275,13 @@ fn decide(
 fn with_dir_shorthand(cmd: Commands) -> Commands {
     use commands::add::take_dir_shorthand;
     match cmd {
-        Commands::Add { mut title, r#in: None, in_local } => {
+        Commands::Add { mut title, r#in: None, in_local, due, on } => {
             let r#in = take_dir_shorthand(&mut title);
-            Commands::Add { title, r#in, in_local }
+            Commands::Add { title, r#in, in_local, due, on }
         }
-        Commands::Znote { mut title, r#in: None, in_local } => {
+        Commands::Znote { mut title, r#in: None, in_local, due, on } => {
             let r#in = take_dir_shorthand(&mut title);
-            Commands::Znote { title, r#in, in_local }
+            Commands::Znote { title, r#in, in_local, due, on }
         }
         other => other,
     }

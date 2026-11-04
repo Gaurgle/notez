@@ -410,6 +410,23 @@ kept as typed: `notez add --in . tcp/` writes `tcp/` to the global root
 (`--in-local --in .` for the scope root). `.` and `..` never walk out of the
 root: `--in ../x` is refused. Scratch writes (`-l`) auto-gitignore `.notez/` in the repo.
 
+`notez add --due <date>` and `--on <datetime>` date the new note: they put a
+frontmatter block at the top of the file with `due:` (a deadline) and
+`event:` (the day the note is about), and `notez agenda` then lists it.
+`--due` takes `YYYY-MM-DD`, or `+3d` / `+1w` counted from today; `--on` takes
+`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`. `notez add --due +1w --on
+2026-11-02T14:00 launch review`, run on 2026-11-04, writes:
+
+```markdown
+---
+due: 2026-11-11
+event: 2026-11-02T14:00
+---
+# launch review
+```
+
+A value that does not parse is refused and no file is written.
+
 **Auto sync.** When an interactive session ends (`notez tree`, `todo`, `edit`,
 `logz`, or `add` that opened the editor), notez commits the vault, runs
 `git pull --rebase` and pushes, like `notez sync` but silent unless something

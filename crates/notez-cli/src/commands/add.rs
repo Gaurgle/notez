@@ -14,10 +14,12 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use chrono::{Days, NaiveDate};
 
 use crate::cli;
 use notez_core::config::Config;
-use notez_core::core::{Note, Scope, project, resolve};
+use notez_core::core::dates::NoteDate;
+use notez_core::core::{Note, Scope, frontmatter, project, resolve};
 use notez_core::util::sanitize;
 
 /// Result of `add`: where the note landed and whether an inline body was
@@ -55,6 +57,63 @@ pub fn take_dir_shorthand(title_words: &mut Vec<String>) -> Option<String> {
     Some(word.trim_matches('/').to_string())
 }
 
+/// The raw `--due` and `--on` values of `notez add`, with the day `+3d` and
+/// `+1w` count from.
+pub struct DateArgs {
+    pub due: Option<String>,
+    pub on: Option<String>,
+    pub today: NaiveDate,
+}
+
+/// The parsed dates a new note's frontmatter gets.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct NewDates {
+    due: Option<NoteDate>,
+    event: Option<NoteDate>,
+}
+
+impl DateArgs {
+    fn parse(&self) -> Result<NewDates> {
+        Ok(NewDates {
+            due: self.due.as_deref().map(|t| parse_due(t, self.today)).transpose()?,
+            event: self.on.as_deref().map(parse_on).transpose()?,
+        })
+    }
+}
+
+/// `--due`: `YYYY-MM-DD`, or `+Nd` / `+Nw` counted from `today`.
+fn parse_due(text: &str, today: NaiveDate) -> Result<NoteDate> {
+    let refuse = || anyhow::anyhow!("invalid --due {text:?}: expected YYYY-MM-DD, +3d or +1w");
+    if let Some(rel) = text.strip_prefix('+') {
+        let (count, per_unit) = match rel.as_bytes().last() {
+            Some(b'd') => (&rel[..rel.len() - 1], 1),
+            Some(b'w') => (&rel[..rel.len() - 1], 7),
+            _ => return Err(refuse()),
+        };
+        if count.is_empty() || !count.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(refuse());
+        }
+        let days = count
+            .parse::<u64>()
+            .ok()
+            .and_then(|n| n.checked_mul(per_unit))
+            .ok_or_else(refuse)?;
+        let date = today.checked_add_days(Days::new(days)).ok_or_else(refuse)?;
+        return Ok(NoteDate { date, time: None });
+    }
+    match NoteDate::parse(text) {
+        Some(date) if date.time.is_none() => Ok(date),
+        _ => Err(refuse()),
+    }
+}
+
+/// `--on`: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
+fn parse_on(text: &str) -> Result<NoteDate> {
+    NoteDate::parse(text).ok_or_else(|| {
+        anyhow::anyhow!("invalid --on {text:?}: expected YYYY-MM-DD or YYYY-MM-DDTHH:MM")
+    })
+}
+
 /// Write the new note to disk and return its absolute path.
 pub fn run(
     title_words: Vec<String>,
@@ -76,6 +135,24 @@ pub fn run(
     )
 }
 
+/// [`run`] with `--due` / `--on`: the values are checked before anything is
+/// created, and a set one lands as `due:` / `event:` in a frontmatter block
+/// at the top of the note.
+pub fn run_with_dates(
+    title_words: Vec<String>,
+    in_arg: Option<String>,
+    in_local: bool,
+    is_quick: bool,
+    dates: &DateArgs,
+    scope: Scope,
+    config: &Config,
+) -> Result<Created> {
+    let dates = dates.parse()?;
+    let pick = |names: &[String]| fzf_pick(names, config);
+    let target = Target { in_arg, in_local, is_quick, scope };
+    create_at_target(title_words, target, &dates, config, &pick)
+}
+
 /// [`run`] with the directory picker passed in: it gets the nested folder
 /// list and returns the chosen one.
 fn run_with_picker(
@@ -87,6 +164,26 @@ fn run_with_picker(
     config: &Config,
     pick: &dyn Fn(&[String]) -> Result<String>,
 ) -> Result<Created> {
+    let target = Target { in_arg, in_local, is_quick, scope };
+    create_at_target(title_words, target, &NewDates::default(), config, pick)
+}
+
+/// Where `add` puts a note: its `--in` target, quick-ness and scope.
+struct Target {
+    in_arg: Option<String>,
+    in_local: bool,
+    is_quick: bool,
+    scope: Scope,
+}
+
+fn create_at_target(
+    title_words: Vec<String>,
+    target: Target,
+    dates: &NewDates,
+    config: &Config,
+    pick: &dyn Fn(&[String]) -> Result<String>,
+) -> Result<Created> {
+    let Target { in_arg, in_local, is_quick, scope } = target;
     let dir = match &in_arg {
         None if is_quick => resolve::quick_notes(quick_scope(scope), config)?,
         None => resolve::root(scope, config)?,
@@ -100,7 +197,7 @@ fn run_with_picker(
             }
         }
     };
-    create_in_dir(title_words, &dir, scope, is_quick)
+    create_dated_in_dir(title_words, &dir, scope, is_quick, dates)
 }
 
 /// Create a note in an explicit directory: the creation path shared by
@@ -116,6 +213,17 @@ pub fn create_in_dir(
     scope: Scope,
     dated: bool,
 ) -> Result<Created> {
+    create_dated_in_dir(title_words, dir, scope, dated, &NewDates::default())
+}
+
+/// [`create_in_dir`] with `dates` written into the note's frontmatter.
+fn create_dated_in_dir(
+    title_words: Vec<String>,
+    dir: &Path,
+    scope: Scope,
+    dated: bool,
+    dates: &NewDates,
+) -> Result<Created> {
     let (title, body) = cli::split_title_body(title_words);
     let title = title.unwrap_or_else(|| "untitled".to_string());
     let had_body = body.is_some();
@@ -127,7 +235,14 @@ pub fn create_in_dir(
         project::ensure_scratch_gitignored(dir);
     }
 
-    let path = create_new_note_file(dir, &note.filename(dated), &note.rendered())?;
+    let mut contents = note.rendered();
+    if let Some(due) = dates.due {
+        contents = frontmatter::set(&contents, "due", &due.to_string());
+    }
+    if let Some(event) = dates.event {
+        contents = frontmatter::set(&contents, "event", &event.to_string());
+    }
+    let path = create_new_note_file(dir, &note.filename(dated), &contents)?;
 
     Ok(Created { path, had_body })
 }
@@ -190,8 +305,9 @@ fn quick_scope(scope: Scope) -> Scope {
 /// body line in insert mode via `new_note_args`). Best-effort: the note is
 /// already on disk, so a missing editor warns instead of failing the add.
 pub fn open_created(path: &Path, config: &Config) {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
     let status = std::process::Command::new(&config.editor.command)
-        .args(&config.editor.new_note_args)
+        .args(past_frontmatter(&config.editor.new_note_args, &text))
         .arg(path)
         .status();
     if let Err(e) = status {
@@ -201,6 +317,20 @@ pub fn open_created(path: &Path, config: &Config) {
             path.display(),
         );
     }
+}
+
+/// `args` with a `+N` line argument moved down by the lines of `text`'s
+/// frontmatter block, so `--due` / `--on` keep the editor on the body line
+/// instead of inside the block.
+fn past_frontmatter(args: &[String], text: &str) -> Vec<String> {
+    let (_, body) = frontmatter::split(text);
+    let block_lines = text[..text.len() - body.len()].matches('\n').count();
+    args.iter()
+        .map(|arg| match arg.strip_prefix('+').and_then(|n| n.parse::<usize>().ok()) {
+            Some(line) => format!("+{}", line + block_lines),
+            None => arg.clone(),
+        })
+        .collect()
 }
 
 /// The root `--in` resolves under: global by default, the current scope's
@@ -1034,5 +1164,156 @@ mod tests {
         assert_eq!(suffixed_name("2026-10-06-a.md", 1), "2026-10-06-a.md");
         assert_eq!(suffixed_name("2026-10-06-a.md", 2), "2026-10-06-a-2.md");
         assert_eq!(suffixed_name("2026-10-06-a.md", 10), "2026-10-06-a-10.md");
+    }
+
+    fn day(text: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    }
+
+    fn date_args(due: Option<&str>, on: Option<&str>) -> DateArgs {
+        DateArgs {
+            due: due.map(String::from),
+            on: on.map(String::from),
+            today: day("2026-11-04"),
+        }
+    }
+
+    fn add_dated(root: &Path, title: &str, dates: &DateArgs) -> Result<Created> {
+        let config = config_in(root);
+        run_with_dates(words(title), None, false, false, dates, Scope::Global, &config)
+    }
+
+    #[test]
+    fn due_writes_a_frontmatter_block_with_the_note_after_it() {
+        let root = tempdir().unwrap();
+
+        let created = add_dated(root.path(), "book venue", &date_args(Some("2026-10-20"), None))
+            .unwrap();
+
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        let body = text.strip_prefix("---\ndue: 2026-10-20\n---\n").expect(&text);
+        assert!(body.starts_with("# book venue\n\nDate: "), "body follows the block: {text:?}");
+        assert!(!text.contains("created:"), "created is not written: {text:?}");
+    }
+
+    #[test]
+    fn on_writes_an_event_key_with_its_time() {
+        let root = tempdir().unwrap();
+
+        let created =
+            add_dated(root.path(), "standup", &date_args(None, Some("2026-11-02T14:00"))).unwrap();
+
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.starts_with("---\nevent: 2026-11-02T14:00\n---\n# standup\n"), "{text:?}");
+    }
+
+    #[test]
+    fn due_and_on_together_share_one_block() {
+        let root = tempdir().unwrap();
+
+        let created = add_dated(
+            root.path(),
+            "launch",
+            &date_args(Some("2026-10-20"), Some("2026-11-02")),
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(
+            text.starts_with("---\ndue: 2026-10-20\nevent: 2026-11-02\n---\n# launch\n"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn relative_due_counts_days_and_weeks_from_today() {
+        let today = day("2026-11-04");
+        let due = |t: &str| parse_due(t, today).unwrap().to_string();
+        assert_eq!(due("+3d"), "2026-11-07");
+        assert_eq!(due("+0d"), "2026-11-04");
+        assert_eq!(due("+1w"), "2026-11-11");
+        assert_eq!(due("+4w"), "2026-12-02");
+    }
+
+    #[test]
+    fn relative_due_is_written_as_a_date() {
+        let root = tempdir().unwrap();
+
+        let created = add_dated(root.path(), "call", &date_args(Some("+1w"), None)).unwrap();
+
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.starts_with("---\ndue: 2026-11-11\n---\n"), "{text:?}");
+    }
+
+    #[test]
+    fn bad_dates_are_refused_and_create_no_file() {
+        let cases = [
+            (Some("next friday"), None, "--due"),
+            (Some("2026-13-45"), None, "--due"),
+            (Some("2026-10-20T14:00"), None, "--due"),
+            (Some("+3"), None, "--due"),
+            (Some("+d"), None, "--due"),
+            (Some("+-3d"), None, "--due"),
+            (Some("3d"), None, "--due"),
+            (Some("+99999999999999999999d"), None, "--due"),
+            (None, Some("tomorrow"), "--on"),
+            (None, Some("2026-11-02 14:00"), "--on"),
+            (None, Some("2026-11-02T25:00"), "--on"),
+            (Some("2026-10-20"), Some("nope"), "--on"),
+        ];
+        for (due, on, flag) in cases {
+            let root = tempdir().unwrap();
+
+            let Err(err) = add_dated(root.path(), "x", &date_args(due, on)) else {
+                panic!("{due:?} {on:?} was accepted");
+            };
+
+            assert!(err.to_string().contains(flag), "{due:?} {on:?}: {err}");
+            let entries = std::fs::read_dir(root.path()).unwrap().count();
+            assert_eq!(entries, 0, "{due:?} {on:?} wrote something");
+        }
+    }
+
+    #[test]
+    fn note_without_date_flags_has_no_block() {
+        let root = tempdir().unwrap();
+
+        let created = add_dated(root.path(), "plain", &date_args(None, None)).unwrap();
+
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.starts_with("# plain\n\nDate: "), "{text:?}");
+    }
+
+    #[test]
+    fn agenda_lists_a_note_created_with_due() {
+        use crate::commands::agenda;
+        use notez_core::config::{NotezMetadata, ProjectRegistry};
+        use notez_core::core::aggregate::collect_all;
+
+        let root = tempdir().unwrap();
+        let config = config_in(root.path());
+        let created = add_dated(root.path(), "book venue", &date_args(Some("+3d"), None)).unwrap();
+
+        let notes =
+            collect_all(&config, &ProjectRegistry::default(), &NotezMetadata::default()).unwrap();
+        let entries = agenda::notes_entries(&notes, &config.paths.daily_logs_dir, |p| {
+            std::fs::read_to_string(p).ok()
+        });
+        let listed = agenda::agenda(day("2026-11-04"), 7, entries);
+
+        let (when, group) = &listed.days[0];
+        assert_eq!(*when, day("2026-11-07"));
+        assert_eq!(group[0].title, "book venue");
+        assert_eq!(group[0].path, created.path);
+        assert_eq!(group[0].kind, agenda::AgendaKind::Due);
+    }
+
+    #[test]
+    fn editor_line_moves_past_the_frontmatter_block() {
+        let args: Vec<String> = ["+4", "-c", "startinsert"].map(String::from).to_vec();
+
+        let dated = "---\ndue: 2026-10-20\nevent: 2026-11-02\n---\n# t\n\nDate: x\n\n";
+        assert_eq!(past_frontmatter(&args, dated), ["+8", "-c", "startinsert"]);
+        assert_eq!(past_frontmatter(&args, "# t\n\nDate: x\n\n"), args);
     }
 }
