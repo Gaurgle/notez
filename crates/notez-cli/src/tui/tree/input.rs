@@ -203,6 +203,9 @@ pub(super) fn event_loop(
                 body_area = rows[0];
                 let inner_width = list_text_width(list_area.width);
 
+                // One reading for the whole frame, so the copy flash's fade
+                // and sweep agree.
+                let drawn_at = Instant::now();
                 let items = list_items_styled(
                     list_lines(
                         nodes,
@@ -213,7 +216,7 @@ pub(super) fn event_loop(
                         &search_buffer,
                     ),
                     state.selected(),
-                    yank_flash.row_style(Instant::now()),
+                    yank_flash.row_style(drawn_at),
                 );
 
                 let header = pane_title(Pane::List, panes.focus, Vec::new());
@@ -343,7 +346,11 @@ pub(super) fn event_loop(
                             usize::from(inner_chunks[2].height),
                         );
                     }
+                    let rows = items.len();
                     frame.render_stateful_widget(tree_list(items), inner_chunks[2], &mut state);
+                    if let Some(sweep) = yank_flash.sweep(drawn_at) {
+                        paint_sweep(frame.buffer_mut(), inner_chunks[2], &state, rows, sweep);
+                    }
                 }
 
                 if real_idx != last_preview_idx {
@@ -671,9 +678,9 @@ pub(super) fn event_loop(
                 break None;
             }
             let now = Instant::now();
-            // Both, not `||`: a flash and a message ending together both go.
-            let flash_ended = yank_flash.expire(now);
-            if status_message.expire(now) | flash_ended {
+            // Both, not `||`: a message ending during the flash still goes.
+            let flash_frame = yank_flash.tick(now);
+            if status_message.expire(now) | flash_frame {
                 expired = true;
                 break None;
             }
@@ -722,9 +729,11 @@ pub(super) fn event_loop(
             }
             continue;
         };
-        // Any input ends the flash, so it never lands on a row the cursor
-        // moved to.
-        yank_flash.clear();
+        // A key, click or scroll ends the flash, so it never lands on a row
+        // the cursor moved to; pointer motion, resize and focus do not.
+        if ends_yank_flash(&ev) {
+            yank_flash.clear();
+        }
 
         if let Event::Mouse(mouse) = ev {
             // A drag owns every mouse event until the button comes up,
@@ -856,7 +865,7 @@ pub(super) fn event_loop(
                 yank(key.code, row, &mut crate::tui::clipboard::copy),
                 now,
             );
-            yank_flash.show(copied, now);
+            yank_flash.show(copied, key.code == KeyCode::Char('p'), now);
             continue;
         }
 
@@ -1630,53 +1639,97 @@ pub(super) fn show_yank(status: &mut Notice, message: Option<String>, now: Insta
     }
 }
 
-/// How long the cursor row shows [`theme::yanked_row`] after a copy.
-pub(super) const YANK_FLASH: Duration = Duration::from_millis(150);
+/// How long a copy's [`theme::yanked_row`] takes to sweep over the cursor
+/// row: `yy` from the left edge, `yp` from the right.
+pub(super) const YANK_SWEEP: Duration = Duration::from_millis(200);
+/// How long the swept row then takes to fade back to
+/// [`theme::selected_row`].
+pub(super) const YANK_FADE: Duration = Duration::from_millis(200);
+/// The whole copy flash: the sweep, then the fade.
+pub(super) const YANK_FLASH: Duration = YANK_SWEEP.saturating_add(YANK_FADE);
+/// The redraw interval while the flash is live.
+pub(super) const YANK_FRAME: Duration = Duration::from_millis(30);
 
-/// The cursor row's one flash after a copy: until when it lasts. Read at
-/// draw time; the event loop shortens its wait with [`YankFlash::wait`]
-/// and ends it with [`YankFlash::expire`], as it does for [`Notice`].
+/// The cursor row's one flash after a copy: when it started and which way
+/// it sweeps. Read at draw time; while it lasts the event loop cuts its
+/// wait to the next frame with [`YankFlash::wait`] and redraws when
+/// [`YankFlash::tick`] says so.
 #[derive(Debug, Default)]
 pub(super) struct YankFlash {
-    until: Option<Instant>,
+    start: Option<Instant>,
+    from_right: bool,
 }
 
 impl YankFlash {
-    /// Start the flash at `now` when `copied`; a failed copy ends any flash.
-    pub(super) fn show(&mut self, copied: bool, now: Instant) {
-        self.until = copied.then(|| now + YANK_FLASH);
+    /// Start the flash at `now` when `copied`, sweeping from the right edge
+    /// when `from_right`; a failed copy ends any flash.
+    pub(super) fn show(&mut self, copied: bool, from_right: bool, now: Instant) {
+        self.start = copied.then_some(now);
+        self.from_right = from_right;
     }
 
     pub(super) fn clear(&mut self) {
-        self.until = None;
+        self.start = None;
     }
 
-    /// The cursor row's style at `now`.
+    /// Time into a live flash at `now`, or `None` once it is over.
+    fn elapsed(&self, now: Instant) -> Option<Duration> {
+        let elapsed = now.saturating_duration_since(self.start?);
+        (elapsed < YANK_FLASH).then_some(elapsed)
+    }
+
+    /// The cursor row's style at `now`: [`theme::selected_row`] under the
+    /// sweep (see [`YankFlash::sweep`]), then fading from
+    /// [`theme::yanked_row`] back to it.
     pub(super) fn row_style(&self, now: Instant) -> Style {
-        match self.until {
-            Some(until) if now < until => theme::yanked_row(),
+        match self.elapsed(now) {
+            Some(elapsed) if elapsed >= YANK_SWEEP => theme::fading_row(
+                (elapsed - YANK_SWEEP).as_secs_f64() / YANK_FADE.as_secs_f64(),
+            ),
             _ => theme::selected_row(),
         }
     }
 
-    /// End a flash whose time is up at `now`. True when it ended, so the
-    /// view redraws.
-    pub(super) fn expire(&mut self, now: Instant) -> bool {
-        match self.until {
-            Some(until) if now >= until => {
-                self.until = None;
-                true
-            }
-            _ => false,
-        }
+    /// How far the sweep has filled the cursor row at `now`; `None` before
+    /// a copy and once the row is full.
+    pub(super) fn sweep(&self, now: Instant) -> Option<Sweep> {
+        let elapsed = self.elapsed(now).filter(|&e| e < YANK_SWEEP)?;
+        Some(Sweep {
+            reached: elapsed.as_secs_f64() / YANK_SWEEP.as_secs_f64(),
+            from_right: self.from_right,
+        })
     }
 
-    /// `wait`, or less while the flash lasts, so it ends on time.
+    /// True when the view should redraw at `now`: the flash is live, or its
+    /// time just ran out, which ends it.
+    pub(super) fn tick(&mut self, now: Instant) -> bool {
+        if self.start.is_none() {
+            return false;
+        }
+        if self.elapsed(now).is_none() {
+            self.start = None;
+        }
+        true
+    }
+
+    /// `wait`, or no longer than the next frame while the flash lasts.
     pub(super) fn wait(&self, wait: Duration, now: Instant) -> Duration {
-        match self.until {
-            Some(until) => wait.min(until.saturating_duration_since(now)),
+        match self.elapsed(now) {
+            Some(elapsed) => wait.min(YANK_FRAME).min(YANK_FLASH - elapsed),
             None => wait,
         }
+    }
+}
+
+/// True for the input that ends a copy flash: a key press, a click or a
+/// scroll. Pointer motion (reported with mouse capture on), resize, focus
+/// and key releases leave it running.
+pub(super) fn ends_yank_flash(ev: &Event) -> bool {
+    match ev {
+        Event::Key(key) => key.kind == KeyEventKind::Press,
+        Event::Mouse(mouse) => mouse.kind != MouseEventKind::Moved,
+        Event::Paste(_) => true,
+        Event::Resize(..) | Event::FocusGained | Event::FocusLost => false,
     }
 }
 
@@ -1849,25 +1902,106 @@ mod tests {
         let mut flash = YankFlash::default();
         assert_ne!(theme::yanked_row(), theme::selected_row());
         let (copied, _, _) = yank_at(KeyCode::Char('y'), "c.md");
-        flash.show(show_yank(&mut status, copied, t0), t0);
-        assert_eq!(flash.row_style(t0), theme::yanked_row());
-        assert_eq!(flash.row_style(t0 + YANK_FLASH / 2), theme::yanked_row());
-        assert_eq!(flash.row_style(t0 + YANK_FLASH), theme::selected_row(), "over at the deadline");
+        flash.show(show_yank(&mut status, copied, t0), false, t0);
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        assert_eq!(YANK_FLASH, Duration::from_millis(400), "a 200 ms sweep, then a 200 ms fade");
+
+        // The sweep: the row's own style under it, the yanked part growing.
+        assert_eq!(flash.row_style(t0), theme::selected_row());
+        assert_eq!(flash.sweep(t0), Some(Sweep { reached: 0.0, from_right: false }));
+        assert_eq!(flash.row_style(ms(100)), theme::selected_row());
+        assert_eq!(flash.sweep(ms(100)), Some(Sweep { reached: 0.5, from_right: false }));
+        // The fade: the whole row yanked at 200 ms, mixing back after.
+        assert_eq!(flash.sweep(ms(200)), None, "the row is full");
+        assert_eq!(flash.row_style(ms(200)), theme::yanked_row());
+        let Some(Color::Rgb(r, g, b)) = flash.row_style(ms(300)).bg else {
+            panic!("an RGB background mid-fade");
+        };
+        let (Color::Rgb(r0, g0, b0), Color::Rgb(r1, g1, b1)) = (theme::SURFACE0, theme::SURFACE2)
+        else {
+            unreachable!()
+        };
+        for (c, lo, hi) in [(r, r0, r1), (g, g0, g1), (b, b0, b1)] {
+            assert!(lo < c && c < hi, "{c} strictly between {lo} and {hi}");
+        }
+        assert!(flash.row_style(ms(300)).add_modifier.contains(Modifier::BOLD));
+        assert_eq!(flash.sweep(ms(300)), None);
+        assert_eq!(flash.row_style(ms(400)), theme::selected_row(), "over at 400 ms");
+        assert_eq!(flash.sweep(ms(400)), None);
+
+        // While it lasts the wait is one frame, and each frame redraws.
         let wait = Duration::from_secs(1);
-        assert_eq!(flash.wait(wait, t0), YANK_FLASH, "the wait ends with the flash");
-        assert!(!flash.expire(t0 + YANK_FLASH / 2));
-        assert!(flash.expire(t0 + YANK_FLASH), "one flash, then it is over");
-        assert_eq!(flash.row_style(t0 + YANK_FLASH), theme::selected_row());
-        assert_eq!(flash.wait(wait, t0), wait);
-        assert!(!flash.expire(t0 + YANK_FLASH * 10), "it does not come back");
+        assert_eq!(flash.wait(wait, t0), YANK_FRAME, "the wait is cut to a frame");
+        assert_eq!(flash.wait(wait, ms(390)), Duration::from_millis(10), "to the end at most");
+        assert_eq!(flash.wait(Duration::from_millis(5), t0), Duration::from_millis(5));
+        assert!(flash.tick(ms(100)), "a live flash redraws");
+        assert!(flash.tick(ms(300)));
+        assert_eq!(flash.wait(wait, ms(300)), YANK_FRAME, "a frame does not end it");
+        assert!(flash.tick(ms(400)), "one last redraw as it ends");
+        assert_eq!(flash.row_style(ms(100)), theme::selected_row(), "ended, not replayed");
+        assert_eq!(flash.sweep(ms(100)), None);
+        assert_eq!(flash.wait(wait, ms(100)), wait);
+        assert!(!flash.tick(ms(4000)), "it does not come back");
+
+        // `yp` sweeps from the right edge.
+        flash.show(true, true, t0);
+        assert_eq!(flash.sweep(ms(100)), Some(Sweep { reached: 0.5, from_right: true }));
+        flash.clear();
+        assert_eq!(flash.sweep(ms(100)), None);
+        assert_eq!(flash.row_style(ms(300)), theme::selected_row());
+        assert_eq!(flash.wait(wait, ms(100)), wait);
 
         let (_dir, roots) = test_support::temp_tree();
         let forest = test_support::forest_of(test_support::list_sections(&roots));
         let row = forest.nodes.iter().find(|n| n.path == roots[0].1.join("c.md"));
         let failed = yank(KeyCode::Char('y'), row, &mut |_: &str| anyhow::bail!("no clipboard"));
-        flash.show(show_yank(&mut status, failed, t0), t0);
+        flash.show(show_yank(&mut status, failed, t0), false, t0);
         assert_eq!(flash.row_style(t0), theme::selected_row());
+        assert_eq!(flash.row_style(ms(300)), theme::selected_row());
+        assert_eq!(flash.sweep(ms(100)), None);
         assert_eq!(flash.wait(wait, t0), wait);
+        assert!(!flash.tick(ms(100)), "nothing to redraw");
+    }
+
+    #[test]
+    fn keys_clicks_and_scroll_end_the_copy_flash_but_motion_resize_and_focus_do_not() {
+        use crossterm::event::{KeyEvent, KeyEventState, MouseEvent};
+        let mouse = |kind| {
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 3,
+                row: 4,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        let key = |kind| {
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('j'),
+                modifiers: KeyModifiers::NONE,
+                kind,
+                state: KeyEventState::NONE,
+            })
+        };
+        for ev in [
+            key(KeyEventKind::Press),
+            mouse(MouseEventKind::Down(MouseButton::Left)),
+            mouse(MouseEventKind::Up(MouseButton::Left)),
+            mouse(MouseEventKind::Drag(MouseButton::Left)),
+            mouse(MouseEventKind::ScrollDown),
+            mouse(MouseEventKind::ScrollUp),
+            Event::Paste("x".to_string()),
+        ] {
+            assert!(ends_yank_flash(&ev), "{ev:?} ends it");
+        }
+        for ev in [
+            key(KeyEventKind::Release),
+            mouse(MouseEventKind::Moved),
+            Event::Resize(80, 24),
+            Event::FocusGained,
+            Event::FocusLost,
+        ] {
+            assert!(!ends_yank_flash(&ev), "{ev:?} leaves it");
+        }
     }
 
     #[test]

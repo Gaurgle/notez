@@ -47,6 +47,23 @@ pub fn yanked_row() -> Style {
     Style::default().bg(SURFACE2).add_modifier(Modifier::BOLD)
 }
 
+/// The cursor row as the copy flash fades: [`yanked_row`] at `0.0`,
+/// [`selected_row`] at `1.0`, the background mixed in between.
+pub fn fading_row(fraction: f64) -> Style {
+    selected_row().bg(mix(SURFACE2, SURFACE0, fraction))
+}
+
+/// `from` moved `fraction` (clamped to 0..=1) of the way to `to`, channel
+/// by channel. Non-RGB colours do not mix: `to` is returned.
+pub fn mix(from: Color, to: Color, fraction: f64) -> Color {
+    let (Color::Rgb(r0, g0, b0), Color::Rgb(r1, g1, b1)) = (from, to) else {
+        return to;
+    };
+    let t = fraction.clamp(0.0, 1.0);
+    let channel = |a: u8, b: u8| (f64::from(a) + (f64::from(b) - f64::from(a)) * t).round() as u8;
+    Color::Rgb(channel(r0, r1), channel(g0, g1), channel(b0, b1))
+}
+
 /// The glyphs that draw the tree browser's hierarchy, in one table so they
 /// can be swapped. Every entry is as wide as the one it pairs with, so a
 /// swap keeps the rows aligned only if it keeps those widths.
@@ -325,6 +342,19 @@ mod tests {
     fn dim_color_passes_through_non_rgb() {
         let dimmed = dim_color(Color::Red);
         assert_eq!(dimmed, Color::Red);
+    }
+
+    #[test]
+    fn mix_moves_each_channel_by_the_fraction_and_clamps_it() {
+        let (from, to) = (Color::Rgb(0, 100, 200), Color::Rgb(100, 0, 200));
+        assert_eq!(mix(from, to, 0.0), from);
+        assert_eq!(mix(from, to, 0.25), Color::Rgb(25, 75, 200));
+        assert_eq!(mix(from, to, 1.0), to);
+        assert_eq!(mix(from, to, -1.0), from);
+        assert_eq!(mix(from, to, 2.0), to);
+        assert_eq!(mix(Color::Red, to, 0.5), to, "non-RGB does not mix");
+        assert_eq!(fading_row(0.0), yanked_row());
+        assert_eq!(fading_row(1.0), selected_row());
     }
 
     #[test]

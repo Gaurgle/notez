@@ -89,7 +89,7 @@ pub(super) fn list_items(
 }
 
 /// [`list_items`] with the `selected` row in `cursor` instead, for the
-/// copy flash (see [`theme::yanked_row`]).
+/// copy flash's fade (see [`theme::fading_row`] and [`paint_sweep`]).
 pub(super) fn list_items_styled(
     lines: Vec<Line<'static>>,
     selected: Option<usize>,
@@ -108,6 +108,46 @@ pub(super) fn list_items_styled(
             }
         })
         .collect()
+}
+
+/// How far a copy flash has swept over the cursor row: `reached` (0..=1)
+/// of its columns, counted from the left edge, or from the right.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Sweep {
+    pub(super) reached: f64,
+    pub(super) from_right: bool,
+}
+
+/// Paint `sweep` over the cursor row of a list of `rows` rows just drawn
+/// into `area` with `state`: the reached columns take
+/// [`theme::yanked_row`]'s background, under the glyphs' own colours; the
+/// rest keep the row's style. A cursor row scrolled out of `area` is left.
+pub(super) fn paint_sweep(
+    buf: &mut Buffer,
+    area: Rect,
+    state: &ListState,
+    rows: usize,
+    sweep: Sweep,
+) {
+    let Some(selected) = state.selected().filter(|_| rows > 0) else {
+        return;
+    };
+    let Some(row) = selected.min(rows - 1).checked_sub(state.offset()) else {
+        return;
+    };
+    let Ok(row) = u16::try_from(row) else {
+        return;
+    };
+    if row >= area.height {
+        return;
+    }
+    let width = (sweep.reached.clamp(0.0, 1.0) * f64::from(area.width)).round() as u16;
+    let x = if sweep.from_right {
+        area.right() - width
+    } else {
+        area.x
+    };
+    buf.set_style(Rect::new(x, area.y + row, width, 1), theme::yanked_row());
 }
 
 /// Rows the tree list keeps between the cursor and the pane's top and
@@ -2175,6 +2215,65 @@ mod tests {
         for x in 0..40 {
             assert_eq!(buf[(x, 1)].style().bg, theme::yanked_row().bg, "column {x}");
             assert_ne!(buf[(x, 0)].style().bg, theme::yanked_row().bg, "column {x}");
+        }
+    }
+
+    #[test]
+    fn mid_sweep_the_cursor_row_is_split_yy_from_the_left_and_yp_from_the_right() {
+        use ratatui::buffer::Buffer;
+        use std::time::{Duration, Instant};
+        let (sections, nodes) = aligned_forest();
+        let t0 = Instant::now();
+        let draw = |from_right: bool, at: Duration| {
+            let mut flash = YankFlash::default();
+            flash.show(true, from_right, t0);
+            let now = t0 + at;
+            let lines = vec![line_of(&sections, &nodes, 0), line_of(&sections, &nodes, 1)];
+            // Offset by the pane's border and padding, as in the event loop.
+            let area = Rect::new(2, 1, 40, 2);
+            let mut buf = Buffer::empty(Rect::new(0, 0, 44, 4));
+            let mut state = ListState::default();
+            state.select(Some(1));
+            let items = list_items_styled(lines, Some(1), flash.row_style(now));
+            let rows = items.len();
+            StatefulWidget::render(tree_list(items), area, &mut buf, &mut state);
+            if let Some(sweep) = flash.sweep(now) {
+                paint_sweep(&mut buf, area, &state, rows, sweep);
+            }
+            let cursor: Vec<_> = (2..42).map(|x| buf[(x, 2)].style()).collect();
+            let other: Vec<_> = (2..42).map(|x| buf[(x, 1)].style().bg).collect();
+            let plain = (0..44).all(|x| buf[(x, 0)].style().bg != theme::yanked_row().bg)
+                && [0, 1, 42, 43].iter().all(|&x| buf[(x, 2)].style().bg != theme::yanked_row().bg);
+            assert!(plain, "nothing outside the pane is painted");
+            assert!(other.iter().all(|&bg| bg != theme::yanked_row().bg), "only the cursor row");
+            cursor
+        };
+        let yanked = theme::yanked_row().bg;
+        let selected = theme::selected_row().bg;
+        let half = Duration::from_millis(100);
+
+        let yy = draw(false, half);
+        for (x, style) in yy.iter().enumerate() {
+            let want = if x < 20 { yanked } else { selected };
+            assert_eq!(style.bg, want, "yy, column {x}");
+            assert!(style.add_modifier.contains(Modifier::BOLD), "yy, column {x}");
+        }
+        let yp = draw(true, half);
+        for (x, style) in yp.iter().enumerate() {
+            let want = if x >= 20 { yanked } else { selected };
+            assert_eq!(style.bg, want, "yp, column {x}");
+        }
+        // The glyphs keep their colours under the sweep.
+        let unswept = draw(false, Duration::from_millis(400));
+        for (x, (swept, plain)) in yy.iter().zip(&unswept).enumerate() {
+            assert_eq!(swept.fg, plain.fg, "column {x}");
+        }
+        for at in [Duration::ZERO, Duration::from_millis(400)] {
+            assert!(draw(false, at).iter().all(|s| s.bg == selected), "{at:?}");
+        }
+        for side in [false, true] {
+            let full = draw(side, Duration::from_millis(200));
+            assert!(full.iter().all(|s| s.bg == yanked), "the whole row at 200 ms");
         }
     }
 
