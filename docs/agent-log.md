@@ -362,6 +362,30 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-50c (#99): notez add --due and --on write the frontmatter at creation
+
+Consumer 4 of the dates design, created 2026-11-04 by lead `018zBNkK`
+in the NZ-50 split. Branch `feat/nz-50c-add-due-on`, worktree
+`.claude/worktrees/NZ-50c`, base `5bdb4a1`, beside NZ-50b. Worker
+(opus, about 8 min, 76k tokens): `--due` (`YYYY-MM-DD`, `+Nd`, `+Nw`)
+and `--on` (`YYYY-MM-DDTHH:MM` or date) on `add` and `znote`, parsed
+before anything is written, `frontmatter::set` for `due:` and
+`event:`, and on its own initiative the editor's `+N` start line moved
+past the block (lead ruling on #99: kept, the feature is unusable
+without it); in-crate end-to-end test through `collect_all` and
+`agenda`; a smoke run of the binary in a sandbox home; eight mutations
+killed. Reviewer (opus, 3 min, 55k) accepted first, diff
+`0ab3d33ae6d2`, five mutations and its own binary smoke run with a
+logging `$EDITOR`; follow-ups on #99: the hand-written `--help` in
+`main.rs` does not list the flags (small ticket), `past_frontmatter`
+should saturate, fmt drift in the new hunks. Committed `68aef97`, CI
+41823603075 green, combined check on `79d9e75` clean (785 + 5 + 203),
+gate held, merged `--no-ff` as `de71d36` (Closes #99), CI on `main`
+41823800494 green, remote branch deleted, worktree swept. Remember at
+the end: nothing to keep (the `--help` gap is a ticket, not a rule).
+
+NZ-50c: review accepted first; fix cycles 0; owner decisions 0; worker 8; review 3; models opus/opus; usage 76k; 55k
+
 ### NZ-50a (#97): frontmatter::set is safe to write on any note (rule, CRLF, BOM, remove)
 
 The core third of NZ-50 ("create when reached" in the 2026-10-15
