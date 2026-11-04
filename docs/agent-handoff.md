@@ -28,9 +28,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-72 (#101): Review round 2, diff fd061bb5d050, his amendment (popup in pane 1,
-  +Xm/+Xy in D and add --due, e as popup, rename keeps .md); then re-review,
-  his look, merge, he installs. `.claude/worktrees/NZ-72`. Record on #101.
+- NZ-72 (#101): Ready to integrate, gate owner look; 6c790da (diff
+  fd061bb5d050), CI green, gate holds on 275e335; `.claude/worktrees/NZ-72`.
+  Record on #101. On his "merge NZ-72": merge, CI, sweep, he installs.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
