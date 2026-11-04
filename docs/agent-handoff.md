@@ -28,18 +28,19 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-72 (#101): Ready to integrate, gate owner look; fa479aa (diff
-  e3c666686df4), CI green, gate holds on ae81d5f; `.claude/worktrees/NZ-72`.
-  Record on #101. His last round today; merge then he installs.
+- NZ-72 (#101): Review round 2, diff fd061bb5d050, his amendment (popup in pane 1,
+  +Xm/+Xy in D and add --due, e as popup, rename keeps .md); then re-review,
+  his look, merge, he installs. `.claude/worktrees/NZ-72`. Record on #101.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
-  `.claude/worktrees/NZ-62` (diff 2b30dd82643c). His 2026-11-04 "Other
-  tickets can go ahead" parks it, verdict open. Record on #88.
+  `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
 ## Open questions
 
-- NZ-71 (#100, Backlog): intuitive dated-todo creation, design first (his 2026-11-04 note).
+- NZ-71 (#100, Backlog): intuitive dated-todo creation, design first; NZ-74
+  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-75 (#104,
+  Ready, look): todoz yy/yp with the sweep, after NZ-72 (his 2026-11-04 words).
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
@@ -50,9 +51,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-72 (#101, his look, last today); NZ-65 (his call); NZ-69, NZ-70 (#95, #96, on his go);
-NZ-67 (#93, parked until he queues it); NZ-30 (#59, no brief yet). Per ticket: worktree from `main`, worker, separate
-reviewer, lead verify, commit, push, CI, `relay-gate`, Done.
+tickets can go ahead"): NZ-72 (#101, his look, last today); then NZ-75
+(#104); NZ-65 (his call); NZ-69, NZ-70 (on his go); NZ-67 parked; NZ-30
+(no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
 
 ## Start the lead
 
