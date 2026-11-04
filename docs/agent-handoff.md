@@ -28,13 +28,13 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-65 (#91): Ready to integrate, gate owner look; 744543b, CI 41799647137
-  green, verified on c51a378, gate holds. Worktree `.claude/worktrees/NZ-65`,
-  branch `feat/nz-65-preview-key-hint`, base `448d1cb`, nz-worker (opus). Record on #91.
-- NZ-62 (#88): Review, gate owner look. Andreas 2026-11-04: "Other tickets
-  can go ahead" (doc still unapproved; queue continues). Doc
-  `.claude/worktrees/NZ-62/docs/design-nz62-sync-sharing.md` (uncommitted,
-  diff id 2b30dd82643c) waits for Andreas's approval. Record on #88.
+- NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
+  c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
+- NZ-66 (#92): Ready to integrate, gate owner look; 323c58a, CI green,
+  gate holds on bb48991; `.claude/worktrees/NZ-66`. Record on #92.
+- NZ-62 (#88): Review, gate owner look; doc uncommitted in
+  `.claude/worktrees/NZ-62` (diff 2b30dd82643c). His 2026-11-04 "Other
+  tickets can go ahead" parks it, verdict open. Record on #88.
 
 ## Open questions
 
@@ -42,13 +42,14 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
 - NZ-52 (#78) position is his call. NZ-18 and NZ-47d parked (2026-11-03).
-- NZ-62 design doc: his verdict (approve, amend, park) is still open.
+- NZ-69 (#95), NZ-70 (#96): Ready from his 2026-11-04 words; assumptions
+  in the bodies await his go. DESIGN.md "one key, one function" line: proposed.
 
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-65 (#91, look, running), NZ-66 (#92, look,
-after NZ-65: same file), NZ-67 (#93, look, "dont
+tickets can go ahead"): NZ-66 (#92, look, running), NZ-65 (his call), NZ-69, NZ-70 (#95, #96,
+on his go), NZ-67 (#93, look, "dont
 start implementing" until he queues it), NZ-30 (#59), NZ-50 (create
 when reached). Per ticket: worktree from `main`, worker, separate
 reviewer, lead verify, commit, push, CI, `relay-gate`, Done.
