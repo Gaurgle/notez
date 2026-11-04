@@ -85,6 +85,16 @@ pub(super) fn list_items(
     lines: Vec<Line<'static>>,
     selected: Option<usize>,
 ) -> Vec<ListItem<'static>> {
+    list_items_styled(lines, selected, theme::selected_row())
+}
+
+/// [`list_items`] with the `selected` row in `cursor` instead, for the
+/// copy flash's fade (see [`theme::fading_row`] and [`paint_sweep`]).
+pub(super) fn list_items_styled(
+    lines: Vec<Line<'static>>,
+    selected: Option<usize>,
+    cursor: Style,
+) -> Vec<ListItem<'static>> {
     let selected = selected.map(|s| s.min(lines.len().saturating_sub(1)));
     lines
         .into_iter()
@@ -92,12 +102,66 @@ pub(super) fn list_items(
         .map(|(i, line)| {
             let item = ListItem::new(line);
             if Some(i) == selected {
-                item.style(theme::selected_row())
+                item.style(cursor)
             } else {
                 item
             }
         })
         .collect()
+}
+
+/// How far a copy flash has swept over the cursor row: `reached` (0..=1)
+/// of its columns, counted from the left edge, or from the right.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Sweep {
+    pub(super) reached: f64,
+    pub(super) from_right: bool,
+}
+
+/// Paint `sweep` over the cursor row of a list of `rows` rows just drawn
+/// into `area` with `state`: the columns behind the front take
+/// [`theme::yanked_row`]'s background, under the glyphs' own colours; the
+/// column the front is crossing takes a background mixed toward it by how
+/// far the front is into that column, so the front slides; the rest keep
+/// the row's style. A cursor row scrolled out of `area` is left.
+pub(super) fn paint_sweep(
+    buf: &mut Buffer,
+    area: Rect,
+    state: &ListState,
+    rows: usize,
+    sweep: Sweep,
+) {
+    let Some(selected) = state.selected().filter(|_| rows > 0) else {
+        return;
+    };
+    let Some(row) = selected.min(rows - 1).checked_sub(state.offset()) else {
+        return;
+    };
+    let Ok(row) = u16::try_from(row) else {
+        return;
+    };
+    if row >= area.height {
+        return;
+    }
+    let front = sweep.reached.clamp(0.0, 1.0) * f64::from(area.width);
+    let width = (front.floor() as u16).min(area.width);
+    let x = if sweep.from_right {
+        area.right() - width
+    } else {
+        area.x
+    };
+    let y = area.y + row;
+    buf.set_style(Rect::new(x, y, width, 1), theme::yanked_row());
+    let into = front - front.floor();
+    if width < area.width && into > 0.0 {
+        let front_x = if sweep.from_right {
+            x - 1
+        } else {
+            area.x + width
+        };
+        let bg = theme::mix(theme::SURFACE0, theme::SURFACE2, into);
+        buf.set_style(Rect::new(front_x, y, 1, 1), theme::yanked_row().bg(bg));
+    }
 }
 
 /// Rows the tree list keeps between the cursor and the pane's top and
@@ -2148,6 +2212,121 @@ mod tests {
         for (x, (_, style)) in cells.iter().enumerate() {
             assert_eq!(style.bg, theme::selected_row().bg, "column {x}");
             assert!(style.add_modifier.contains(Modifier::BOLD), "column {x}");
+        }
+    }
+
+    #[test]
+    fn the_copy_flash_draws_the_cursor_row_in_the_yanked_style_across_the_line() {
+        use ratatui::buffer::Buffer;
+        let (sections, nodes) = aligned_forest();
+        let lines = vec![line_of(&sections, &nodes, 0), line_of(&sections, &nodes, 1)];
+        let area = Rect::new(0, 0, 40, 2);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListState::default();
+        state.select(Some(1));
+        let list = List::new(list_items_styled(lines, Some(1), theme::yanked_row()));
+        StatefulWidget::render(list, area, &mut buf, &mut state);
+        for x in 0..40 {
+            assert_eq!(buf[(x, 1)].style().bg, theme::yanked_row().bg, "column {x}");
+            assert_ne!(buf[(x, 0)].style().bg, theme::yanked_row().bg, "column {x}");
+        }
+    }
+
+    #[test]
+    fn mid_sweep_the_cursor_row_is_split_yy_from_the_left_and_yp_from_the_right() {
+        use ratatui::buffer::Buffer;
+        use std::time::{Duration, Instant};
+        let (sections, nodes) = aligned_forest();
+        let t0 = Instant::now();
+        // A two-row pane over `rows` rows with the cursor on the last, so a
+        // list longer than the pane scrolls and puts it on the second row.
+        let draw_rows = |from_right: bool, at: Duration, rows: usize| {
+            let mut flash = YankFlash::default();
+            flash.show(true, from_right, t0);
+            let now = t0 + at;
+            let lines: Vec<_> = (0..rows).map(|i| line_of(&sections, &nodes, i % 2)).collect();
+            // Offset by the pane's border and padding, as in the event loop.
+            let area = Rect::new(2, 1, 40, 2);
+            let mut buf = Buffer::empty(Rect::new(0, 0, 44, 4));
+            let mut state = ListState::default();
+            state.select(Some(rows - 1));
+            let items = list_items_styled(lines, Some(rows - 1), flash.row_style(now));
+            StatefulWidget::render(tree_list(items), area, &mut buf, &mut state);
+            assert_eq!(state.offset(), rows - 2, "the cursor on the pane's second row");
+            if let Some(sweep) = flash.sweep(now) {
+                paint_sweep(&mut buf, area, &state, rows, sweep);
+            }
+            let cursor: Vec<_> = (2..42).map(|x| buf[(x, 2)].style()).collect();
+            let other: Vec<_> = (2..42).map(|x| buf[(x, 1)].style().bg).collect();
+            let plain = (0..44).all(|x| buf[(x, 0)].style().bg != theme::yanked_row().bg)
+                && [0, 1, 42, 43].iter().all(|&x| buf[(x, 2)].style().bg != theme::yanked_row().bg);
+            assert!(plain, "nothing outside the pane is painted");
+            assert!(other.iter().all(|&bg| bg != theme::yanked_row().bg), "only the cursor row");
+            cursor
+        };
+        let draw = |from_right: bool, at: Duration| draw_rows(from_right, at, 2);
+        let yanked = theme::yanked_row().bg;
+        let selected = theme::selected_row().bg;
+        let half = Duration::from_millis(50);
+        let between = |bg: Option<Color>| {
+            let (Some(Color::Rgb(r, g, b)), Color::Rgb(r0, g0, b0), Color::Rgb(r1, g1, b1)) =
+                (bg, theme::SURFACE0, theme::SURFACE2)
+            else {
+                return false;
+            };
+            [(r, r0, r1), (g, g0, g1), (b, b0, b1)]
+                .iter()
+                .all(|&(c, lo, hi)| lo < c && c < hi)
+        };
+
+        let yy = draw(false, half);
+        for (x, style) in yy.iter().enumerate() {
+            let want = if x < 20 { yanked } else { selected };
+            assert_eq!(style.bg, want, "yy, column {x}");
+            assert!(style.add_modifier.contains(Modifier::BOLD), "yy, column {x}");
+        }
+        let yp = draw(true, half);
+        for (x, style) in yp.iter().enumerate() {
+            let want = if x >= 20 { yanked } else { selected };
+            assert_eq!(style.bg, want, "yp, column {x}");
+        }
+        // Between two columns the front cell mixes the shades: at 0.5125 of
+        // 40 columns the front is halfway into column 20 (or 19 from the right).
+        let soft = Duration::from_micros(51_250);
+        for (side, front) in [(false, 20), (true, 19)] {
+            let row = draw(side, soft);
+            for (x, style) in row.iter().enumerate() {
+                let behind = if side { x > front } else { x < front };
+                if x == front {
+                    assert!(between(style.bg), "{side}: the front, column {x}: {:?}", style.bg);
+                    assert!(style.add_modifier.contains(Modifier::BOLD), "column {x}");
+                } else {
+                    let want = if behind { yanked } else { selected };
+                    assert_eq!(style.bg, want, "{side}, column {x}");
+                }
+            }
+        }
+        // A scrolled list: the cursor row is painted where the list drew it.
+        for (side, front) in [(false, 20), (true, 19)] {
+            let row = draw_rows(side, soft, 6);
+            assert!(between(row[front].bg), "{side}, scrolled: the front");
+            assert_eq!(row[if side { 39 } else { 0 }].bg, yanked, "{side}, scrolled: behind");
+            assert_eq!(row[if side { 0 } else { 39 }].bg, selected, "{side}, scrolled: ahead");
+        }
+        // The glyphs keep their colours under the sweep and its front.
+        let unswept = draw(false, Duration::from_millis(300));
+        for (x, (swept, plain)) in yy.iter().zip(&unswept).enumerate() {
+            assert_eq!(swept.fg, plain.fg, "column {x}");
+        }
+        for (x, (swept, plain)) in draw(false, soft).iter().zip(&unswept).enumerate() {
+            assert_eq!(swept.fg, plain.fg, "soft front, column {x}");
+        }
+        for at in [Duration::ZERO, Duration::from_millis(300)] {
+            assert!(draw(false, at).iter().all(|s| s.bg == selected), "{at:?}");
+        }
+        for side in [false, true] {
+            let full = draw(side, Duration::from_millis(100));
+            assert!(full.iter().all(|s| s.bg == yanked), "the whole row at 100 ms");
         }
     }
 
