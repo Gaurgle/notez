@@ -362,6 +362,40 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-72 (#101): rename and due prompts as a centred popup with live colour and an error line
+
+From Andreas's 2026-11-04 words after NZ-50b ("put the rename and due
+date function in a popup prompt instead ... add additional error
+message beneath the input"), look change, his last round of the day
+("one more round of tickets ... end at a place where i can install").
+Branch `feat/nz-72-popup-prompt`, worktree `.claude/worktrees/NZ-72`,
+base `7069bf5`, beside NZ-73. Round 1, worker (opus, about 10 min, 110k
+tokens): `tui/prompt.rs` widget modelled on the help overlay, todoz `D`
+and the tree's `r` through it, footer keeps its hints, 12 mutations
+killed; lead ruling on #101: the keep-open guard for refused names in
+`input.rs` accepted for the round. Reviewer (opus, 5 min, 59k) accepted
+first, diff `e3c666686df4`, commit `fa479aa`, CI 41847942386 green.
+Andreas tried it: "great. put the prompt in the middle of pane 1 ...
+add for month and year as well (+Xm, +Xy) ... edit should also be a
+prompt ... must be .md to work". Amendment, worker (11 min, 103k):
+popup over the list pane in both TUIs, `+Xm`/`+Xy` in todoz `D` and
+`notez add --due` (chrono month clamping, year cap), todoz `e` as the
+popup, rename keeps `.md` and refuses other extensions, `enter_rename`
+owns the keep-open rule, 10 mutations killed. Reviewer (4 min, 62k)
+accepted first, diff `fd061bb5d050`, 7 in-place mutations killed;
+follow-ups on #101: the pane-rect choice at the draw sites is
+untested, the post-move `Done(Some)` branch untested, `cli/mod.rs` doc
+comments still name only `+3d`/`+1w`, todoz accepts `+1M`/`++1m` while
+`add --due` does not. Commit `6c790da`, CI 41852551136 green, combined
+check on `7b6789d` clean (811 + 5 + 203), gate held; Andreas: "NZ-72
+merge"; merged `--no-ff` as `312410d` (Closes #101), CI on `main`
+41854087161. His follow-ups became NZ-76 (#105, rename edits the stem
+only), NZ-77 (#106, every prompt and confirmation as the popup), NZ-75
+(#104, todoz yy/yp with the sweep, "yes" and "use the flash here as
+well"). Remember at the end: nothing to keep beyond the tickets.
+
+NZ-72: review accepted first; fix cycles 0; owner decisions 2; worker 21; review 9; models opus/opus; usage 214k; 121k
+
 ### NZ-73 (#102): notez --help lists add --due and --on
 
 Follow-up from the NZ-50c review, created 2026-11-04 by lead
