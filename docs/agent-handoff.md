@@ -9,8 +9,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
 again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
-16:15, no lead in between). `main` = `origin/main` at `8eb01a2`; CI on
-`312410d` (run 41854087161) green.
+16:15, no lead in between). `main` = `origin/main` at `0f7e311` (NZ-75
+merged; CI run 42023019726 green).
 
 ## Standing authority
 
@@ -28,8 +28,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-75 (#104): Ready to integrate, gate owner look; 19b4452 (diff
-  c316e06c254b), CI green, gate holds on 82aa71f; `.claude/worktrees/NZ-75`. Record on #104.
+- NZ-76 (#105, look): In progress, `.claude/worktrees/NZ-76`; NZ-77a (#106,
+  todoz half, look): In progress, `.claude/worktrees/NZ-77a`; both base
+  `0f7e311`, nz-worker (opus). NZ-77b (tree half) after NZ-76. Records on the issues.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
@@ -38,8 +39,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Open questions
 
 - NZ-71 (#100, Backlog): intuitive dated-todo creation, design first; NZ-74
-  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-75 (#104),
-  NZ-76 (#105), NZ-77 (#106): Ready, look changes, from his 2026-11-04 words.
+  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-76,
+  NZ-77 (#105, #106) in flight, from his 2026-11-04 words.
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
@@ -49,8 +50,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-75 (#104), NZ-76 (#105), NZ-77 (#106) in that
-order (todo.rs is shared by 75 and 77); NZ-65 (his call); NZ-69, NZ-70 (on his go); NZ-67 parked; NZ-30
+tickets can go ahead"): NZ-76 (#105) and NZ-77a (#106) running, then
+NZ-77b; NZ-65 (his call); NZ-69, NZ-70 (on his go); NZ-67 parked; NZ-30
 (no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
 
 ## Start the lead
