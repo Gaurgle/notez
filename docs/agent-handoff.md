@@ -28,9 +28,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105, look): In progress, `.claude/worktrees/NZ-76`; NZ-77a (#106,
-  todoz half, look): In progress, `.claude/worktrees/NZ-77a`; both base
-  `0f7e311`, nz-worker (opus). NZ-77b (tree half) after NZ-76. Records on the issues.
+- NZ-76 (#105): Ready to integrate, gate owner look, 32bf63c (diff cb2f92a4b0e8), `.claude/worktrees/NZ-76`; NZ-77a (#106,
+  todoz half): Ready to integrate, gate owner look, e6e7e52 (diff 0abd65d49fb3),
+  gate holds, `.claude/worktrees/NZ-77a`; both base `0f7e311`. NZ-77b (tree half) after NZ-76. Records on the issues.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
