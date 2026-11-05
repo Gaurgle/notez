@@ -30,8 +30,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## In flight
 
 - NZ-76 (#105): In progress, his amendment 2 over 975de74 (labelled preview,
-  locks); NZ-77a (#106): Review, diff 03e70d06d899 (bottom-docked dialogs,
-  line_edit.rs). Worktrees `.claude/worktrees/NZ-76`, `NZ-77a`. NZ-77b after NZ-76.
+  locks); NZ-77a (#106): Ready to integrate, gate owner look, efb7908 (diff
+  03e70d06d899), CI green, gate holds. Worktrees `.claude/worktrees/NZ-76`, `NZ-77a`. NZ-77b after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
