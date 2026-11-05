@@ -31,6 +31,7 @@ use super::panes::{self, Pane, Panes, Press};
 use super::notice::Notice;
 use super::prompt::Prompt;
 use super::sync::VaultSync;
+use super::yank::{ends_yank_flash, paint_sweep_over, show_yank, YankFlash};
 use super::{VimCommandMode, VimKey, text, theme, todo_rows};
 #[cfg(test)]
 use super::todo_rows::{branch_prefix, flags_slots, later_siblings};
@@ -75,6 +76,8 @@ const TODO_KEYS: &[KeyHint] = &[
     key("a", "almost", "almost done [/]", theme::YELLOW, Group::Edit, BOARD, Slot::Priority(9), None),
     key("N", "new category", "new category (global board only)", theme::GREEN, Group::Edit, BOARD, Slot::HelpOnly, None),
     key("D", "due", "set or clear the due date: 2026-10-20, +3d (days from today, +1w weeks, +2m months, +1y years) or clear", theme::MAUVE, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("yy", "yank", "copy the row to the clipboard: a todo its line, a section header its whole TODO.md, a code todo its source line", theme::SAPPHIRE, Group::Edit, BOARD, Slot::HelpOnly, None),
+    key("yp", "yank path", "copy the absolute path of the row's TODO.md (a code todo's source file) to the clipboard", theme::SAPPHIRE, Group::Edit, BOARD, Slot::HelpOnly, None),
     key("1-5", "toggle", "tag mode: toggle tag 1 to 5 on the todo", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(12), None),
     key("esc", "close", "tag mode: close", theme::PEACH, Group::Edit, TAGGING, Slot::Priority(3), None),
     key("click dot", "tag", "click a todo's tag dot to toggle that tag", theme::PEACH, Group::Edit, BOARD, Slot::HelpOnly, None),
@@ -522,6 +525,19 @@ fn board_items(
     drag_start: Option<usize>,
     drag_target: Option<usize>,
 ) -> Vec<ListItem<'static>> {
+    board_items_styled(rows, visible, selected, drag_start, drag_target, theme::selected_row())
+}
+
+/// [`board_items`] with the `selected` row in `cursor` instead, for the
+/// copy flash's fade (see [`YankFlash::row_style`]).
+fn board_items_styled(
+    rows: Vec<Text<'static>>,
+    visible: &[usize],
+    selected: Option<usize>,
+    drag_start: Option<usize>,
+    drag_target: Option<usize>,
+    cursor: Style,
+) -> Vec<ListItem<'static>> {
     let selected = selected.map(|s| s.min(rows.len().saturating_sub(1)));
     rows.into_iter()
         .enumerate()
@@ -534,11 +550,136 @@ fn board_items(
                 style = style.bg(theme::OVERLAY);
             }
             if Some(pos) == selected {
-                style = style.patch(theme::selected_row());
+                style = style.patch(cursor);
             }
             ListItem::new(row).style(style)
         })
         .collect()
+}
+
+/// The lines the cursor row took in a list just drawn into `area` with
+/// `state`, each row `heights[i]` lines tall; `None` with no cursor row
+/// or one scrolled out of `area`. The copy flash sweeps over them.
+fn cursor_row_rect(area: Rect, state: &ListState, heights: &[u16]) -> Option<Rect> {
+    let selected = state.selected()?.min(heights.len().checked_sub(1)?);
+    let above: u16 = heights.get(state.offset()..selected)?.iter().sum();
+    let height = heights[selected].min(area.height.checked_sub(above)?);
+    (height > 0).then(|| Rect::new(area.x, area.y + above, area.width, height))
+}
+
+/// The key after `y` on the board's row `row`: `y` copies the row, `p`
+/// the path of its file. A section header copies its whole `TODO.md`: as
+/// the save will write it when the file has unsaved edits (`dirty`), so
+/// the copy matches the board, else as on disk, prose and all. A todo
+/// copies its line as the save writes it, a code todo its source line.
+/// Returns the footer message; `None` for any other key or no row.
+fn yank_row(
+    code: KeyCode,
+    items: &[Task],
+    row: Option<usize>,
+    dirty: &HashSet<PathBuf>,
+    write: &mut dyn FnMut(&str) -> Result<()>,
+) -> Option<String> {
+    let path_only = match code {
+        KeyCode::Char('y') => false,
+        KeyCode::Char('p') => true,
+        _ => return None,
+    };
+    let task = items.get(row?)?;
+    // The code section's header stands for no file.
+    if task.source.as_os_str().is_empty() {
+        return Some("nothing to copy here".to_string());
+    }
+    let copied = if path_only {
+        std::path::absolute(&task.source)
+            .map_err(anyhow::Error::from)
+            .and_then(|path| write(&path.to_string_lossy()))
+            .map(|()| "copied path".to_string())
+    } else {
+        yank_text(items, task, dirty).and_then(|text| {
+            write(&text)?;
+            Ok(format!("copied {}", copied_label(items, task)))
+        })
+    };
+    Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
+}
+
+/// The copy chord `y` + `code` on `row`, done: [`yank_row`]'s message on
+/// the footer, and on a copy the cursor row's flash, which sweeps in from
+/// the left for `yy` and from the right for `yp`.
+fn finish_yank(
+    code: KeyCode,
+    items: &[Task],
+    row: Option<usize>,
+    dirty: &HashSet<PathBuf>,
+    (status, flash): (&mut Notice, &mut YankFlash),
+    write: &mut dyn FnMut(&str) -> Result<()>,
+    now: Instant,
+) {
+    let copied = show_yank(status, yank_row(code, items, row, dirty, write), now);
+    flash.show(copied, code == KeyCode::Char('p'), now);
+}
+
+/// What the footer says `yy` copied: the row's kind, or for a section
+/// header the count of its file's task rows (subtasks included).
+fn copied_label(items: &[Task], task: &Task) -> String {
+    if task.is_header {
+        let count = items
+            .iter()
+            .filter(|t| !t.is_header && t.source == task.source)
+            .count();
+        return match count {
+            1 => "1 todo".to_string(),
+            n => format!("{n} todos"),
+        };
+    }
+    if task.is_code_todo {
+        "1 code todo".to_string()
+    } else if task.depth > 0 {
+        "1 subtask".to_string()
+    } else {
+        "1 todo".to_string()
+    }
+}
+
+/// What `yy` copies for `task`; see [`yank_row`].
+fn yank_text(items: &[Task], task: &Task, dirty: &HashSet<PathBuf>) -> Result<String> {
+    if task.is_code_todo {
+        return code_todo_line(task);
+    }
+    if task.is_header {
+        if dirty.contains(&task.source) {
+            return Ok(todo::serialize_tasks_for_file(items, &task.source));
+        }
+        return std::fs::read_to_string(&task.source)
+            .with_context(|| format!("failed to read {}", task.source.display()));
+    }
+    // The serializer's line for this one task, after its `# TODO` heading.
+    let file = todo::serialize_tasks_for_file(std::slice::from_ref(task), &task.source);
+    file.lines()
+        .last()
+        .map(str::to_string)
+        .context("the todo has no line")
+}
+
+/// The source line a code todo was scanned from: its row text starts with
+/// `file:line`, and `source` is the file.
+fn code_todo_line(task: &Task) -> Result<String> {
+    let number = task
+        .text
+        .split_whitespace()
+        .next()
+        .and_then(|place| place.rsplit_once(':'))
+        .and_then(|(_, n)| n.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .context("no line number in the code todo")?;
+    let content = std::fs::read_to_string(&task.source)
+        .with_context(|| format!("failed to read {}", task.source.display()))?;
+    content
+        .lines()
+        .nth(number - 1)
+        .map(str::to_string)
+        .with_context(|| format!("no line {number} in {}", task.source.display()))
 }
 
 // --- Preview pane ---
@@ -1482,6 +1623,9 @@ fn event_loop(
     // A one-off footer message (a reload's outcome); each key press clears
     // it, and a success also clears by itself (`Notice`).
     let mut status_message = Notice::default();
+    // `y` was pressed: the next key finishes the copy chord (see `yank_row`).
+    let mut yank_pending = false;
+    let mut yank_flash = YankFlash::default();
     let todos_dir = ctx.global.then(|| config.notez_root_path().join("_todos"));
     // The file-change probe's last reading, taken fresh after every reload.
     let mut probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
@@ -1589,8 +1733,17 @@ fn event_loop(
                 );
                 let no_matches = no_matches_row(&items, &visible, &search_buffer);
                 row_counts_for_mouse = rows.iter().map(|r| r.height() as u16).collect();
-                let list_items =
-                    board_items(rows, &visible, state.selected(), drag_start, drag_target);
+                // One reading for the whole frame, so the copy flash's fade
+                // and sweep agree.
+                let drawn_at = Instant::now();
+                let list_items = board_items_styled(
+                    rows,
+                    &visible,
+                    state.selected(),
+                    drag_start,
+                    drag_target,
+                    yank_flash.row_style(drawn_at),
+                );
 
                 let todo_count = items
                     .iter()
@@ -1753,6 +1906,11 @@ fn event_loop(
                     );
                 } else {
                     frame.render_stateful_widget(List::new(list_items), list_area, &mut state);
+                    if let Some(sweep) = yank_flash.sweep(drawn_at) {
+                        if let Some(rect) = cursor_row_rect(list_area, &state, &row_counts_for_mouse) {
+                            paint_sweep_over(frame.buffer_mut(), rect, sweep);
+                        }
+                    }
                 }
 
                 // A folded preview is neither read nor drawn.
@@ -1934,9 +2092,11 @@ fn event_loop(
         // holds the probe off; once it ends the probe runs at once, so files
         // the pull changed reload (or hold) as any outside change does. A
         // success message on the footer shortens the wait too, to clear on
-        // time.
+        // time, and so does the copy flash on the cursor row.
         let wake = loop {
-            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), Instant::now());
+            let now = Instant::now();
+            let wait = status_message.wait(vault_sync.poll_interval(PROBE_INTERVAL), now);
+            let wait = yank_flash.wait(wait, now);
             if event::poll(wait).context("failed to poll for events")? {
                 break Wake::Input(event::read().context("failed to read event")?);
             }
@@ -1946,7 +2106,10 @@ fn event_loop(
                 vault_dirty.mark_stale();
                 sync_pulled |= done.moved;
             }
-            if status_message.expire(Instant::now()) {
+            let now = Instant::now();
+            // Both, not `||`: a message ending during the flash still goes.
+            let flash_frame = yank_flash.tick(now);
+            if status_message.expire(now) | flash_frame {
                 break Wake::Redraw;
             }
             if vault_sync.running() || !can_probe {
@@ -2004,6 +2167,12 @@ fn event_loop(
                 continue;
             }
         };
+
+        // A key, click or scroll ends the flash, so it never lands on a row
+        // the cursor moved to; pointer motion, resize and focus do not.
+        if ends_yank_flash(&ev) {
+            yank_flash.clear();
+        }
 
         // Mouse: scroll, dot clicks, click-to-collapse, drag-to-reorder.
         if let Event::Mouse(mouse) = ev {
@@ -2177,6 +2346,26 @@ fn event_loop(
                 continue;
             }
             break;
+        }
+
+        // Before help and the `:` line, so a key after `y` only ends the chord.
+        if yank_pending {
+            yank_pending = false;
+            let visible = compute_visible(&items, &search_buffer);
+            let row = state
+                .selected()
+                .and_then(|sel| visible.get(sel.min(visible.len().saturating_sub(1))))
+                .copied();
+            finish_yank(
+                key.code,
+                &items,
+                row,
+                &dirty,
+                (&mut status_message, &mut yank_flash),
+                &mut super::clipboard::copy,
+                Instant::now(),
+            );
+            continue;
         }
 
         // Help overlay: only `?` and Esc close it; it swallows other keys.
@@ -2716,6 +2905,8 @@ fn event_loop(
             KeyCode::Char('t') => {
                 flag_mode = true;
             }
+
+            KeyCode::Char('y') => yank_pending = true,
 
             KeyCode::Char('f') => {
                 if real_idx < items.len() {
@@ -4625,5 +4816,188 @@ mod tests {
         assert_eq!(late.spans[1].style.fg, Some(theme::RED));
         let today_due = due_title(Some(date("2026-10-27")), today).unwrap();
         assert_eq!(today_due.spans[1].style.fg, Some(theme::NEUTRAL_SUFFIX));
+    }
+
+    /// `y` + `code` on `items[row]` with a clipboard that keeps what it
+    /// got: the footer message and the copies.
+    fn yank_on(
+        code: KeyCode,
+        items: &[Task],
+        row: usize,
+        dirty: &HashSet<PathBuf>,
+    ) -> (Option<String>, Vec<String>) {
+        let mut written = Vec::new();
+        let message = yank_row(code, items, Some(row), dirty, &mut |text: &str| {
+            written.push(text.to_string());
+            Ok(())
+        });
+        (message, written)
+    }
+
+    #[test]
+    fn yy_on_a_section_header_copies_its_todo_md_as_on_disk_or_as_saved_when_edited() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        let on_disk = "# TODO\n\nsome prose the save drops\n\n- [ ] call the bank\n";
+        std::fs::write(&path, on_disk).unwrap();
+        let file = path.to_str().unwrap();
+        let mut items = vec![
+            in_file(header("WORK"), file, "work"),
+            in_file(task("call the bank", 0, 0), file, "work"),
+        ];
+        let clean = HashSet::new();
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 0, &clean);
+        assert_eq!(written, [on_disk]);
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
+
+        items[1].text = "call the bank today".to_string();
+        let dirty = HashSet::from([path.clone()]);
+        let (_, written) = yank_on(KeyCode::Char('y'), &items, 0, &dirty);
+        assert_eq!(written, ["# TODO\n\n- [ ] call the bank today\n"], "unsaved edits as the save writes them");
+    }
+
+    #[test]
+    fn yy_on_a_section_header_counts_its_files_task_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        std::fs::write(&path, "# TODO\n").unwrap();
+        let file = path.to_str().unwrap();
+        let items = vec![
+            in_file(header("WORK"), file, "work"),
+            in_file(task("one", 0, 0), file, "work"),
+            in_file(task("child", 1, 0), file, "work"),
+            in_file(header("HOME"), "/n/home/TODO.md", "home"),
+            in_file(task("solo", 0, 0), "/n/home/TODO.md", "home"),
+            in_file(header("EMPTY"), "/n/empty/TODO.md", "empty"),
+        ];
+        let dirty = HashSet::from([path.clone()]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 0, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 2 todos"), "subtasks count, the header does not");
+        let dirty = HashSet::from([PathBuf::from("/n/home/TODO.md")]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 3, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
+        let dirty = HashSet::from([PathBuf::from("/n/empty/TODO.md")]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 5, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 0 todos"));
+    }
+
+    #[test]
+    fn yy_on_a_todo_copies_its_line_as_the_save_writes_it() {
+        let mut t = task("call the bank", 0, FLAG_PRIO | FLAG_BLOCKED);
+        t.due = NoteDate::parse("2026-10-20");
+        t.state = CheckState::Half;
+        let items = vec![header("WORK"), t];
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 1, &HashSet::new());
+        assert_eq!(written, ["- [/] call the bank @2026-10-20 #prio #blocked"]);
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
+    }
+
+    #[test]
+    fn yy_on_a_subtask_keeps_its_indent() {
+        let mut parent = task("parent", 0, 0);
+        parent.has_subtasks = true;
+        let items = vec![header("WORK"), parent, task("child", 1, 0), task("grandchild", 2, FLAG_IMPORTANT)];
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 2, &HashSet::new());
+        assert_eq!(written, ["  - [ ] child"]);
+        assert_eq!(message.as_deref(), Some("copied 1 subtask"));
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 3, &HashSet::new());
+        assert_eq!(written, ["    - [ ] grandchild #important"]);
+        assert_eq!(message.as_deref(), Some("copied 1 subtask"));
+    }
+
+    #[test]
+    fn a_code_todo_copies_its_source_line_and_yp_its_source_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("x.rs");
+        std::fs::write(&source, "fn main() {\n    // TODO: fix the fleet\n}\n").unwrap();
+        let items = vec![
+            Task { is_code_todo: true, source: PathBuf::new(), ..header("CODE") },
+            code_todo("x.rs:2 fix the fleet", source.to_str().unwrap()),
+        ];
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 1, &HashSet::new());
+        assert_eq!(written, ["    // TODO: fix the fleet"]);
+        assert_eq!(message.as_deref(), Some("copied 1 code todo"));
+        let (message, written) = yank_on(KeyCode::Char('p'), &items, 1, &HashSet::new());
+        assert_eq!(written, [source.to_string_lossy().into_owned()]);
+        assert_eq!(message.as_deref(), Some("copied path"));
+        // The code section's header has no file behind it.
+        for code in [KeyCode::Char('y'), KeyCode::Char('p')] {
+            let (message, written) = yank_on(code, &items, 0, &HashSet::new());
+            assert!(written.is_empty());
+            assert_eq!(message.as_deref(), Some("nothing to copy here"));
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn yp_copies_the_absolute_path_of_the_rows_todo_md() {
+        let items = vec![
+            in_file(header("WORK"), "/n/_todos/work/TODO.md", "work"),
+            in_file(task("one", 0, 0), "/n/_todos/work/TODO.md", "work"),
+            in_file(task("two", 0, 0), "rel/TODO.md", "rel"),
+        ];
+        for row in [0, 1] {
+            let (message, written) = yank_on(KeyCode::Char('p'), &items, row, &HashSet::new());
+            assert_eq!(written, ["/n/_todos/work/TODO.md"], "row {row}");
+            assert_eq!(message.as_deref(), Some("copied path"));
+        }
+        let (_, written) = yank_on(KeyCode::Char('p'), &items, 2, &HashSet::new());
+        let want = std::env::current_dir().unwrap().join("rel/TODO.md");
+        assert_eq!(written, [want.to_string_lossy().into_owned()], "a relative path is made absolute");
+        // Any other key after `y` copies nothing.
+        let (message, written) = yank_on(KeyCode::Char('j'), &items, 1, &HashSet::new());
+        assert_eq!((message, written.len()), (None, 0));
+    }
+
+    #[test]
+    fn yy_sweeps_from_the_left_yp_from_the_right_and_a_failed_copy_does_not_flash() {
+        let t0 = Instant::now();
+        let mid = t0 + crate::tui::yank::YANK_SWEEP / 2;
+        let items = vec![header("WORK"), task("one", 0, 0)];
+        let dirty = HashSet::new();
+        for (code, from_right) in [(KeyCode::Char('y'), false), (KeyCode::Char('p'), true)] {
+            let mut status = Notice::default();
+            let mut flash = YankFlash::default();
+            finish_yank(code, &items, Some(1), &dirty, (&mut status, &mut flash), &mut |_: &str| Ok(()), t0);
+            assert_eq!(flash.sweep(mid), Some(crate::tui::yank::Sweep { reached: 0.5, from_right }), "{code:?}");
+            assert!(status.as_deref().is_some_and(|m| m.starts_with("copied")));
+        }
+
+        let mut status = Notice::default();
+        let mut flash = YankFlash::default();
+        let mut fail = |_: &str| anyhow::bail!("no clipboard");
+        finish_yank(KeyCode::Char('y'), &items, Some(1), &dirty, (&mut status, &mut flash), &mut fail, t0);
+        assert_eq!(status.as_deref(), Some("copy failed: no clipboard"));
+        assert!(!status.expire(t0 + super::super::notice::EXPIRY * 10), "the error stays");
+        assert_eq!(flash.sweep(mid), None, "no flash");
+        assert_eq!(flash.row_style(mid), theme::selected_row());
+        assert!(!flash.tick(mid), "nothing to redraw");
+    }
+
+    #[test]
+    fn the_sweep_covers_every_line_of_a_wrapped_cursor_row_below_the_offset() {
+        // Rows 2, 1 and 3 lines tall, scrolled past the first, cursor on the
+        // last: it starts one line down and is cut at the area's bottom.
+        let area = Rect::new(2, 1, 10, 3);
+        let heights = [2, 1, 3];
+        let mut state = ListState::default().with_offset(1);
+        state.select(Some(2));
+        assert_eq!(cursor_row_rect(area, &state, &heights), Some(Rect::new(2, 2, 10, 2)));
+        state.select(Some(1));
+        assert_eq!(cursor_row_rect(area, &state, &heights), Some(Rect::new(2, 1, 10, 1)));
+        state.select(Some(0));
+        assert_eq!(cursor_row_rect(area, &state, &heights), None, "above the offset");
+        state.select(None);
+        assert_eq!(cursor_row_rect(area, &state, &heights), None);
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 14, 5));
+        let sweep = crate::tui::yank::Sweep { reached: 0.5, from_right: false };
+        paint_sweep_over(&mut buf, Rect::new(2, 2, 10, 2), sweep);
+        let yanked = |x: u16, y: u16| buf[(x, y)].style().bg == theme::yanked_row().bg;
+        for y in [2, 3] {
+            assert!((2..7).all(|x| yanked(x, y)), "line {y}: the left half");
+            assert!(!(7..12).any(|x| yanked(x, y)), "line {y}: not the right half");
+        }
+        assert!(!(0..14).any(|x| yanked(x, 1) || yanked(x, 4)), "other lines untouched");
     }
 }

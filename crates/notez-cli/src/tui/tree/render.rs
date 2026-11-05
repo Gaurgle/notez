@@ -3,6 +3,8 @@
 
 use super::*;
 use crate::tui::prompt::Prompt;
+#[cfg(test)]
+use crate::tui::yank::{paint_sweep, YankFlash};
 
 /// The filter strip's contiguous 5-dot geometry: dot 0 sits at
 /// `area_x + 1`, after a one-column lead, so each strip dot stands over
@@ -90,7 +92,8 @@ pub(super) fn list_items(
 }
 
 /// [`list_items`] with the `selected` row in `cursor` instead, for the
-/// copy flash's fade (see [`theme::fading_row`] and [`paint_sweep`]).
+/// copy flash's fade (see [`theme::fading_row`] and
+/// [`paint_sweep`](crate::tui::yank::paint_sweep)).
 pub(super) fn list_items_styled(
     lines: Vec<Line<'static>>,
     selected: Option<usize>,
@@ -109,60 +112,6 @@ pub(super) fn list_items_styled(
             }
         })
         .collect()
-}
-
-/// How far a copy flash has swept over the cursor row: `reached` (0..=1)
-/// of its columns, counted from the left edge, or from the right.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Sweep {
-    pub(super) reached: f64,
-    pub(super) from_right: bool,
-}
-
-/// Paint `sweep` over the cursor row of a list of `rows` rows just drawn
-/// into `area` with `state`: the columns behind the front take
-/// [`theme::yanked_row`]'s background, under the glyphs' own colours; the
-/// column the front is crossing takes a background mixed toward it by how
-/// far the front is into that column, so the front slides; the rest keep
-/// the row's style. A cursor row scrolled out of `area` is left.
-pub(super) fn paint_sweep(
-    buf: &mut Buffer,
-    area: Rect,
-    state: &ListState,
-    rows: usize,
-    sweep: Sweep,
-) {
-    let Some(selected) = state.selected().filter(|_| rows > 0) else {
-        return;
-    };
-    let Some(row) = selected.min(rows - 1).checked_sub(state.offset()) else {
-        return;
-    };
-    let Ok(row) = u16::try_from(row) else {
-        return;
-    };
-    if row >= area.height {
-        return;
-    }
-    let front = sweep.reached.clamp(0.0, 1.0) * f64::from(area.width);
-    let width = (front.floor() as u16).min(area.width);
-    let x = if sweep.from_right {
-        area.right() - width
-    } else {
-        area.x
-    };
-    let y = area.y + row;
-    buf.set_style(Rect::new(x, y, width, 1), theme::yanked_row());
-    let into = front - front.floor();
-    if width < area.width && into > 0.0 {
-        let front_x = if sweep.from_right {
-            x - 1
-        } else {
-            area.x + width
-        };
-        let bg = theme::mix(theme::SURFACE0, theme::SURFACE2, into);
-        buf.set_style(Rect::new(front_x, y, 1, 1), theme::yanked_row().bg(bg));
-    }
 }
 
 /// Rows the tree list keeps between the cursor and the pane's top and
