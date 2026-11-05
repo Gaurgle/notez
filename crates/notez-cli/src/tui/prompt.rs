@@ -1,7 +1,7 @@
-//! The popup prompt: one typed value in a titled box drawn centred over the
-//! list pane (pane 1), never over the preview. The footer under it keeps its hints, so
-//! typing never moves it. Key handling stays in each TUI's loop; this only
-//! draws.
+//! The popup prompt: one typed value in a titled box at the bottom of the
+//! list pane (pane 1), across its full width, never over the preview. The
+//! footer under it keeps its hints, so typing never moves it. Key handling
+//! stays in each TUI's loop; this only draws.
 
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph};
@@ -12,10 +12,6 @@ use super::theme;
 /// The rows inside the border: the input, the error (blank while there is
 /// none, so the box does not jump when one appears) and the hint.
 const ROWS: u16 = 3;
-
-/// The narrowest the box's text area gets, so a short value still reads as
-/// a dialog rather than a tooltip.
-const MIN_TEXT_COLS: usize = 40;
 
 /// One open popup prompt.
 pub struct Prompt<'a> {
@@ -34,18 +30,9 @@ pub struct Prompt<'a> {
 }
 
 impl Prompt<'_> {
-    /// The box, centred in `full` and clipped to it.
-    pub fn area(&self, full: Rect) -> Rect {
-        let widest = [
-            self.title.chars().count() + 2,
-            self.hint.chars().count(),
-            self.buffer.chars().count() + 1,
-            self.error.map_or(0, |e| e.chars().count()),
-        ]
-        .into_iter()
-        .max()
-        .unwrap_or(0);
-        centred(widest, full)
+    /// The box at the bottom of the bordered pane `pane`, see [`docked`].
+    pub fn area(&self, pane: Rect) -> Rect {
+        docked(pane)
     }
 
     /// Draw the box over whatever is under it.
@@ -99,13 +86,9 @@ pub struct Confirm<'a> {
 }
 
 impl Confirm<'_> {
-    /// The box, centred in `full` and clipped to it.
-    pub fn area(&self, full: Rect) -> Rect {
-        let widest = [self.title.chars().count() + 2, self.hint.chars().count(), self.body.chars().count()]
-            .into_iter()
-            .max()
-            .unwrap_or(0);
-        centred(widest, full)
+    /// The box at the bottom of the bordered pane `pane`, see [`docked`].
+    pub fn area(&self, pane: Rect) -> Rect {
+        docked(pane)
     }
 
     /// Draw the box over whatever is under it.
@@ -128,16 +111,18 @@ impl Confirm<'_> {
     }
 }
 
-/// A box `widest` text columns wide (at least [`MIN_TEXT_COLS`]) and
-/// [`ROWS`] high, centred in `full` and clipped to it.
-fn centred(widest: usize, full: Rect) -> Rect {
-    // Borders (2) and one column of padding each side (2).
-    let widest = widest.max(MIN_TEXT_COLS);
-    let w = u16::try_from(widest + 4).unwrap_or(u16::MAX).min(full.width);
-    let h = (ROWS + 2).min(full.height);
-    let x = full.x + full.width.saturating_sub(w) / 2;
-    let y = full.y + full.height.saturating_sub(h) / 2;
-    Rect::new(x, y, w, h)
+/// The box inside the bordered pane `pane`: [`ROWS`] rows and its own
+/// border high, as wide as the pane's inside, its bottom edge on the last
+/// row above the pane's bottom border. It sits inside the pane's border
+/// rather than over it, so the pane keeps its frame (and its editing
+/// colour) all round. A pane too short or narrow for it clips it.
+fn docked(pane: Rect) -> Rect {
+    let x = pane.x + pane.width.min(1);
+    let w = pane.width.saturating_sub(2);
+    let top = pane.y + pane.height.min(1);
+    let bottom = pane.bottom().saturating_sub(1).max(top);
+    let h = (ROWS + 2).min(bottom - top);
+    Rect::new(x, bottom - h, w, h)
 }
 
 /// The rounded, titled box with `text` inside, drawn over what is under it.
@@ -198,49 +183,70 @@ mod tests {
             .map(|x| x as u16)
     }
 
-    #[test]
-    fn the_box_is_centred_in_the_frame() {
-        let prompt = due("+1d", None, None);
-        let full = Rect::new(0, 0, 100, 30);
-        let area = prompt.area(full);
-        assert_eq!((area.width, area.height), (44, 5));
-        assert_eq!((area.x, area.y), (28, 12));
-        let offset = prompt.area(Rect::new(10, 4, 100, 30));
-        assert_eq!((offset.x, offset.y), (38, 16));
+    fn inside(area: Rect, pane: Rect) -> bool {
+        area.x >= pane.x && area.y >= pane.y && area.right() <= pane.right() && area.bottom() <= pane.bottom()
     }
 
-    /// NZ-72: the TUIs pass the list pane's rect, so the box sits centred in
-    /// it, never over the preview beside it, and a narrow pane clips it.
+    /// NZ-77a: the box sits at the bottom of the bordered pane it is given,
+    /// inside the pane's left, right and bottom borders, across its width.
     #[test]
-    fn the_box_is_centred_in_a_pane_and_clipped_to_it() {
+    fn the_box_is_docked_at_the_bottom_of_the_pane_across_its_width() {
         let prompt = due("+1d", None, None);
-        let inside = |area: Rect, pane: Rect| {
-            area.x >= pane.x && area.y >= pane.y && area.right() <= pane.right() && area.bottom() <= pane.bottom()
-        };
+        let area = prompt.area(Rect::new(0, 0, 100, 30));
+        assert_eq!(area, Rect::new(1, 24, 98, 5), "one cell in from the left, right and bottom");
+        let offset = prompt.area(Rect::new(10, 4, 100, 30));
+        assert_eq!(offset, Rect::new(11, 28, 98, 5));
+        assert_eq!(offset.bottom(), Rect::new(10, 4, 100, 30).bottom() - 1, "just above the bottom border");
+        let long = Prompt { buffer: &"x".repeat(300), ..due("", None, None) };
+        assert_eq!(long.area(Rect::new(0, 0, 100, 30)), area, "the value does not size the box");
+    }
+
+    /// NZ-72, NZ-77a: the TUIs pass the list pane's rect, so the box sits at
+    /// its bottom, never over the preview beside it, and a small pane clips
+    /// it.
+    #[test]
+    fn the_box_is_docked_in_a_pane_and_clipped_to_it() {
+        let prompt = due("+1d", None, None);
         let pane = Rect::new(0, 1, 60, 29);
         let area = prompt.area(pane);
         assert!(inside(area, pane), "{area:?}");
-        assert_eq!((area.x, area.y), (8, 13), "centred: (60 - 44) / 2, 1 + (29 - 5) / 2");
-        assert_eq!(area.x - pane.x, pane.right() - area.right());
+        assert_eq!(area, Rect::new(1, 24, 58, 5), "rows 24..29 over the border on row 29");
 
         let right_pane = Rect::new(61, 1, 50, 29);
         let area = prompt.area(right_pane);
         assert!(inside(area, right_pane), "{area:?}");
-        assert_eq!(area.x, 64);
+        assert_eq!((area.x, area.width), (62, 48));
 
-        for pane in [Rect::new(7, 2, 30, 20), Rect::new(7, 2, 30, 3), Rect::new(7, 2, 1, 1), Rect::new(7, 2, 0, 0)] {
+        for (pane, height) in [
+            (Rect::new(7, 2, 30, 20), 5),
+            (Rect::new(7, 2, 30, 7), 5),
+            (Rect::new(7, 2, 30, 6), 4),
+            (Rect::new(7, 2, 30, 3), 1),
+            (Rect::new(7, 2, 2, 2), 0),
+            (Rect::new(7, 2, 1, 1), 0),
+            (Rect::new(7, 2, 0, 0), 0),
+        ] {
             let area = prompt.area(pane);
             assert!(inside(area, pane), "{pane:?}: {area:?}");
-            assert_eq!(area.width, pane.width.min(44), "{pane:?}: the box fills a narrow pane");
+            assert_eq!(area.width, pane.width.saturating_sub(2), "{pane:?}: the pane's inside width");
+            assert_eq!(area.height, height, "{pane:?}: clipped to the rows inside the pane's borders");
+            if pane.height >= 2 {
+                assert_eq!(area.bottom(), pane.bottom() - 1, "{pane:?}: on the bottom border");
+                assert!(area.y > pane.y, "{pane:?}: below the top border");
+            }
         }
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let pane = Rect::new(7, 2, 30, 20);
         terminal.draw(|frame| prompt.render(frame, pane)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let area = prompt.area(pane);
-        assert_eq!(buf[(pane.x, area.y)].symbol(), "\u{256d}", "the border starts at the pane's edge");
-        assert_eq!(buf[(pane.right() - 1, area.y)].symbol(), "\u{256e}");
-        assert_eq!(buf[(pane.right(), area.y)].symbol(), " ", "nothing drawn past the pane");
+        assert_eq!(buf[(pane.x + 1, area.y)].symbol(), "\u{256d}", "the border starts inside the pane's");
+        assert_eq!(buf[(pane.right() - 2, area.y)].symbol(), "\u{256e}");
+        assert_eq!(buf[(pane.x + 1, area.bottom() - 1)].symbol(), "\u{2570}");
+        assert_eq!(buf[(pane.right() - 2, pane.bottom() - 2)].symbol(), "\u{256f}", "on the row above the pane's border");
+        for (x, y) in [(pane.x, area.y), (pane.right() - 1, area.y), (pane.x + 1, pane.bottom() - 1), (pane.right(), area.y)] {
+            assert_eq!(buf[(x, y)].symbol(), " ", "({x}, {y}): the pane's border cells are left alone");
+        }
     }
 
     #[test]
@@ -270,15 +276,17 @@ mod tests {
 
     #[test]
     fn a_valid_value_takes_the_green_and_no_validator_the_text_colour() {
+        let area = due("", None, None).area(Rect::new(0, 0, 80, 20));
+        let (input, error) = (area.y + 1, area.y + 2);
         let buf = draw(&due("+1d", None, Some(theme::GREEN)), 80, 20);
-        let x = find(&buf, 8, "+1d").expect("value");
-        assert_eq!(buf[(x, 8)].fg, theme::GREEN);
-        let inside: String = row_text(&buf, 9).trim().trim_matches('\u{2502}').to_string();
+        let x = find(&buf, input, "+1d").expect("value");
+        assert_eq!(buf[(x, input)].fg, theme::GREEN);
+        let inside: String = row_text(&buf, error).trim().trim_matches('\u{2502}').to_string();
         assert!(inside.trim().is_empty(), "no error, a blank row: {inside:?}");
 
         let buf = draw(&due("draft", None, None), 80, 20);
-        let x = find(&buf, 8, "draft").expect("value");
-        assert_eq!(buf[(x, 8)].fg, theme::TEXT);
+        let x = find(&buf, input, "draft").expect("value");
+        assert_eq!(buf[(x, input)].fg, theme::TEXT);
     }
 
     #[test]
@@ -290,8 +298,9 @@ mod tests {
             assert!(area.right() <= full.right() && area.bottom() <= full.bottom(), "{w}x{h}: {area:?}");
             draw(&prompt, w, h);
         }
-        let buf = draw(&due("+1d", None, None), 20, 3);
-        assert_eq!(row_text(&buf, 0).chars().next(), Some('\u{256d}'), "the box fills the frame");
+        let buf = draw(&due("+1d", None, None), 20, 7);
+        assert_eq!(row_text(&buf, 1), format!(" \u{256d} due {} ", "\u{2500}".repeat(11) + "\u{256e}"), "the box fills the pane's inside");
+        assert_eq!(row_text(&buf, 5).chars().nth(1), Some('\u{2570}'));
     }
 
     fn confirm(body: &str) -> Confirm<'_> {
@@ -299,7 +308,7 @@ mod tests {
     }
 
     /// NZ-77: the confirm box draws its red title, the body and the dim
-    /// hint in the prompt's box, centred in the pane.
+    /// hint in the prompt's box, docked at the bottom of the pane (NZ-77a).
     #[test]
     fn the_confirm_box_draws_a_red_title_the_body_and_the_hint() {
         let dialog = confirm("call the bank");
@@ -309,6 +318,9 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let area = dialog.area(pane);
         assert_eq!(area, prompt_area_like(pane), "the same box as a prompt");
+        assert_eq!(area, Rect::new(6, 16, 58, 5), "across the pane, just above its bottom border");
+        assert_eq!(buf[(area.x, area.bottom() - 1)].symbol(), "\u{2570}");
+        assert_eq!(buf[(area.x - 1, area.y)].symbol(), " ", "the pane's border cell is left alone");
         assert_eq!(buf[(area.x, area.y)].symbol(), "\u{256d}");
         let tx = find(&buf, area.y, "delete?").expect("title on the top border");
         assert_eq!(buf[(tx, area.y)].fg, theme::RED);
@@ -330,16 +342,17 @@ mod tests {
         let dialog = confirm(&long);
         let buf = draw_confirm(&dialog, 50, 10);
         let area = dialog.area(Rect::new(0, 0, 50, 10));
-        assert_eq!(area.width, 50, "the box fills the narrow frame");
+        assert_eq!(area.width, 48, "the box fills the pane's inside");
         let row = row_text(&buf, area.y + 1);
         assert!(!row.contains("TAIL"), "{row:?}");
         assert_eq!(find(&buf, area.y + 1, "\u{2026}"), Some(area.right() - 3), "cut with an ellipsis inside the padding");
         assert_eq!(buf[(area.right() - 1, area.y + 1)].symbol(), "\u{2502}", "the border is kept");
 
-        for (w, h) in [(20, 3), (10, 10), (1, 1), (0, 0)] {
+        for (w, h) in [(20, 3), (10, 10), (2, 2), (1, 1), (0, 0)] {
             let full = Rect::new(0, 0, w, h);
             let area = dialog.area(full);
-            assert!(area.right() <= full.right() && area.bottom() <= full.bottom(), "{w}x{h}: {area:?}");
+            assert!(inside(area, full), "{w}x{h}: {area:?}");
+            assert_eq!(area, prompt_area_like(full), "{w}x{h}: clipped as a prompt is");
             draw_confirm(&dialog, w, h);
         }
     }

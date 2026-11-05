@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 
@@ -27,6 +27,7 @@ use notez_core::util::tilde;
 use super::footer::{self, Group, KeyHint, Mode, QUIT_HINT_RESERVED_COLS, Slot, Toggle, span_cols};
 use super::header::{self, SyncState};
 use super::help::{self, HelpState};
+use super::line_edit::{self, Edit};
 use super::panes::{self, Pane, Panes, Press};
 use super::notice::Notice;
 use super::prompt::{Confirm, Prompt};
@@ -1041,14 +1042,16 @@ fn pane_title(pane: Pane, focus: Pane, rest: Vec<Span<'static>>) -> Line<'static
     Line::from(spans)
 }
 
-/// The modes that type into a field: the focused pane's border takes the
-/// editing colour in them. The filter is a search field with its own look.
+/// The modes that type into a field, and the delete confirmation: the
+/// focused pane's border takes the editing colour in them. The filter is a
+/// search field with its own look.
 const EDITING: &[Mode] = &[
     Mode::NewItem,
     Mode::NewCategory,
     Mode::AddSubtask,
     Mode::EditText,
     Mode::VimCommand,
+    Mode::ConfirmDelete,
 ];
 
 /// The border style of `pane`: highlighted while it has focus, and in the
@@ -1293,14 +1296,15 @@ enum DueKey {
 /// the value against `today` and sets the todo's due date; the serializer
 /// writes it on save. `Closed` and `Changed` empty the buffer.
 fn due_prompt_key(
-    code: KeyCode,
+    key: impl Into<KeyEvent>,
     buffer: &mut String,
     cursor: &mut usize,
     items: &mut [Task],
     idx: usize,
     today: chrono::NaiveDate,
 ) -> DueKey {
-    let outcome = match code {
+    let key = key.into();
+    let outcome = match key.code {
         KeyCode::Enter => match items.get(idx) {
             Some(task) if takes_due(task) && !buffer.trim().is_empty() => {
                 match parse_due_input(buffer, today) {
@@ -1314,28 +1318,10 @@ fn due_prompt_key(
             _ => DueKey::Closed,
         },
         KeyCode::Esc => DueKey::Closed,
-        KeyCode::Left => {
-            *cursor = text::prev_char_boundary(buffer, *cursor);
+        _ => {
+            line_edit::edit(buffer, cursor, key);
             DueKey::Typing
         }
-        KeyCode::Right => {
-            *cursor = text::next_char_boundary(buffer, *cursor);
-            DueKey::Typing
-        }
-        KeyCode::Backspace => {
-            if *cursor > 0 {
-                let prev = text::prev_char_boundary(buffer, *cursor);
-                buffer.remove(prev);
-                *cursor = prev;
-            }
-            DueKey::Typing
-        }
-        KeyCode::Char(c) => {
-            buffer.insert(*cursor, c);
-            *cursor += c.len_utf8();
-            DueKey::Typing
-        }
-        _ => DueKey::Typing,
     };
     if matches!(outcome, DueKey::Closed | DueKey::Changed) {
         buffer.clear();
@@ -1427,6 +1413,19 @@ fn open_popup<'a>(open: OpenPrompt, state: &PromptState<'a>) -> Option<Prompt<'a
         Some(add("new todo", ADD_HINT, None))
     } else {
         None
+    }
+}
+
+/// `key` as line editing in the open `e`, `n`, `s` or `N` prompt. `None`
+/// when none of them is open (the `D` prompt edits in `due_prompt_key`) or
+/// the key is not an editing key, so the prompt's own Enter and Esc see it.
+fn prompt_line_edit(open: OpenPrompt, key: KeyEvent, buffer: &mut String, cursor: &mut usize) -> Option<Edit> {
+    if open.due || !(open.edit || open.new_item || open.subtask || open.category) {
+        return None;
+    }
+    match line_edit::edit(buffer, cursor, key) {
+        Edit::Ignored => None,
+        edit => Some(edit),
     }
 }
 
@@ -2498,6 +2497,21 @@ fn event_loop(
             continue;
         }
 
+        // Line editing in the `N`, `n`, `s` and `e` prompts below.
+        let open = OpenPrompt {
+            due: due_mode,
+            edit: edit_mode,
+            subtask: subtask_mode,
+            category: category_mode,
+            new_item: input_mode,
+        };
+        if let Some(edit) = prompt_line_edit(open, key, &mut input_buffer, &mut cursor_pos) {
+            if category_mode && edit == Edit::Changed {
+                category_error = None;
+            }
+            continue;
+        }
+
         // New top-level category prompt (global board only).
         if category_mode {
             match key.code {
@@ -2550,24 +2564,6 @@ fn event_loop(
                     category_mode = false;
                     category_error = None;
                 }
-                KeyCode::Left => {
-                    cursor_pos = prev_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Right => {
-                    cursor_pos = next_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Backspace => {
-                    if cursor_pos > 0 {
-                        let prev = prev_char_boundary(&input_buffer, cursor_pos);
-                        input_buffer.remove(prev);
-                        cursor_pos = prev;
-                    }
-                }
-                KeyCode::Char(c) => {
-                    input_buffer.insert(cursor_pos, c);
-                    cursor_pos += c.len_utf8();
-                    category_error = None;
-                }
                 _ => {}
             }
             continue;
@@ -2606,23 +2602,6 @@ fn event_loop(
                     input_buffer.clear();
                     cursor_pos = 0;
                     input_mode = false;
-                }
-                KeyCode::Left => {
-                    cursor_pos = prev_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Right => {
-                    cursor_pos = next_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Backspace => {
-                    if cursor_pos > 0 {
-                        let prev = prev_char_boundary(&input_buffer, cursor_pos);
-                        input_buffer.remove(prev);
-                        cursor_pos = prev;
-                    }
-                }
-                KeyCode::Char(c) => {
-                    input_buffer.insert(cursor_pos, c);
-                    cursor_pos += c.len_utf8();
                 }
                 _ => {}
             }
@@ -2666,23 +2645,6 @@ fn event_loop(
                     cursor_pos = 0;
                     subtask_mode = false;
                 }
-                KeyCode::Left => {
-                    cursor_pos = prev_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Right => {
-                    cursor_pos = next_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Backspace => {
-                    if cursor_pos > 0 {
-                        let prev = prev_char_boundary(&input_buffer, cursor_pos);
-                        input_buffer.remove(prev);
-                        cursor_pos = prev;
-                    }
-                }
-                KeyCode::Char(c) => {
-                    input_buffer.insert(cursor_pos, c);
-                    cursor_pos += c.len_utf8();
-                }
                 _ => {}
             }
             continue;
@@ -2691,7 +2653,7 @@ fn event_loop(
         if due_mode {
             let today = chrono::Local::now().date_naive();
             due_error = None;
-            match due_prompt_key(key.code, &mut input_buffer, &mut cursor_pos, &mut items, edit_idx, today) {
+            match due_prompt_key(key, &mut input_buffer, &mut cursor_pos, &mut items, edit_idx, today) {
                 DueKey::Typing => {}
                 DueKey::Closed => due_mode = false,
                 DueKey::Changed => {
@@ -2718,23 +2680,6 @@ fn event_loop(
                     input_buffer.clear();
                     cursor_pos = 0;
                     edit_mode = false;
-                }
-                KeyCode::Left => {
-                    cursor_pos = prev_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Right => {
-                    cursor_pos = next_char_boundary(&input_buffer, cursor_pos);
-                }
-                KeyCode::Backspace => {
-                    if cursor_pos > 0 {
-                        let prev = prev_char_boundary(&input_buffer, cursor_pos);
-                        input_buffer.remove(prev);
-                        cursor_pos = prev;
-                    }
-                }
-                KeyCode::Char(c) => {
-                    input_buffer.insert(cursor_pos, c);
-                    cursor_pos += c.len_utf8();
                 }
                 _ => {}
             }
@@ -3630,8 +3575,15 @@ mod tests {
 
     #[test]
     fn the_focused_pane_border_turns_editing_in_text_entry_modes_only() {
-        let editing = [Mode::NewItem, Mode::NewCategory, Mode::AddSubtask, Mode::EditText, Mode::VimCommand];
-        let other = [Mode::Normal, Mode::Focus, Mode::Filter, Mode::Tag, Mode::ConfirmDelete];
+        let editing = [
+            Mode::NewItem,
+            Mode::NewCategory,
+            Mode::AddSubtask,
+            Mode::EditText,
+            Mode::VimCommand,
+            Mode::ConfirmDelete,
+        ];
+        let other = [Mode::Normal, Mode::Focus, Mode::Filter, Mode::Tag];
         for mode in editing {
             assert_eq!(pane_border(Pane::List, Pane::List, mode), theme::border_editing(), "{mode:?}");
             assert_eq!(pane_border(Pane::Preview, Pane::Preview, mode), theme::border_editing(), "{mode:?}");
@@ -3643,6 +3595,19 @@ mod tests {
         }
         assert_ne!(theme::border_editing(), theme::border_focused());
         assert_ne!(theme::border_editing(), theme::border());
+    }
+
+    /// NZ-77a: `d` turns the list pane's border the editing red, as a
+    /// prompt does, while its confirmation is open.
+    #[test]
+    fn the_list_border_is_the_editing_red_while_the_delete_confirm_is_open() {
+        let asking = InputFlags { confirm_delete: true, ..InputFlags::default() }.footer_mode();
+        assert_eq!(pane_border(Pane::List, Pane::List, asking), theme::border_editing());
+        assert_eq!(theme::border_editing().fg, Some(theme::RED));
+        let prompt = InputFlags { edit_mode: true, ..InputFlags::default() }.footer_mode();
+        assert_eq!(pane_border(Pane::List, Pane::List, asking), pane_border(Pane::List, Pane::List, prompt));
+        let idle = InputFlags::default().footer_mode();
+        assert_eq!(pane_border(Pane::List, Pane::List, idle), theme::border_focused(), "closed, the focus colour");
     }
 
     #[test]
@@ -4105,6 +4070,56 @@ mod tests {
         assert_eq!(ok.error, None);
         let other = OpenPrompt { new_item: true, ..OpenPrompt::default() };
         assert_eq!(open_popup(other, &state).unwrap().error, None, "only the category prompt shows its error");
+    }
+
+    /// One key in the open prompt `open` with `buffer` typed and the cursor
+    /// at its end, through the route the event loop takes: the `D` prompt's
+    /// `due_prompt_key`, the others' `prompt_line_edit`.
+    fn prompt_key(open: OpenPrompt, buffer: &mut String, cursor: &mut usize, key: KeyEvent) {
+        if open.due {
+            let mut items = vec![task("ship it", 0, 0)];
+            assert_eq!(due_prompt_key(key, buffer, cursor, &mut items, 0, today()), DueKey::Typing);
+        } else {
+            assert!(prompt_line_edit(open, key, buffer, cursor).is_some(), "{key:?} edits the line");
+        }
+    }
+
+    /// NZ-77a: every todoz prompt edits through `line_edit`: Ctrl+U empties
+    /// the value, Ctrl+A then a character inserts at the start, and a
+    /// Ctrl or Alt character that is not an editing key types nothing.
+    #[test]
+    fn every_prompt_edits_its_line_through_line_edit() {
+        use crossterm::event::KeyModifiers;
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        for (open, _, title, _) in every_prompt() {
+            let (mut buffer, mut cursor) = (String::from("call b\u{e5}nk"), "call b\u{e5}nk".len());
+            prompt_key(open, &mut buffer, &mut cursor, ctrl('w'));
+            assert_eq!((buffer.as_str(), cursor), ("call ", 5), "{title}: ctrl+w");
+            prompt_key(open, &mut buffer, &mut cursor, ctrl('u'));
+            assert_eq!((buffer.as_str(), cursor), ("", 0), "{title}: ctrl+u");
+
+            let (mut buffer, mut cursor) = (String::from("\u{65e5}x"), "\u{65e5}x".len());
+            prompt_key(open, &mut buffer, &mut cursor, ctrl('a'));
+            prompt_key(open, &mut buffer, &mut cursor, KeyEvent::from(KeyCode::Char('>')));
+            assert_eq!((buffer.as_str(), cursor), (">\u{65e5}x", 1), "{title}: ctrl+a then a char");
+
+            for key in [ctrl('x'), KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT)] {
+                let before = buffer.clone();
+                if open.due {
+                    prompt_key(open, &mut buffer, &mut cursor, key);
+                } else {
+                    assert_eq!(prompt_line_edit(open, key, &mut buffer, &mut cursor), None, "{title}");
+                }
+                assert_eq!(buffer, before, "{title}: {key:?} types nothing");
+            }
+        }
+        let mut buffer = String::from("x");
+        let mut cursor = 1;
+        assert_eq!(prompt_line_edit(OpenPrompt::default(), ctrl('u'), &mut buffer, &mut cursor), None, "no prompt");
+        let enter = KeyEvent::from(KeyCode::Enter);
+        let edit = OpenPrompt { edit: true, ..OpenPrompt::default() };
+        assert_eq!(prompt_line_edit(edit, enter, &mut buffer, &mut cursor), None, "enter stays with the prompt");
+        assert_eq!(buffer, "x");
     }
 
     /// NZ-77: `d` asks in a popup naming the todo; `y` and Enter delete, `n`,
