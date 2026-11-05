@@ -29,7 +29,7 @@ use super::header::{self, SyncState};
 use super::help::{self, HelpState};
 use super::panes::{self, Pane, Panes, Press};
 use super::notice::Notice;
-use super::prompt::Prompt;
+use super::prompt::{Confirm, Prompt};
 use super::sync::VaultSync;
 use super::yank::{ends_yank_flash, paint_sweep_over, show_yank, YankFlash};
 use super::{VimCommandMode, VimKey, text, theme, todo_rows};
@@ -1385,61 +1385,82 @@ fn edit_popup(buffer: &str, cursor: usize) -> Prompt<'_> {
     }
 }
 
-/// Which typed prompt is open, as the footer's lead sees it.
+/// The `n` and `s` popups' hint line.
+const ADD_HINT: &str = "enter adds, esc cancels";
+
+/// The `N` popup's hint line: the rule the category name is checked against.
+const CATEGORY_HINT: &str = "a new name without / or \\, enter adds";
+
+/// Which typed prompt is open.
 #[derive(Clone, Copy, Default)]
 struct OpenPrompt {
     due: bool,
     edit: bool,
     subtask: bool,
     category: bool,
+    new_item: bool,
 }
 
-/// The footer lead of the open typed prompt: its label, value and cursor
-/// for the footer prompts (`n`, `a`, `C`), and none while the `D` or `e`
-/// popup is open, so the footer keeps its hints and does not move as the
-/// value is typed.
-fn prompt_lead(
-    open: OpenPrompt,
-    buffer: &str,
+/// What the open typed prompt is filling in, for its popup.
+struct PromptState<'a> {
+    buffer: &'a str,
     cursor: usize,
-    category_error: Option<&str>,
-) -> Vec<Span<'static>> {
-    let (label, label_color) = if open.due || open.edit {
-        return Vec::new();
+    due_error: Option<&'a str>,
+    category_error: Option<&'a str>,
+    today: chrono::NaiveDate,
+}
+
+/// The popup of the open typed prompt, drawn over the list pane, or none
+/// when no prompt is open. The footer keeps its hints under every one, so
+/// it does not move as the value is typed.
+fn open_popup<'a>(open: OpenPrompt, state: &PromptState<'a>) -> Option<Prompt<'a>> {
+    let add = |title, hint, error| Prompt { title, hint, buffer: state.buffer, cursor: state.cursor, error, color: None };
+    if open.due {
+        Some(due_popup(state.buffer, state.cursor, state.due_error, state.today))
+    } else if open.edit {
+        Some(edit_popup(state.buffer, state.cursor))
     } else if open.subtask {
-        (" subtask: ", Color::Rgb(148, 157, 210))
+        Some(add("subtask", ADD_HINT, None))
     } else if open.category {
-        (" new category: ", Color::Rgb(136, 190, 132))
+        Some(add("category", CATEGORY_HINT, state.category_error))
+    } else if open.new_item {
+        Some(add("new todo", ADD_HINT, None))
     } else {
-        (" new: ", Color::Rgb(136, 190, 132))
-    };
-    let (before, after) = buffer.split_at(cursor.min(buffer.len()));
-    let cursor_char = after
-        .chars()
-        .next()
-        .map(|c| c.to_string())
-        .unwrap_or_else(|| " ".to_string());
-    let rest = if after.len() > cursor_char.len() {
-        &after[cursor_char.len()..]
-    } else {
-        ""
-    };
-    let mut spans = vec![
-        Span::styled(label, Style::default().fg(label_color)),
-        Span::styled(before.to_string(), Style::default().fg(theme::TEXT)),
-        Span::styled(
-            cursor_char,
-            Style::default().fg(theme::BASE).bg(theme::SAPPHIRE),
-        ),
-        Span::styled(rest.to_string(), Style::default().fg(theme::TEXT)),
-    ];
-    if let Some(err) = category_error {
-        spans.push(Span::styled(
-            format!("  <- {}", err),
-            Style::default().fg(theme::RED),
-        ));
+        None
     }
-    spans
+}
+
+/// The delete confirmation's hint line.
+const DELETE_HINT: &str = "y / enter delete, n / esc cancel";
+
+/// How many subtasks deleting the todo at `idx` takes with it: the rows
+/// `todo::remove_task` removes besides the todo itself.
+fn subtask_count(items: &[Task], idx: usize) -> usize {
+    if idx >= items.len() || items[idx].is_header {
+        return 0;
+    }
+    todo::block_end(items, idx) - idx - 1
+}
+
+/// The delete confirmation's hint for a todo with `subtasks` subtasks.
+fn delete_hint(subtasks: usize) -> String {
+    match subtasks {
+        0 => DELETE_HINT.to_string(),
+        1 => format!("and its 1 subtask: {DELETE_HINT}"),
+        n => format!("and its {n} subtasks: {DELETE_HINT}"),
+    }
+}
+
+/// The `d` confirmation over the board, naming the todo it deletes. `hint`
+/// comes from `delete_hint`.
+fn delete_popup<'a>(task: &'a Task, hint: &'a str) -> Confirm<'a> {
+    Confirm { title: "delete?", body: &task.text, hint }
+}
+
+/// Whether `code` answers the delete confirmation with yes; any other key
+/// cancels it.
+fn confirms_delete(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char('y') | KeyCode::Enter)
 }
 
 /// The board as it is on disk now. The global board is listed again from
@@ -1982,10 +2003,7 @@ fn event_loop(
                     footer::status_line(&keys, lead, true, mode, &toggles, Vec::new(), width)
                 };
                 let status = if confirm_delete {
-                    hint_line(vec![Span::styled(
-                        " delete this todo?",
-                        Style::default().fg(theme::TEXT),
-                    )])
+                    hint_line(Vec::new())
                 } else if flag_mode {
                     let vis = compute_visible(&items, &search_buffer);
                     let vs = state.selected().unwrap_or(0);
@@ -2011,13 +2029,7 @@ fn event_loop(
                     }
                     hint_line(spans)
                 } else if input_mode || subtask_mode || edit_mode || due_mode || category_mode {
-                    let open = OpenPrompt {
-                        due: due_mode,
-                        edit: edit_mode,
-                        subtask: subtask_mode,
-                        category: category_mode,
-                    };
-                    hint_line(prompt_lead(open, &input_buffer, cursor_pos, category_error.as_deref()))
+                    hint_line(Vec::new())
                 } else if vim.active {
                     hint_line(vec![Span::styled(
                         vim.buffer.clone(),
@@ -2056,11 +2068,29 @@ fn event_loop(
                 frame.render_widget(Paragraph::new(status), chunks[1]);
 
                 // Over the board pane, never the preview.
-                if due_mode {
-                    let today = chrono::Local::now().date_naive();
-                    due_popup(&input_buffer, cursor_pos, due_error.as_deref(), today).render(frame, list_rect);
-                } else if edit_mode {
-                    edit_popup(&input_buffer, cursor_pos).render(frame, list_rect);
+                let open = OpenPrompt {
+                    due: due_mode,
+                    edit: edit_mode,
+                    subtask: subtask_mode,
+                    category: category_mode,
+                    new_item: input_mode,
+                };
+                let prompt_state = PromptState {
+                    buffer: &input_buffer,
+                    cursor: cursor_pos,
+                    due_error: due_error.as_deref(),
+                    category_error: category_error.as_deref(),
+                    today: chrono::Local::now().date_naive(),
+                };
+                if let Some(popup) = open_popup(open, &prompt_state) {
+                    popup.render(frame, list_rect);
+                }
+                if confirm_delete {
+                    let selected = visible.get(state.selected().unwrap_or(0)).copied();
+                    if let Some((ri, task)) = selected.and_then(|ri| items.get(ri).map(|t| (ri, t))) {
+                        let hint = delete_hint(subtask_count(&items, ri));
+                        delete_popup(task, &hint).render(frame, list_rect);
+                    }
                 }
                 if help.open {
                     help::render(frame, full, TODO_KEYS, &mut help);
@@ -2376,7 +2406,7 @@ fn event_loop(
         status_message.set(None);
 
         if confirm_delete {
-            if matches!(key.code, KeyCode::Char('y') | KeyCode::Enter) {
+            if confirms_delete(key.code) {
                 let vis = compute_visible(&items, &search_buffer);
                 let vs = state.selected().unwrap_or(0);
                 let ri = vis.get(vs).copied().unwrap_or(0);
@@ -3997,28 +4027,131 @@ mod tests {
         assert_eq!(file.lines().last(), Some("- [ ] ship it @2026-11-05"));
     }
 
+    fn prompt_state(buffer: &str) -> PromptState<'_> {
+        PromptState { buffer, cursor: buffer.len(), due_error: None, category_error: None, today: today() }
+    }
+
+    /// Every typed prompt with its footer mode and the popup title it opens.
+    fn every_prompt() -> [(OpenPrompt, Mode, &'static str, &'static str); 5] {
+        let none = OpenPrompt::default();
+        [
+            (OpenPrompt { due: true, ..none }, Mode::EditText, "due", DUE_HINT),
+            (OpenPrompt { edit: true, ..none }, Mode::EditText, "edit", EDIT_HINT),
+            (OpenPrompt { new_item: true, ..none }, Mode::NewItem, "new todo", ADD_HINT),
+            (OpenPrompt { subtask: true, ..none }, Mode::AddSubtask, "subtask", ADD_HINT),
+            (OpenPrompt { category: true, ..none }, Mode::NewCategory, "category", CATEGORY_HINT),
+        ]
+    }
+
+    /// NZ-77: every typed prompt is a popup, so the footer under it keeps
+    /// its hints and is the same whatever is typed; the value is in the
+    /// popup.
     #[test]
     fn the_footer_keeps_its_hints_while_the_due_or_edit_popup_is_typed_in() {
         let keys = todo_keys(false, Pane::List);
-        for open in [
-            OpenPrompt { due: true, ..OpenPrompt::default() },
-            OpenPrompt { edit: true, ..OpenPrompt::default() },
-        ] {
-            let footer = |buffer: &str| {
-                let lead = prompt_lead(open, buffer, buffer.len(), None);
-                let line = footer::status_line(&keys, lead, true, Mode::EditText, &[], Vec::new(), 120);
+        for (open, mode, title, _) in every_prompt() {
+            let footer = || {
+                let line = footer::status_line(&keys, Vec::new(), true, mode, &[], Vec::new(), 120);
                 line.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
             };
-            let empty = footer("");
-            assert!(empty.contains("enter") && empty.contains("esc"), "{empty:?}");
+            let empty = footer();
+            assert!(empty.contains("enter") && empty.contains("esc"), "{title}: {empty:?}");
             for typed in ["+1d", "=1d", "2026-10-20T09:30 and more"] {
-                assert_eq!(footer(typed), empty, "{typed}");
+                let popup = open_popup(open, &prompt_state(typed)).expect(title);
+                assert_eq!((popup.title, popup.buffer, popup.cursor), (title, typed, typed.len()));
+                assert_eq!(footer(), empty, "{title}: {typed}");
+                assert!(!empty.contains(typed), "{title}: the value is not in the footer");
             }
         }
-        // The footer prompts still lead with their value.
-        let subtask = prompt_lead(OpenPrompt { subtask: true, ..OpenPrompt::default() }, "draft", 5, None);
-        let text: String = subtask.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.starts_with(" subtask: draft"), "{text:?}");
+        assert!(open_popup(OpenPrompt::default(), &prompt_state("x")).is_none(), "no prompt, no popup");
+    }
+
+    /// NZ-77: `n`, `s` and `N` open popups titled for their action, with a
+    /// short hint, drawn inside the list pane.
+    #[test]
+    fn the_new_subtask_and_category_prompts_are_popups_in_the_list_pane() {
+        let pane = Rect::new(0, 1, 60, 29);
+        for (open, _, title, hint) in every_prompt() {
+            let state = prompt_state("draft");
+            let popup = open_popup(open, &state).expect(title);
+            assert_eq!(popup.hint, hint, "{title}");
+            let area = popup.area(pane);
+            assert!(
+                area.x >= pane.x && area.y >= pane.y && area.right() <= pane.right() && area.bottom() <= pane.bottom(),
+                "{title}: {area:?}"
+            );
+            let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 30)).unwrap();
+            terminal.draw(|frame| popup.render(frame, pane)).unwrap();
+            let buf = terminal.backend().buffer().clone();
+            let row = |y: u16| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>();
+            assert!(row(area.y).contains(&format!(" {title} ")), "{title}: {:?}", row(area.y));
+            assert!(row(area.y + 1).contains("draft"), "{title}");
+            assert!(row(area.y + 3).contains(hint), "{title}");
+            let past: String = (pane.right()..120).map(|x| buf[(x, area.y + 1)].symbol()).collect();
+            assert!(past.trim().is_empty(), "{title}: nothing past the pane: {past:?}");
+        }
+    }
+
+    /// NZ-77: a refused category name shows on the popup's error line, and
+    /// the popup stays open with the typed value.
+    #[test]
+    fn a_category_refusal_shows_in_the_popup_error_line() {
+        let open = OpenPrompt { category: true, ..OpenPrompt::default() };
+        let refused = "name cannot contain '/' or '\\'";
+        let state = PromptState { category_error: Some(refused), ..prompt_state("a/b") };
+        let popup = open_popup(open, &state).expect("still open");
+        assert_eq!((popup.buffer, popup.error), ("a/b", Some(refused)));
+        let ok = open_popup(open, &prompt_state("work")).unwrap();
+        assert_eq!(ok.error, None);
+        let other = OpenPrompt { new_item: true, ..OpenPrompt::default() };
+        assert_eq!(open_popup(other, &state).unwrap().error, None, "only the category prompt shows its error");
+    }
+
+    /// NZ-77: `d` asks in a popup naming the todo; `y` and Enter delete, `n`,
+    /// Esc and any other key cancel.
+    #[test]
+    fn the_delete_popup_names_the_todo_and_y_or_enter_confirm() {
+        let item = task("call the bank", 0, 0);
+        let popup = delete_popup(&item, DELETE_HINT);
+        assert_eq!((popup.title, popup.body, popup.hint), ("delete?", "call the bank", DELETE_HINT));
+        assert_eq!(delete_hint(0), DELETE_HINT);
+        assert_eq!(delete_hint(1), format!("and its 1 subtask: {DELETE_HINT}"));
+        assert_eq!(delete_hint(2), format!("and its 2 subtasks: {DELETE_HINT}"));
+        for yes in [KeyCode::Char('y'), KeyCode::Enter] {
+            assert!(confirms_delete(yes), "{yes:?}");
+        }
+        for no in [KeyCode::Char('n'), KeyCode::Esc, KeyCode::Char('Y'), KeyCode::Char('d')] {
+            assert!(!confirms_delete(no), "{no:?}");
+        }
+    }
+
+    /// NZ-77a: the delete popup counts subtasks the way `remove_task` removes
+    /// them: deeper rows after the todo, up to a sibling or a header.
+    #[test]
+    fn the_delete_popup_counts_the_subtasks_remove_task_takes() {
+        let items = vec![
+            header("Work"),
+            task("two", 0, 0),
+            task("a", 1, 0),
+            task("b", 2, 0),
+            task("one", 0, 0),
+            task("c", 1, 0),
+            task("none", 0, 0),
+            header("Home"),
+            task("after header", 1, 0),
+        ];
+        for (idx, want, hint) in [
+            (1, 2, "and its 2 subtasks: "),
+            (4, 1, "and its 1 subtask: "),
+            (6, 0, ""),
+        ] {
+            assert_eq!(subtask_count(&items, idx), want, "row {idx}");
+            assert!(delete_hint(want).starts_with(hint), "row {idx}");
+            let mut after = items.clone();
+            todo::remove_task(&mut after, idx);
+            assert_eq!(items.len() - after.len() - 1, want, "row {idx} matches remove_task");
+        }
+        assert_eq!(subtask_count(&items, 0), 0, "a header has none");
     }
 
     /// NZ-72: `e` edits in a popup titled `edit`, prefilled with the todo's
