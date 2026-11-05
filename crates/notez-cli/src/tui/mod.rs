@@ -25,6 +25,7 @@ pub mod theme;
 pub mod todo;
 pub mod todo_rows;
 pub mod tree;
+mod yank;
 
 use std::io::{Stdout, stdout};
 
