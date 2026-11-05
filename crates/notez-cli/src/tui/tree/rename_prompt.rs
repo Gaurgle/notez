@@ -1,6 +1,7 @@
 //! The rename prompt (`r`) for notes and folders.
 
 use super::*;
+use crate::commands::agenda;
 
 // --- Rename ---
 
@@ -138,17 +139,66 @@ fn has_extension(typed: &str) -> bool {
     })
 }
 
+/// The rename prompt's title for `node`, by the first kind that holds:
+/// `rename directory` for a folder, `rename todo` for a todo note
+/// ([`is_todo_note`]), `rename log` for a note in a daily-logs folder
+/// ([`agenda::is_daily_log`], within its section), `rename quick note` for
+/// a note directly in a quick-notes folder ([`is_quick_notes_dir`]),
+/// `rename doc` for a note in a docs section, else `rename note`.
+pub(super) fn rename_title(node: &TreeNode, sections: &[SectionSpec], config: &Config) -> &'static str {
+    let spec = sections.get(node.section);
+    let in_section = spec
+        .and_then(|s| node.path.strip_prefix(&s.root).ok())
+        .unwrap_or(&node.path);
+    if node.is_dir {
+        "rename directory"
+    } else if is_todo_note(node) {
+        "rename todo"
+    } else if agenda::is_daily_log(in_section, &config.paths.daily_logs_dir) {
+        "rename log"
+    } else if node.path.parent().is_some_and(|dir| is_quick_notes_dir(dir, config)) {
+        "rename quick note"
+    } else if spec.is_some_and(|s| s.is_doc) {
+        "rename doc"
+    } else {
+        "rename note"
+    }
+}
+
+/// The file name the note at `path` would have on disk after `Enter` with
+/// `typed` in a prompt that showed `shown`: computed by [`note_target`],
+/// as the rename does, so the two cannot disagree. `typed` unchanged is the
+/// current name. `None` for a name `Enter` refuses before any disk work
+/// (empty, an extension, an altered name); a clash is only found on Enter.
+pub(super) fn rename_preview(path: &Path, shown: &str, typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    if typed == shown {
+        return Some(file_name_of(path));
+    }
+    if has_extension(typed) || name_would_change(typed).is_some() {
+        return None;
+    }
+    note_target(path, typed).ok().map(|target| file_name_of(&target))
+}
+
+/// Where retitling the note at `path` to the stem `title` puts it: the
+/// date-prefixed name [`rename::renamed_filename`] gives, with `path`'s own
+/// extension put back, so `D.MD` stays `.MD`.
+fn note_target(path: &Path, title: &str) -> anyhow::Result<PathBuf> {
+    let mut target = path.with_file_name(rename::renamed_filename(&file_name_of(path), title)?);
+    target.set_extension(path.extension().unwrap_or_default());
+    Ok(target)
+}
+
 /// Retitle the note at `path` to the stem `title` the way `notez rename`
 /// does ([`rename::rename_note`]), keeping the note's own extension: the
-/// target is `path`'s new file name with `path.extension()` put back, so
-/// `D.MD` stays `.MD`. A note not ending in `.md` moves twice, through the
-/// `.md` name `rename_note` gives it, and a taken target is refused first.
+/// target is [`note_target`]. A note not ending in `.md` moves twice,
+/// through the `.md` name `rename_note` gives it, and a taken target is
+/// refused first.
 fn rename_note_stem(path: &Path, title: &str) -> std::result::Result<PathBuf, String> {
     let failed = |e: anyhow::Error| format!("rename failed: {e}");
-    let old_name = file_name_of(path);
-    let mut target = path.with_file_name(rename::renamed_filename(&old_name, title).map_err(failed)?);
+    let target = note_target(path, title).map_err(failed)?;
     let extension = path.extension().unwrap_or_default();
-    target.set_extension(extension);
     if target == path {
         return Ok(target);
     }
@@ -618,6 +668,87 @@ mod tests {
             assert!(message.contains(want), "{typed:?}: {message}");
         }
         assert_eq!(disk_entries(&notez), before, "nothing moved");
+    }
+
+    /// NZ-76: the preview is the complete file name, date prefix and
+    /// extension included, and it is the name the rename then gives on disk.
+    /// A daily log keeps its date.
+    #[test]
+    fn rename_preview_is_the_name_the_rename_gives_on_disk() {
+        let (_dir, notez, root) = vault();
+        std::fs::create_dir_all(root.join("01_daily-logs")).unwrap();
+        for name in ["D.MD", "2026-10-06-dated.md", "01_daily-logs/2026-10-06-daily-log.md"] {
+            std::fs::write(root.join(name), "# n\n").unwrap();
+        }
+        let mut sections = vault_sections(&notez);
+        sections[0].files.push(root.join("D.MD"));
+        let mut forest = forest_of(sections);
+        for (name, typed, want) in [
+            ("top.md", "b", "b.md"),
+            ("2026-10-06-dated.md", "x", "2026-10-06-x.md"),
+            ("D.MD", " e ", "e.MD"),
+            ("01_daily-logs/2026-10-06-daily-log.md", "standup", "2026-10-06-standup.md"),
+        ] {
+            let path = root.join(name);
+            let shown = rename_request(&forest.nodes, &forest.sections, Some(row(&forest.nodes, path_str(&path))))
+                .unwrap()
+                .unwrap();
+            assert_eq!(rename_preview(&path, &shown, typed).as_deref(), Some(want), "{name}");
+            assert_eq!(rename_enter_at(&mut forest, &path, typed), RenameEnter::Done(None), "{name}");
+            assert!(has_entry_named(path.parent().unwrap(), want), "{name}: {want} on disk");
+            assert!(!path.exists(), "{name} moved");
+        }
+    }
+
+    /// An empty or refused name has no preview, so the plain hint shows; the
+    /// unchanged name previews the current one.
+    #[test]
+    fn rename_preview_is_none_for_an_empty_or_refused_name() {
+        let path = Path::new("/v/2026-10-06-dated.md");
+        for typed in ["", "  ", "b.md", "b.txt", "Bad_Name", "?!"] {
+            assert_eq!(rename_preview(path, "dated", typed), None, "{typed:?}");
+        }
+        assert_eq!(rename_preview(path, "dated", " dated ").as_deref(), Some("2026-10-06-dated.md"));
+        let kept = Path::new("/v/2026-10-06-My_Note.md");
+        assert_eq!(rename_preview(kept, "My_Note", "My_Note").as_deref(), Some("2026-10-06-My_Note.md"));
+        assert_eq!(rename_preview(path, "dated", "A b").as_deref(), Some("2026-10-06-a-b.md"));
+    }
+
+    /// NZ-76: the prompt's title names the row's kind.
+    #[test]
+    fn rename_title_names_the_rows_kind() {
+        let (_dir, notez, root) = vault();
+        for sub in ["01_daily-logs", "00_quick-notes", "todo"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for file in [
+            "01_daily-logs/2026-10-06-daily-log.md",
+            "00_quick-notes/2026-10-06-q.md",
+            "todo/TODO.md",
+        ] {
+            std::fs::write(root.join(file), "# n\n").unwrap();
+        }
+        let mut forest = forest_of(vault_sections(&notez));
+        let config = Config::defaults();
+        let title = |forest: &Forest, path: &str| {
+            let node = &forest.nodes[row(&forest.nodes, path_str(&root.join(path)))];
+            rename_title(node, &forest.sections, &config)
+        };
+        for (path, want) in [
+            ("ideas", "rename directory"),
+            ("ideas/deep", "rename directory"),
+            ("01_daily-logs", "rename directory"),
+            ("top.md", "rename note"),
+            ("ideas/a.md", "rename note"),
+            ("todo/TODO.md", "rename todo"),
+            ("01_daily-logs/2026-10-06-daily-log.md", "rename log"),
+            ("00_quick-notes/2026-10-06-q.md", "rename quick note"),
+        ] {
+            assert_eq!(title(&forest, path), want, "{path}");
+        }
+        forest.sections[0].is_doc = true;
+        assert_eq!(title(&forest, "top.md"), "rename doc");
+        assert_eq!(title(&forest, "todo/TODO.md"), "rename todo");
     }
 
     #[test]

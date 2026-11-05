@@ -206,7 +206,13 @@ renames it the way `notez rename` does; on a note or a folder, `Enter` on
 the name as shown changes nothing, even one like `My_Note` that sanitizing
 would alter. A note's popup edits only the name, never the extension: `b`
 renames `a.md` to `b.md` (and `D.MD` to `b.MD`), and a name typed with an
-extension (`b.md`, `b.txt`) is refused. A name
+extension (`b.md`, `b.txt`) is refused. Beneath the name the popup
+previews the complete file name the rename gives, date prefix and
+extension included (`x` on `2026-10-06-dated.md` shows `2026-10-06-x.md`,
+so a daily log keeps its date). Its title names what is renamed:
+`rename directory`, `rename todo` (a todo note), `rename log` (a note in a
+daily-logs folder), `rename quick note`, `rename doc` (a note in a docs
+section) or `rename note`. A name
 already taken in that folder (file or folder, in any case), an empty name
 or one sanitizing would alter is refused and nothing changes: the popup
 stays open with the name and says why beneath it, and `Esc` closes it.
