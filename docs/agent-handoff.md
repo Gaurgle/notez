@@ -28,9 +28,10 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105) and NZ-77a (#106): In progress, his 2026-11-05 amendments
-  (on the issues) over 32bf63c and e6e7e52; worktrees `.claude/worktrees/NZ-76`,
-  `NZ-77a`; then re-review, his look. NZ-77b (tree half) after NZ-76.
+- NZ-76 (#105): Ready to integrate, gate owner look; 975de74 (diff
+  8954c37d19d7), CI green, gate holds; `.claude/worktrees/NZ-76`. NZ-77a
+  (#106): In progress, his amendment over e6e7e52, `.claude/worktrees/NZ-77a`.
+  NZ-77b (tree half) after NZ-76. Records on the issues.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
