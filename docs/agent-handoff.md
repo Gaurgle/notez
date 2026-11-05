@@ -10,8 +10,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 Lead `018zBNkK` (Claude `nz-coordinator`; Fable 5.1, Opus 5.5 since his
 `/model` 2026-11-05) HOLDS the baton
 again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
-16:15, no lead in between). `main` = `origin/main` at `0f7e311` (NZ-75
-merged; CI run 42023019726 green).
+16:15, no lead in between). `main` = `origin/main` at `bb3c913` (NZ-77a
+merged; CI run 42032941123, confirm green).
 
 ## Standing authority
 
@@ -29,9 +29,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105): In progress, his amendment 2 over 975de74 (labelled preview,
-  locks); NZ-77a (#106): Ready to integrate, gate owner look, efb7908 (diff
-  03e70d06d899), CI green, gate holds. Worktrees `.claude/worktrees/NZ-76`, `NZ-77a`. NZ-77b after NZ-76.
+- NZ-76 (#105): Review round 3, diff 5a898caeb11f (labelled preview, locks);
+  NZ-77a merged as bb3c913 (Refs NZ-77, #106 open for NZ-77b). Worktree `.claude/worktrees/NZ-76`. NZ-77b after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
@@ -49,7 +48,7 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-76 (#105) and NZ-77a (#106) running, then
+tickets can go ahead"): NZ-76 (#105) in review, then
 NZ-77b; NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30
 (no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
 
