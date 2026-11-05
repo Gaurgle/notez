@@ -598,7 +598,7 @@ fn yank_row(
     } else {
         yank_text(items, task, dirty).and_then(|text| {
             write(&text)?;
-            Ok(format!("copied {}", super::clipboard::size_label(text.len())))
+            Ok(format!("copied {}", copied_label(items, task)))
         })
     };
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
@@ -618,6 +618,28 @@ fn finish_yank(
 ) {
     let copied = show_yank(status, yank_row(code, items, row, dirty, write), now);
     flash.show(copied, code == KeyCode::Char('p'), now);
+}
+
+/// What the footer says `yy` copied: the row's kind, or for a section
+/// header the count of its file's task rows (subtasks included).
+fn copied_label(items: &[Task], task: &Task) -> String {
+    if task.is_header {
+        let count = items
+            .iter()
+            .filter(|t| !t.is_header && t.source == task.source)
+            .count();
+        return match count {
+            1 => "1 todo".to_string(),
+            n => format!("{n} todos"),
+        };
+    }
+    if task.is_code_todo {
+        "1 code todo".to_string()
+    } else if task.depth > 0 {
+        "1 subtask".to_string()
+    } else {
+        "1 todo".to_string()
+    }
 }
 
 /// What `yy` copies for `task`; see [`yank_row`].
@@ -4826,12 +4848,37 @@ mod tests {
         let clean = HashSet::new();
         let (message, written) = yank_on(KeyCode::Char('y'), &items, 0, &clean);
         assert_eq!(written, [on_disk]);
-        assert_eq!(message.as_deref(), Some("copied 55 B"));
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
 
         items[1].text = "call the bank today".to_string();
         let dirty = HashSet::from([path.clone()]);
         let (_, written) = yank_on(KeyCode::Char('y'), &items, 0, &dirty);
         assert_eq!(written, ["# TODO\n\n- [ ] call the bank today\n"], "unsaved edits as the save writes them");
+    }
+
+    #[test]
+    fn yy_on_a_section_header_counts_its_files_task_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("TODO.md");
+        std::fs::write(&path, "# TODO\n").unwrap();
+        let file = path.to_str().unwrap();
+        let items = vec![
+            in_file(header("WORK"), file, "work"),
+            in_file(task("one", 0, 0), file, "work"),
+            in_file(task("child", 1, 0), file, "work"),
+            in_file(header("HOME"), "/n/home/TODO.md", "home"),
+            in_file(task("solo", 0, 0), "/n/home/TODO.md", "home"),
+            in_file(header("EMPTY"), "/n/empty/TODO.md", "empty"),
+        ];
+        let dirty = HashSet::from([path.clone()]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 0, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 2 todos"), "subtasks count, the header does not");
+        let dirty = HashSet::from([PathBuf::from("/n/home/TODO.md")]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 3, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
+        let dirty = HashSet::from([PathBuf::from("/n/empty/TODO.md")]);
+        let (message, _) = yank_on(KeyCode::Char('y'), &items, 5, &dirty);
+        assert_eq!(message.as_deref(), Some("copied 0 todos"));
     }
 
     #[test]
@@ -4842,7 +4889,7 @@ mod tests {
         let items = vec![header("WORK"), t];
         let (message, written) = yank_on(KeyCode::Char('y'), &items, 1, &HashSet::new());
         assert_eq!(written, ["- [/] call the bank @2026-10-20 #prio #blocked"]);
-        assert_eq!(message.as_deref(), Some("copied 46 B"));
+        assert_eq!(message.as_deref(), Some("copied 1 todo"));
     }
 
     #[test]
@@ -4850,10 +4897,12 @@ mod tests {
         let mut parent = task("parent", 0, 0);
         parent.has_subtasks = true;
         let items = vec![header("WORK"), parent, task("child", 1, 0), task("grandchild", 2, FLAG_IMPORTANT)];
-        let (_, written) = yank_on(KeyCode::Char('y'), &items, 2, &HashSet::new());
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 2, &HashSet::new());
         assert_eq!(written, ["  - [ ] child"]);
-        let (_, written) = yank_on(KeyCode::Char('y'), &items, 3, &HashSet::new());
+        assert_eq!(message.as_deref(), Some("copied 1 subtask"));
+        let (message, written) = yank_on(KeyCode::Char('y'), &items, 3, &HashSet::new());
         assert_eq!(written, ["    - [ ] grandchild #important"]);
+        assert_eq!(message.as_deref(), Some("copied 1 subtask"));
     }
 
     #[test]
@@ -4867,7 +4916,7 @@ mod tests {
         ];
         let (message, written) = yank_on(KeyCode::Char('y'), &items, 1, &HashSet::new());
         assert_eq!(written, ["    // TODO: fix the fleet"]);
-        assert_eq!(message.as_deref(), Some("copied 26 B"));
+        assert_eq!(message.as_deref(), Some("copied 1 code todo"));
         let (message, written) = yank_on(KeyCode::Char('p'), &items, 1, &HashSet::new());
         assert_eq!(written, [source.to_string_lossy().into_owned()]);
         assert_eq!(message.as_deref(), Some("copied path"));

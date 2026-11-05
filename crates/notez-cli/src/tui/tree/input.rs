@@ -1621,7 +1621,9 @@ pub(super) fn yank(
             .map_err(anyhow::Error::from)
             .and_then(|text| {
                 write(&text)?;
-                Ok(format!("copied {}", crate::tui::clipboard::size_label(text.len())))
+                let lines = text.lines().count();
+                let unit = if lines == 1 { "line" } else { "lines" };
+                Ok(format!("copied {lines} {unit}"))
             })
     };
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
@@ -1833,7 +1835,18 @@ mod tests {
     fn yy_copies_the_note_content_and_names_its_size() {
         let (message, written, _) = yank_at(KeyCode::Char('y'), "c.md");
         assert_eq!(written, ["# note\n"]);
-        assert_eq!(message.as_deref(), Some("copied 7 B"));
+        assert_eq!(message.as_deref(), Some("copied 1 line"));
+    }
+
+    #[test]
+    fn yy_counts_a_multi_line_note_in_lines() {
+        let (_dir, roots) = test_support::temp_tree();
+        let target = roots[0].1.join("c.md");
+        std::fs::write(&target, "# note\nbody\nmore\n").unwrap();
+        let forest = test_support::forest_of(test_support::list_sections(&roots));
+        let row = forest.nodes.iter().find(|n| n.path == target).unwrap();
+        let message = yank(KeyCode::Char('y'), Some(row), &mut |_: &str| Ok(()));
+        assert_eq!(message.as_deref(), Some("copied 3 lines"));
     }
 
     #[test]
@@ -1851,7 +1864,7 @@ mod tests {
         let mut status = Notice::default();
         let (copied, _, _) = yank_at(KeyCode::Char('y'), "c.md");
         show_yank(&mut status, copied, t0);
-        assert_eq!(status.as_deref(), Some("copied 7 B"));
+        assert_eq!(status.as_deref(), Some("copied 1 line"));
         assert!(status.expire(t0 + EXPIRY));
         assert!(status.is_none());
 

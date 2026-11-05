@@ -67,8 +67,9 @@ line as the board saves it (`- [ ] call the bank @2026-10-20 #prio`, a
 subtask with its indent), a section header its whole `TODO.md` (as on disk,
 or as the save will write it while the file has unsaved edits), a code TODO
 its source line. `yp` copies the absolute path of the row's `TODO.md`, or a
-code TODO's source file. As in the tree, the footer confirms with `copied
-46 B` or `copied path` and the row flashes, swept from the left for `yy` and
+code TODO's source file. The footer confirms with `copied 1 todo`,
+`copied 1 subtask`, `copied 1 code todo` or, on a header, `copied N todos`,
+or `copied path`, and the row flashes, swept from the left for `yy` and
 from the right for `yp`, then fading; a failed copy shows its error and no
 flash.
 
@@ -232,7 +233,7 @@ change. There is no trash and no undo. `d` on a folder is covered under
 
 **Copying from the tree.** `yy` copies the selected note's content to the
 clipboard and `yp` its absolute path; on a folder both copy the folder's
-path. The footer confirms with `copied 1.2 KB` or `copied path`. `y`
+path. The footer confirms with `copied N lines` or `copied path`. `y`
 followed by any other key copies nothing. The clipboard tool is the one
 `notez cp` uses.
 
