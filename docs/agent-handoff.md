@@ -28,8 +28,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-75 (#104): In progress, look; `.claude/worktrees/NZ-75`, base `8eb01a2`,
-  nz-worker (opus). Record on #104.
+- NZ-75 (#104): Ready to integrate, gate owner look; 914abc6 (diff
+  d2a5134eefca), CI green, gate holds on 21e0420; `.claude/worktrees/NZ-75`. Record on #104.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
