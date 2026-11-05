@@ -7,11 +7,10 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-None. Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) RELEASED the
-baton 2026-11-04 16:15 on Andreas's "lets stop for today then". No
-workers or reviewers running. `main` = `origin/main` (NZ-72 merged as
-`312410d`; CI run 41854087161 green; NZ-72 worktree swept). He installs
-from `main`.
+Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
+again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
+16:15, no lead in between). `main` = `origin/main` at `8eb01a2`; CI on
+`312410d` (run 41854087161) green.
 
 ## Standing authority
 
@@ -29,6 +28,8 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
+- NZ-75 (#104): In progress, look; `.claude/worktrees/NZ-75`, base `8eb01a2`,
+  nz-worker (opus). Record on #104.
 - NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
   c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
