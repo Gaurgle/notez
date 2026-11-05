@@ -201,11 +201,12 @@ folder, is refused in the footer and creates nothing. `N` does nothing in a
 `r` on a folder renames it in place: a popup centred over the tree pane shows the current name,
 `Enter` renames it, and every note inside
 moves with it; their `.tags` entries move to the new paths on exit. `r` on
-a note shows its title (the file name without the date and `.md`) and
+a note shows its title (the file name without the date and extension) and
 renames it the way `notez rename` does; on a note or a folder, `Enter` on
 the name as shown changes nothing, even one like `My_Note` that sanitizing
-would alter. A note stays `.md`: `b` and `b.md` both rename it to `b.md`,
-and another extension (`b.txt`) is refused. A name
+would alter. A note's popup edits only the name, never the extension: `b`
+renames `a.md` to `b.md` (and `D.MD` to `b.MD`), and a name typed with an
+extension (`b.md`, `b.txt`) is refused. A name
 already taken in that folder (file or folder, in any case), an empty name
 or one sanitizing would alter is refused and nothing changes: the popup
 stays open with the name and says why beneath it, and `Esc` closes it.

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tui::notice::Notice;
+use crate::tui::prompt::Prompt;
 use crate::tui::sync::VaultSync;
 #[cfg(test)]
 use crate::tui::yank::{Sweep, YANK_FLASH, YANK_FRAME};
@@ -75,6 +76,8 @@ pub(super) fn event_loop(
     // The text the open rename prompt was prefilled with: Enter on it
     // unchanged renames nothing.
     let mut rename_shown = String::new();
+    // Whether the open rename prompt is on a note, whose hint differs.
+    let mut rename_is_note = false;
     // Why Enter refused the rename popup's name, until the next key.
     let mut rename_error: Option<String> = None;
     let mut status_message = Notice::default();
@@ -632,7 +635,8 @@ pub(super) fn event_loop(
 
                 if let Some(buffer) = &rename_buffer {
                     // Over the list pane, never the preview.
-                    rename_popup(buffer, rename_error.as_deref()).render(frame, list_area);
+                    rename_prompt_popup(buffer, rename_error.as_deref(), rename_is_note)
+                        .render(frame, list_area);
                 }
                 if help.open {
                     help::render(frame, full, TREE_KEYS, &mut help);
@@ -1497,8 +1501,11 @@ pub(super) fn event_loop(
                 flag_mode = true;
             }
             KeyCode::Char('r') => {
-                match rename_request(nodes, &forest.sections, visible.get(selected).copied()) {
+                let rename_row = visible.get(selected).copied();
+                match rename_request(nodes, &forest.sections, rename_row) {
                     Ok(text) => {
+                        rename_is_note =
+                            rename_row.and_then(|i| nodes.get(i)).is_some_and(|n| !n.is_dir);
                         rename_shown = text.clone().unwrap_or_default();
                         rename_buffer = text;
                     }
@@ -1629,6 +1636,19 @@ pub(super) fn yank(
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
 }
 
+/// The rename popup's hint line on a note: only the stem is typed.
+pub(super) const NOTE_RENAME_HINT: &str = "name without .md";
+
+/// The rename popup ([`rename_popup`]) for a note or a folder: a note's
+/// hint says its extension is not typed.
+pub(super) fn rename_prompt_popup<'a>(buffer: &'a str, error: Option<&'a str>, is_note: bool) -> Prompt<'a> {
+    let mut popup = rename_popup(buffer, error);
+    if is_note {
+        popup.hint = NOTE_RENAME_HINT;
+    }
+    popup
+}
+
 /// A key other than `Enter` in the open rename popup: `esc` closes it with
 /// nothing renamed, backspace and characters edit the name at its end.
 /// Every one clears the last refusal's error line.
@@ -1731,6 +1751,15 @@ mod tests {
         assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "top"), RenameEnter::Done(None));
         assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "renamed"), RenameEnter::Done(None));
         assert!(root.join("renamed.md").is_file());
+    }
+
+    #[test]
+    fn rename_popup_hint_on_a_note_says_the_extension_is_not_typed() {
+        let note = rename_prompt_popup("a", Some("refused"), true);
+        assert_eq!((note.hint, note.buffer, note.error), (NOTE_RENAME_HINT, "a", Some("refused")));
+        assert_eq!(NOTE_RENAME_HINT, "name without .md");
+        let folder = rename_prompt_popup("ideas", None, false);
+        assert_eq!((folder.hint, folder.buffer), (RENAME_HINT, "ideas"));
     }
 
     #[test]
