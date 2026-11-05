@@ -28,9 +28,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105): e0ed58f gate holds, NOT merged: his 2026-11-05 feedback and the
-  lead's writable-rule proposal on #105 await his yes (then amendment 3 and a
-  daily-log stamping ticket). NZ-77b (#106 tree half) after NZ-76.
+- NZ-76 (#105): e0ed58f gate holds, NOT merged: his 2026-11-05 go on #105: amendment 3
+  (todos store fully renamable from notez, only default folders fixed; TODO.md
+  name kept, his to confirm) and a daily-log stamping ticket are next. NZ-77b (#106 tree half) after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
