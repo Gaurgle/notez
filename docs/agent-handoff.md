@@ -11,7 +11,7 @@ Lead `018zBNkK` (Claude `nz-coordinator`; Fable 5.1, Opus 5.5 since his
 `/model` 2026-11-05) HOLDS the baton
 again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
 16:15, no lead in between). `main` = `origin/main` at `bb3c913` (NZ-77a
-merged; CI run 42032941123, confirm green).
+merged; CI run 42032941123 green).
 
 ## Standing authority
 
@@ -29,7 +29,7 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105): Review round 3, diff 5a898caeb11f (labelled preview, locks);
+- NZ-76 (#105): Ready to integrate, gate owner look; e0ed58f (diff d424c329e66c), gate holds;
   NZ-77a merged as bb3c913 (Refs NZ-77, #106 open for NZ-77b). Worktree `.claude/worktrees/NZ-76`. NZ-77b after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
