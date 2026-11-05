@@ -206,18 +206,22 @@ renames it the way `notez rename` does; on a note or a folder, `Enter` on
 the name as shown changes nothing, even one like `My_Note` that sanitizing
 would alter. A note's popup edits only the name, never the extension: `b`
 renames `a.md` to `b.md` (and `D.MD` to `b.MD`), and a name typed with an
-extension (`b.md`, `b.txt`) is refused. Beneath the name the popup
-previews the complete file name the rename gives, date prefix and
-extension included (`x` on `2026-10-06-dated.md` shows `2026-10-06-x.md`,
-so a daily log keeps its date). Its title names what is renamed:
-`rename directory`, `rename todo` (a todo note), `rename log` (a note in a
-daily-logs folder), `rename quick note`, `rename doc` (a note in a docs
-section) or `rename note`. A name
-already taken in that folder (file or folder, in any case), an empty name
-or one sanitizing would alter is refused and nothing changes: the popup
-stays open with the name and says why beneath it, and `Esc` closes it.
-Changing only the case of a name works where the file
-system allows it. `d` on a folder asks first, counting what goes, for
+extension (`b.md`, `b.txt`) is refused. Beneath the name the popup shows,
+as you type, `preview:` and the complete name the rename gives, date prefix
+and extension included (`x` on `2026-10-06-dated.md` shows
+`preview: 2026-10-06-x.md`, so a daily log keeps its date; `ideas2` on a
+folder shows `preview: ideas2`). Its title names what is renamed:
+`rename directory`, `rename log` (a note in a daily-logs folder),
+`rename quick note`, `rename doc` (a note in a docs section) or
+`rename note`. A name already taken in that folder (file or folder, in any
+case), an empty name, a note name typed with an extension or one
+sanitizing would alter shows why in red instead of the preview, and
+`Enter` on it changes nothing: the popup stays open with the name, and
+`Esc` closes it. The quick-notes and daily-logs folders (by their
+configured names), the todo store `_todos` and every `TODO.md` keep their
+names: `r` on them says why in the footer and opens nothing. The notes
+inside those folders rename as usual.
+Changing only the case of a folder's name works. `d` on a folder asks first, counting what goes, for
 example `delete ideas/ and its 2 notes from personal? y/n` (`and its 1 note`,
 or `(no notes)` for an empty folder), adding `and other files` when the folder holds anything but
 notes and `(not recoverable)` in local scratch. `y` removes the folder with
