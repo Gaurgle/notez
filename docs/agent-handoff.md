@@ -28,30 +28,28 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105): Ready to integrate, gate owner look, 32bf63c (diff cb2f92a4b0e8), `.claude/worktrees/NZ-76`; NZ-77a (#106,
-  todoz half): Ready to integrate, gate owner look, e6e7e52 (diff 0abd65d49fb3),
-  gate holds, `.claude/worktrees/NZ-77a`; both base `0f7e311`. NZ-77b (tree half) after NZ-76. Records on the issues.
-- NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
-  c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
+- NZ-76 (#105) and NZ-77a (#106): In progress, his 2026-11-05 amendments
+  (on the issues) over 32bf63c and e6e7e52; worktrees `.claude/worktrees/NZ-76`,
+  `NZ-77a`; then re-review, his look. NZ-77b (tree half) after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
 ## Open questions
 
 - NZ-71 (#100, Backlog): intuitive dated-todo creation, design first; NZ-74
-  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-76,
-  NZ-77 (#105, #106) in flight, from his 2026-11-04 words.
+  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-78 (#107,
+  Backlog): what defines a log, change-date action, design first (2026-11-05).
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
-- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69, NZ-70 (#95, #96) Ready
-  on his go; DESIGN.md "one key, one function" line proposed, not written.
+- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69 (#95) Ready on his go; NZ-70
+  (#96, scopes) deferred by him 2026-11-05; DESIGN.md "one key, one function" line proposed, not written.
 
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
 tickets can go ahead"): NZ-76 (#105) and NZ-77a (#106) running, then
-NZ-77b; NZ-65 (his call); NZ-69, NZ-70 (on his go); NZ-67 parked; NZ-30
+NZ-77b; NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30
 (no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
 
 ## Start the lead
