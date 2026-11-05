@@ -7,7 +7,8 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
+Lead `018zBNkK` (Claude `nz-coordinator`; Fable 5.1, Opus 5.5 since his
+`/model` 2026-11-05) HOLDS the baton
 again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
 16:15, no lead in between). `main` = `origin/main` at `0f7e311` (NZ-75
 merged; CI run 42023019726 green).
@@ -28,10 +29,9 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-76 (#105): Ready to integrate, gate owner look; 975de74 (diff
-  8954c37d19d7), CI green, gate holds; `.claude/worktrees/NZ-76`. NZ-77a
-  (#106): In progress, his amendment over e6e7e52, `.claude/worktrees/NZ-77a`.
-  NZ-77b (tree half) after NZ-76. Records on the issues.
+- NZ-76 (#105): In progress, his amendment 2 over 975de74 (labelled preview,
+  locks); NZ-77a (#106): Review, diff 03e70d06d899 (bottom-docked dialogs,
+  line_edit.rs). Worktrees `.claude/worktrees/NZ-76`, `NZ-77a`. NZ-77b after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
