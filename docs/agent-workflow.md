@@ -1,4 +1,4 @@
-<!-- relay-template: 0.8.1; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.9.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 <!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
@@ -144,6 +144,48 @@ Codex lead starts with `codex -p relay-lead`, whose profile names the current
 top model. Never substitute a model silently. If one is unavailable or limited, report it
 and ask the owner for routing. Never switch to API billing or paid credits.
 
+**Choosing per dispatch.** The lead's row is fixed. The worker, reviewer and
+small rows are defaults, and the lead may pick another model and effort for
+each dispatch with the Agent tool's `model` and `effort` overrides; this
+paragraph is the instruction that permits them. The usual mistake is more
+model than the ticket needs, so start from the lightest that fits:
+
+- Mechanical work on named paths with no design (a rename, config, docs, a
+  known one-line fix): small on `haiku` or `sonnet`, effort `low`.
+- A normal bounded ticket: the defaults.
+- Invariants, concurrency, security, migrations, spec-first or investigation
+  tickets, or rework after a rejected review: worker at effort `high`.
+  `opus` covers nearly all of these; a `fable` worker is a rare exception
+  whose reason the dispatch names.
+- The reviewer never goes below its default; raise it to `high` with the
+  worker.
+
+This is judgment, not a rule to apply mechanically. Name the choice and a
+few words of reason in the handoff's `Model:` line, and record it in the
+metrics line as `alias:effort`, so `scripts/relay-retro` shows whether the
+picks paid off. Workers never dispatch, so the choice is the lead's.
+
+**Decision ladder.** A lighter model saves tokens only if it does not cost
+the owner attention. Agents never ask the owner; questions climb one rung at
+a time and stop at the first rung that can answer:
+
+1. **The agent decides** a reversible choice inside its scope and the
+   ticket's criteria (naming, structure, which of two equivalent approaches),
+   and lists it under `Assumptions` in its report.
+2. **The lead rules** anything else within the ticket, the repo's rules and
+   the standing authority: design questions, ambiguous criteria, a re-scope.
+   A question asked because the model was too light is not a reason to ask
+   the owner: the lead answers it, or re-dispatches on a stronger model or
+   higher effort and counts that in the models field.
+3. **The owner decides** only what is his: priorities, acceptance he kept,
+   scope or authority beyond the standing table, and the owner-only actions.
+   Even then the lead keeps other in-scope work moving and brings him one
+   batched, decision-ready question: options, its recommendation and why.
+
+The metrics line already counts owner decisions; `scripts/relay-retro` shows
+them per models group, so a lighter pick that sends more questions to the
+owner shows up in the retro and gets raised.
+
 Pass each agent the ticket, repository rules, base commit and relevant paths,
 not the planning conversation. Record actual usage if the client shows it;
 otherwise record elapsed time and rework. After two unsuccessful fix and
@@ -260,7 +302,7 @@ Every piece of Relay state has one home, chosen by when it is read:
 
 
 ```text
-<ticket>: review <accepted first | evidence n | changes n>; fix cycles <n>; owner decisions <n>; worker <min>; review <min>; models <worker alias>/<reviewer alias>; usage <worker tokens; reviewer tokens | not read>
+<ticket>: review <accepted first | evidence n | changes n>; fix cycles <n>; owner decisions <n>; worker <min>; review <min>; models <worker alias:effort>/<reviewer alias:effort>; usage <worker tokens; reviewer tokens | not read>
 ```
 
 

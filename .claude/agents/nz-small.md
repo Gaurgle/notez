@@ -16,6 +16,9 @@ given. The lead names the paths and the deliverable.
 - If the task turns out to touch state ownership, concurrency or async code,
   needs a design decision, or needs files outside the named paths, stop and
   report. The lead reroutes it; you do not widen it.
+- Decide reversible choices inside the named paths yourself and list them
+  as assumptions in your report; when you must stop, give the options and
+  your recommendation.
 - Never edit, delete or disable a test to make code pass.
 - Do not change dependencies, CI, schemas or API contracts.
 - Do not commit, merge, push, stash, switch branches or publish anything.

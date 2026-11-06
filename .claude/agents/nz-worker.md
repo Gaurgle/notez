@@ -68,6 +68,10 @@ it. Keep it small:
   Escalate a major refactor or an ownership change.
 - Do not commit, merge, push, stash, switch branches, install globally or
   publish anything. Leave the changes uncommitted on the ticket branch.
+- Decide reversible choices inside your scope yourself and list them under
+  `Assumptions` in your report. Stop for the lead only when a choice is
+  irreversible, outside scope or against a criterion, and then give the
+  options with your recommendation, not an open question.
 - You cannot delegate. If the ticket is too large for one worker, say so.
 - After two unsuccessful fix and validation cycles on the same blocker, stop
   and report the evidence instead of widening scope.
