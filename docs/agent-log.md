@@ -362,6 +362,36 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-76 (#105): the rename popup edits only the stem; one fixed-name rule
+
+From Andreas's 2026-11-04 question ("perhaps we dont even let users
+change the suffix at all?"), run by leads `018zBNkK` (rounds 1 to 4,
+2026-11-05) and `c26dc5ef` (amendment 3, 2026-11-08). Branch
+`feat/nz-76-rename-stem`, worktree `.claude/worktrees/NZ-76`, base
+`0f7e311`, then `24c81e4` after a clean merge of main. Four owner
+amendments after trying builds: full-name preview and typed kind in the
+title; `preview:` line with the live refusal reason, store folders and
+`TODO.md` locked; then "i must be able to rename my docs/todoz/notez,
+just not the 'default' directories" (2026-11-05), which became amendment
+3: the quick-notes, daily-logs and `_todos` folders refuse `r`, `d`,
+`m`, `S` with one message, everything inside them is the user's,
+`_todos` folders are move destinations; `TODO.md` keeps its name (his
+"keep it", 2026-11-08). Full record and rulings on #105. Amendment 3:
+worker opus medium (102k, 7 min, 11 mutations killed), reviewer opus
+medium accepted diff `76384e3b323d` first (49k, 5 min). Commit `2b8869a`,
+branch CI 42483553985 green, combined check on `d3fd821` 847/5/204
+green, gate holds, merge `343fab1`, main CI 42484538876. Remember at the
+end: nothing to keep (the one rule was proposed to him before coding; the
+amendments were his look, which the ticket planned for).
+
+Observed, out of scope:
+- `crates/notez-cli/src/tui/tree/test_support.rs:595,668`: `move_plan` and `bulk_move_at` call `move_request` and `bulk_move_request`, which skip the store-folder lock, while production now uses `move_open` and `bulk_move_open`.
+- `crates/notez-cli/src/tui/tree/delete.rs` (`store_folder_lock`): a folder that contains a store folder can still be moved or deleted along with it (for example a project folder holding a `00_quick-notes` subfolder).
+- `crates/notez-cli/src/tui/tree/rename_prompt.rs:841`: rustfmt drift in the test's `[(path, want)]` array, there before this change.
+- Reviewer: the `r`/`d`/`m`/`S` key wiring in `tui/tree/input.rs` has no test (event loop); `move_request` and `set_scope_request` now have test-only callers.
+
+NZ-76: review evidence 1; fix cycles 1; owner decisions 4; worker 35; review 16; models opus:medium/opus:medium; usage 376605; 225443
+
 ### NZ-80 (#109): P1 todos store name in core
 
 Architecture survey proposal P1, filed and run by lead `c26dc5ef` on

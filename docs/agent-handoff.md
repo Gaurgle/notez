@@ -8,9 +8,9 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 ## Current lead
 
 None. Lead `c26dc5ef` (Claude `nz-coordinator`, Fable 5.1) RELEASED the
-baton 2026-11-08 14:25 on Andreas's "then stop for today". No workers or
-reviewers running. `main` = `origin/main` = `24c81e4` (NZ-80, CI green).
-One worktree: `.claude/worktrees/NZ-76` (branch pushed, see In flight).
+baton 2026-11-08 14:50 after his "you can merge 76" (retaken for that) on
+his earlier "then stop for today". No workers or reviewers running. `main`
+= `origin/main` = `343fab1` (NZ-76, CI green). No ticket worktrees.
 
 ## Standing authority
 
@@ -29,12 +29,9 @@ Installing, tags and releases are his. NZ-18 and NZ-47d do not run.
 
 ## In flight
 
-- NZ-76 (#105): amendment 3 Ready to integrate, gate owner look: 2b8869a on
-  `feat/nz-76-rename-stem`, diff 76384e3b323d accepted, branch CI green,
-  worktree `.claude/worktrees/NZ-76`. Tried 2026-11-08: refusals hold,
-  TODO.md lock kept (on #105); `r` inside `_todos` not yet seen. His "merge
-  NZ-76": combined check, gate, merge. Then NZ-86 (#115), NZ-77b (#106),
-  NZ-81 to NZ-85 (P3, P4, P2, P5, P6) in that order. NZ-80 Done (log).
+- NZ-76 (#105): Done, merged 343fab1 after his "you can merge 76" (log).
+  NZ-80 Done (log). Next: NZ-86 (#115, Ready), NZ-77b (#106), then NZ-81
+  to NZ-85 (P3, P4, P2, P5, P6) in that order.
 - NZ-62 (#88): Review, gate owner look; the uncommitted design doc was lost
   with its worktree (2026-11-08); summary is the last comment on #88; redo
   needs his word.
@@ -49,10 +46,10 @@ Installing, tags and releases are his. NZ-18 and NZ-47d do not run.
 
 ## Next step
 
-NZ-80 to merge, then NZ-76 amendment 3 rebased on it (same file,
-`rename_prompt.rs`), then NZ-81, NZ-82, NZ-83 (alone: NZ-69 shares
-`tui/todo.rs`), NZ-84, NZ-85. Still queued (his 2026-11-03/04 words): NZ-77b;
-NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30 (no brief).
+NZ-86 (#115, his 2026-11-05 "daily logs should get stamped"), then NZ-77b
+(#106), then NZ-81, NZ-82, NZ-83 (alone: NZ-69 shares `tui/todo.rs`),
+NZ-84, NZ-85. Still queued (his 2026-11-03/04 words): NZ-65 (his call);
+NZ-69 (on his go); NZ-67 parked; NZ-30 (no brief).
 
 ## Start the lead
 
