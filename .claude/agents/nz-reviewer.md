@@ -56,6 +56,12 @@ output to a file in the session scratchpad and read the filtered part.
   run the test, report whether it failed).
 - No existing or locked test was weakened, deleted or disabled.
 - No dependency, CI, schema or format change slipped in.
+- Structure: a file this diff takes past the size limit, or grows while
+  already past it, is an optional follow-up naming the seam, never a blocker.
+- Architecture, where the repo has `docs/architecture.md`: the diff adds no
+  import against its target rules, and it updates the as-is sections when
+  it adds a module, an event or a dependency edge. Read the sections the
+  diff touches, not the whole file.
 
 Run the full checks from `docs/agent-workflow.md` yourself and quote the real
 results.

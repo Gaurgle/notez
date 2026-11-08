@@ -37,6 +37,22 @@ lead=$(basename "${coordinator:-?-coordinator.md}" .md)
 prefix=${lead%-coordinator}
 model=$(sed -n 's/^model: *//p' "$coordinator" 2>/dev/null | head -1)
 
+# Architect: the agent file, and the code map its survey writes.
+architect_file=$(ls .claude/agents/*-architect.md 2>/dev/null | head -1)
+if [ -n "$architect_file" ]; then
+  amodel=$(sed -n 's/^model: *//p' "$architect_file" | head -1)
+  aeffort=$(sed -n 's/^effort: *//p' "$architect_file" | head -1)
+  if [ -f docs/architecture.md ]; then
+    adate=$(git log -1 --format=%cs -- docs/architecture.md 2>/dev/null)
+    amap="docs/architecture.md${adate:+ $adate}"
+  else
+    amap="${warn}no docs/architecture.md yet${off}: run a survey"
+  fi
+  architect_line="$(basename "$architect_file" .md) ${dim}(${amodel:-?}, ${aeffort:-?})${off} · $amap"
+else
+  architect_line="${dim}none${off} · relay architect sets it up"
+fi
+
 line() { printf '%s│%s %s%-9s%s %s\n' "$accent" "$off" "$dim" "$1" "$off" "$2"; }
 
 # Template: the repo's stamp against the skill's VERSION.
@@ -124,6 +140,7 @@ printf '%s╭─%s %sRelay%s %s · %s%s%s (%s) %s%s%s\n' \
   "$accent" "$off" "$b" "$off" "${stamp:-?}" "$b" "$project" "$off" "$prefix" "$accent" "$(rule "$fill")" "$off"
 line "Template" "$template"
 line "Lead" "$lead ${dim}${model:+($model)}${off} · $lead_line"
+line "Architect" "$architect_line"
 line "$branch" "$head $sync · $tree · $ci"
 line "Worktrees" "${worktrees:-none}"
 line "Next" "${next:-see docs/agent-handoff.md}"

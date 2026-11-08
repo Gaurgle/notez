@@ -1,4 +1,4 @@
-<!-- relay-template: 0.9.0; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
+<!-- relay-template: 0.9.1; local-deviations: GitHub Project board read via GraphQL, three workers, docs-only CI rule, install.sh owner-only -->
 <!-- relay-board: owner=Gaurgle project=2 prefix=NZ -->
 # Agent workflow (Relay)
 
@@ -98,13 +98,16 @@ update the handoff, record any running workers and release the baton.
 - **Worker**: implements one assigned ticket and supplies evidence.
 - **Reviewer**: independently evaluates that ticket's exact diff and criteria.
 - **Small**: narrow scans, documentation and truly small changes.
+- **Architect**: keeps `docs/architecture.md` true and checks tickets and
+  branches against it ("Architecture" below). Run per trigger, never
+  standing.
 
-Workers, reviewers and small agents are leaves: they never delegate. At most
-three implementation workers run at once (owner decision, 2026-10-10,
-recorded in `docs/agent-handoff.md`), each ticket on its own files, at most
-one worker per file (`tui/tree.rs` is always one worker), and merges into
-`main` one at a time. Implementation and review are always separate
-sessions, even on the same model.
+Workers, reviewers, small agents and architects are leaves: they never
+delegate. At most three implementation workers run at once (owner decision,
+2026-10-10, recorded in `docs/agent-handoff.md`), each ticket on its own
+files, at most one worker per file (`tui/tree.rs` is always one worker), and
+merges into `main` one at a time. Implementation and review are always
+separate sessions, even on the same model.
 
 ## Task method and task skills
 
@@ -121,6 +124,16 @@ debugging inside that structure. Use the lightest path that fits:
 - **Design-heavy work:** clarify the intended outcome and tradeoffs, capture
   the approved design and plan in the repository's chosen documents, then
   link them from the relevant tickets. Keep one durable source of truth.
+- **Refactor ticket:** structure work with no behavior change, filed by the
+  lead from a worker's or reviewer's `Structure` note, or by the owner. One
+  seam per ticket: code moves, visibility widens only as far as the move
+  needs, nothing else changes. Acceptance: the same test names pass before
+  and after (compare the sorted test lists), the checks are clean, and no
+  public or persisted contract changes. Path-scoped rules and docs that name
+  moved symbols follow them in the same ticket. Schedule it when no open
+  ticket branch touches the files, since a move conflicts with every one of
+  them. A split across modules needs the owner's approval, per ticket or
+  for a named batch.
 
 Those skills may be used when relevant. Approval of a design or plan accepts that artifact; it
 does not authorize ticket execution beyond the owner's named tickets or
@@ -130,6 +143,36 @@ When Relay is active, the lead is the only dispatcher. Do not run another
 subagent-driven implementation workflow alongside Relay's worker and reviewer
 assignments. Workers remain unable to delegate. The Relay
 reviewer remains required even if another skill offers a review step.
+
+## Architecture
+
+`docs/architecture.md` is the code map: the structure as it is, measured,
+and the target shape the owner accepted. The architect
+(`nz-architect`) keeps it true. It is never a standing agent: the
+lead dispatches one run per trigger, and the owner may run it at any time.
+
+- **Ticket check:** before a ticket is made Ready, when it adds a module,
+  an event or message type or a new kind of state, or touches more than one
+  layer. Batch the waiting tickets in one run where possible. The verdict
+  and the doc sections it names go on the issue, and those sections go in
+  the worker's `Pointers`. The lead rules on `fits` and `fits with note`;
+  `refactor first` and `needs design` go to the owner when they change
+  priorities.
+- **Branch check:** before a parked or long-lived branch resumes, and
+  before a batch of refactor tickets starts.
+- **Survey:** at each milestone retro, after a batch of refactor tickets
+  lands, and when two or more `Structure` notes are open.
+- **Consult:** before a design-heavy ticket.
+
+A ticket that adds a module, moves a responsibility, adds an event or
+changes a dependency edge updates the as-is sections of the doc in the same
+ticket; the reviewer checks it. Changes to the target shape are the
+owner's, recorded in the doc's owner items.
+
+The architect checks the baton before it writes. Started by the owner while
+a lead holds the baton, it reports only and hands doc changes to the lead,
+so it never collides with the lead's commits; a run the lead dispatched, or
+one with the baton released, writes. The baton stays the lead's alone.
 
 ## Models
 
@@ -267,15 +310,16 @@ on the same finding end the ticket's run: escalate with the evidence.
 Every commit traces to its ticket, so history, the board and any issue agree
 even before a merge and after a branch is deleted.
 
-- Ticket commit: Conventional Commits subject, a body for the why, and a last
-  line `Refs: <ticket>`: the issue number (`#59`). Commits before
-  2026-10-17 name the board id (`NZ-5`) instead; the ticket's issue has the
-  same id in its title.
+- Ticket commit: Conventional Commits subject ending with ` (<ticket>)`
+  inside the 72 characters, a body for the why, and a last line
+  `Refs: <ticket>`: the issue number (`#59`). Commits before 2026-10-17
+  name the board id (`NZ-5`) instead; the ticket's issue has the same id in
+  its title.
 - Merge commit: `Merge branch '<branch>' (<ticket>)` as the subject and
   `Closes #<n>` in the body, so GitHub closes the issue when the merge
   reaches `main`. The lead still moves the board item to Done.
-- Coordination commits about one ticket (handoff, specs, plans) also end with
-  `Refs: <ticket>`.
+- Coordination commits about one ticket (handoff, specs, plans) also end
+  their subject with ` (<ticket>)` and their message with `Refs: <ticket>`.
 
 ## Records
 

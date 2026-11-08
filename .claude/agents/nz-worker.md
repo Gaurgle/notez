@@ -63,6 +63,10 @@ it. Keep it small:
   changing them. A locked test that looks wrong means stop and report.
 - Deliver the smallest change that satisfies the acceptance criteria. No
   drive-by refactors, no speculative options.
+- If your change takes a file past the size limit in the repo's code rules
+  (default about 1200 production lines), or grows one already past it,
+  report it under `Structure` with the seam you would split along. Do not
+  split it in this ticket.
 - Never edit, delete or disable an existing test to make code pass.
 - Do not change dependencies, CI, persistence formats or external contracts.
   Escalate a major refactor or an ownership change.
@@ -105,6 +109,12 @@ untracked files, base SHA, branch and worktree path, exact checks run with
 results (including failures and skipped checks), reproduction evidence, and
 risks or decisions needed. Report what happened, not what you expected to
 happen.
+
+End with a heading `Observed, out of scope`: what you noticed and left
+alone because it was outside your allowed files or your criteria (a
+suspected bug, a contract that fought the ticket, a simpler shape). One
+line each, `file:line` and what you saw. No severity, no diagnosis, no fix.
+Empty is a valid answer; write `none`.
 
 On a rework round, answer each finding by name: fixed (and how), or disputed
 (and the evidence). Change only the paths the findings name. Cosmetic edits
