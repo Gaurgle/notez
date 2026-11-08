@@ -10,9 +10,6 @@ use super::*;
 // the todo view: `d`, `r`, `m` and `S` refuse it and every row under it,
 // and it is never a move destination. `n` and `N` there work as anywhere.
 
-/// The store's folder name under the notez root.
-const TODO_STORE: &str = "_todos";
-
 /// What the refusals below say after their verb.
 pub(super) const TODO_STORE_MANAGED: &str = "the todo board's store is managed by the todo view";
 
@@ -42,7 +39,7 @@ pub(super) fn in_todo_store(path: &Path, notez_root: &Path) -> bool {
         return false;
     };
     let top = notez_root.join(first);
-    let store = notez_root.join(TODO_STORE);
+    let store = notez_root.join(notez_core::core::resolve::TODOS_DIR);
     top == store || is_same_entry(&top, &store)
 }
 

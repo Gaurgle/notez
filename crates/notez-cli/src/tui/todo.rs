@@ -18,7 +18,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 
 use notez_core::config::{Config, ProjectRegistry};
-use notez_core::core::NoteDate;
+use notez_core::core::{NoteDate, resolve};
 use notez_core::filter::{self, Filter};
 use notez_core::tags::FLAG_DEFS;
 use notez_core::todo::{self, CheckState, Task};
@@ -1646,7 +1646,7 @@ fn event_loop(
     // `y` was pressed: the next key finishes the copy chord (see `yank_row`).
     let mut yank_pending = false;
     let mut yank_flash = YankFlash::default();
-    let todos_dir = ctx.global.then(|| config.notez_root_path().join("_todos"));
+    let todos_dir = ctx.global.then(|| config.notez_root_path().join(resolve::TODOS_DIR));
     // The file-change probe's last reading, taken fresh after every reload.
     let mut probe = probe_snapshot(&probe_paths(&items, todos_dir.as_deref()));
     // Dirty files the probe saw change on disk: no automatic reload until
@@ -2522,13 +2522,13 @@ fn event_loop(
                     } else if name.contains('/') || name.contains('\\') {
                         category_error = Some("name cannot contain '/' or '\\'".into());
                     } else {
-                        let cat_dir = config.notez_root_path().join("_todos").join(&name);
+                        let cat_dir = config.notez_root_path().join(resolve::TODOS_DIR).join(&name);
                         if cat_dir.exists() {
                             category_error =
                                 Some(format!("category '{}' already exists", name));
                         } else {
                             std::fs::create_dir_all(&cat_dir).ok();
-                            std::fs::write(cat_dir.join("TODO.md"), "# TODO\n\n").ok();
+                            std::fs::write(cat_dir.join(resolve::TODO_FILE), "# TODO\n\n").ok();
                             // Persist the dirty in-memory edits, then reload
                             // so the new category appears in its slot. After
                             // the reload memory matches disk again.

@@ -283,7 +283,7 @@ fn row_badge(node: &TreeNode, spec: Option<&SectionSpec>) -> Span<'static> {
     match spec {
         Some(spec) if node.depth > 0 && !spec.icon.is_empty() => {
             let is_todo_file =
-                !node.is_dir && node.path.file_name().is_some_and(|name| name == "TODO.md");
+                !node.is_dir && node.path.file_name().is_some_and(|name| name == notez_core::core::resolve::TODO_FILE);
             let icon = if is_todo_file || in_section_todo_store(node, spec) {
                 theme::ICON_TODO
             } else {
