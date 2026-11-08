@@ -7,10 +7,10 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-None. Lead `018zBNkK` (Claude `nz-coordinator`; Fable 5.1, Opus 5.5 since his
-`/model` 2026-11-05) RELEASED the baton 2026-11-05 14:30 on Andreas's "perhaps
-we should stop for today". No workers or reviewers running. `main` =
-`origin/main` (NZ-77a merged as `bb3c913`, CI green).
+None. Lead `c26dc5ef` (Claude `nz-coordinator`, Fable 5.1) RELEASED the
+baton 2026-11-08 14:25 on Andreas's "then stop for today". No workers or
+reviewers running. `main` = `origin/main` = `24c81e4` (NZ-80, CI green).
+One worktree: `.claude/worktrees/NZ-76` (branch pushed, see In flight).
 
 ## Standing authority
 
@@ -23,34 +23,36 @@ we should stop for today". No workers or reviewers running. `main` =
 | Decide open design points, report at milestones only | 2026-10-08, updated 2026-10-15 | stop him only for: irreversible or costly actions, his files, `notez-core` API or format, dependencies outside the family, CI, tags, releases, out-of-scope tickets | revoked by word |
 | Up to three workers on disjoint files, merges one at a time | 2026-10-10 14:05 | standing | revoked by word |
 | Run the 2026-10-15 queue (see Next step) | 2026-10-15, two entries, archived verbatim | the queue below; look changes stop at Ready to integrate for his try | queue done |
+| Architecture refactor tickets P1 to P6 (`docs/architecture.md`): file, run in the recommended order, P1 before or with NZ-76, merge as you go | 2026-11-08 (words in the log) | NZ-80 to NZ-85 (#109 to #114); one seam each, no behavior change | NZ-85 Done |
 
-Coordination docs: lead `018zBNkK` may commit and push them this session (Andreas 2026-11-04, "You may commit and push this session"; ends with the session). Installing, tags and releases are his. NZ-18 and NZ-47d do not run.
+Installing, tags and releases are his. NZ-18 and NZ-47d do not run.
 
 ## In flight
 
-- NZ-76 (#105): e0ed58f gate holds, NOT merged: his 2026-11-05 go on #105: amendment 3
-  (todos store fully renamable from notez, only default folders fixed; TODO.md
-  name kept, his to confirm) and a daily-log stamping ticket are next. NZ-77b (#106 tree half) after NZ-76.
-- NZ-62 (#88): Review, gate owner look; doc uncommitted in
-  `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
+- NZ-76 (#105): amendment 3 Ready to integrate, gate owner look: 2b8869a on
+  `feat/nz-76-rename-stem`, diff 76384e3b323d accepted, branch CI green,
+  worktree `.claude/worktrees/NZ-76`. Tried 2026-11-08: refusals hold,
+  TODO.md lock kept (on #105); `r` inside `_todos` not yet seen. His "merge
+  NZ-76": combined check, gate, merge. Then NZ-86 (#115), NZ-77b (#106),
+  NZ-81 to NZ-85 (P3, P4, P2, P5, P6) in that order. NZ-80 Done (log).
+- NZ-62 (#88): Review, gate owner look; the uncommitted design doc was lost
+  with its worktree (2026-11-08); summary is the last comment on #88; redo
+  needs his word.
 
 ## Open questions
 
-- NZ-71 (#100, Backlog): intuitive dated-todo creation, design first; NZ-74
-  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-78 (#107,
-  Backlog): what defines a log, change-date action, design first (2026-11-05).
+- Design first, on his go: NZ-71 (#100), NZ-74 (#103), NZ-78 (#107).
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
-  file; borrow the board's preview?); frontmatter drawn as rule plus
-  paragraph in the rendered preview (NZ-53).
-- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69 (#95) Ready on his go; NZ-70
-  (#96, scopes) deferred by him 2026-11-05; DESIGN.md "one key, one function" line proposed, not written.
+  file); frontmatter drawn as rule plus paragraph in the preview (NZ-53).
+- NZ-52 (#78) his call; NZ-18, NZ-47d parked; NZ-70 (#96) deferred
+  2026-11-05; DESIGN.md "one key, one function" line proposed, not written.
 
 ## Next step
 
-Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-76 (#105) in review, then
-NZ-77b; NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30
-(no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
+NZ-80 to merge, then NZ-76 amendment 3 rebased on it (same file,
+`rename_prompt.rs`), then NZ-81, NZ-82, NZ-83 (alone: NZ-69 shares
+`tui/todo.rs`), NZ-84, NZ-85. Still queued (his 2026-11-03/04 words): NZ-77b;
+NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30 (no brief).
 
 ## Start the lead
 

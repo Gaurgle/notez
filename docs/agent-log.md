@@ -362,6 +362,26 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-80 (#109): P1 todos store name in core
+
+Architecture survey proposal P1, filed and run by lead `c26dc5ef` on
+2026-11-08. Branch `refactor/nz-80-todos-store-name`, worktree
+`.claude/worktrees/NZ-80`, base `a93b982`. Worker (opus, medium): added
+`TODOS_DIR` and `TODO_FILE` to `core/resolve` with one test, switched
+core `todo` and `migrate` and nine CLI sites; two literals outside the
+first scope (`tui/tree/delete.rs`, `migrate.rs`) ruled in by the lead.
+Reviewer (opus, medium) accepted diff `9405b1195f5f` first time, reran
+the `TODOS_DIR` mutation (12 tests fail). Commit `aa4e93f`, branch CI
+42482015832 green, gate holds on `a93b982`, merge `24c81e4`, main CI
+42482178611 green. Remember at the end: nothing to keep.
+
+Observed, out of scope:
+- `crates/notez-core/src/todo/mod.rs:400,408,416`: the store folder names `"personal"`, `"notez"` and `".notez"` are written out as literals there, separately from `core/resolve::root`.
+- `crates/notez-core/src/migrate.rs:73`: `"personal"` is written out as a literal in the same `matches!`.
+- Reviewer: `load_board`'s `_todos/<category>` path has no test (pre-existing); `docs/architecture.md:141` says `commands/todo.rs` creates the category dir, but `tui/todo.rs` does.
+
+NZ-80: review accepted first; fix cycles 0; owner decisions 0; worker 6; review 2; models opus:medium/opus:medium; usage 76165; 32335
+
 ### NZ-75 (#104): todoz yy copies the file or the row, yp its TODO.md path, with the sweep
 
 From Andreas's 2026-11-04 words ("implement the yank (yy) and yank
