@@ -1,30 +1,16 @@
-//! The delete prompt (`d`) for notes and folders, and the guards that
-//! keep the todo board's store to the todo view.
+//! The delete prompt (`d`) for notes and folders, and the lock that keeps
+//! the store folders notez finds by name where they are.
 
 use super::*;
 
-// --- The todo board's store ---
+// --- The store folders ---
 //
-// `<notez root>/_todos` holds the todo board's lists (`notez_core::todo`
-// reads it). The browser lists it in the global section but leaves it to
-// the todo view: `d`, `r`, `m` and `S` refuse it and every row under it,
-// and it is never a move destination. `n` and `N` there work as anywhere.
-
-/// What the refusals below say after their verb.
-pub(super) const TODO_STORE_MANAGED: &str = "the todo board's store is managed by the todo view";
-
-/// The footer message for `d` on the store or a row under it.
-const TODOS_DELETE: &str = "delete: the todo board's store is managed by the todo view";
-
-/// The footer message for `r` on the store or a row under it.
-pub(super) const TODOS_RENAME: &str = "rename: the todo board's store is managed by the todo view";
-
-/// The footer message for `m` on the store or a row under it.
-pub(super) const TODOS_MOVE: &str = "move: the todo board's store is managed by the todo view";
-
-/// The footer message for `S` on the store or a row under it.
-pub(super) const TODOS_SET_SCOPE: &str =
-    "set scope: the todo board's store is managed by the todo view";
+// notez creates and finds three folders by name: the configured quick-notes
+// and daily-logs folders, and the todo board's store `<notez root>/_todos`
+// (`notez_core::todo` reads it). `r`, `m`, `S` and `d` refuse those folder
+// rows, alone or marked. Everything inside them is the user's: it renames,
+// moves, deletes and re-scopes like any other row, and the store's folders
+// are move destinations.
 
 /// Whether `path` is `<notez_root>/_todos` or lies under it. The first step
 /// below the root counts as the store when it is spelled `_todos` or is the
@@ -43,23 +29,58 @@ pub(super) fn in_todo_store(path: &Path, notez_root: &Path) -> bool {
     top == store || is_same_entry(&top, &store)
 }
 
-/// Whether `node` is the todo board's store or a row under it. Only the
-/// global section's root is the notez root (`commands::tree` gives the
-/// global section `notez_root` itself), so a `_todos` folder in a project's
-/// store is an ordinary folder.
-pub(super) fn is_todo_row(node: &TreeNode, sections: &[SectionSpec]) -> bool {
-    sections
-        .get(node.section)
-        .is_some_and(|spec| in_section_todo_store(node, spec))
-}
-
 /// Whether `node`, a row of `spec`, is the todo board's store or a row
-/// under it; see [`is_todo_row`].
+/// under it. Only the global section's root is the notez root
+/// (`commands::tree` gives the global section `notez_root` itself), so a
+/// `_todos` folder in a project's store is an ordinary folder.
 pub(super) fn in_section_todo_store(node: &TreeNode, spec: &SectionSpec) -> bool {
     spec.scope == Scope::Global
         && spec.project.is_none()
         && !spec.is_doc
         && in_todo_store(&node.path, &spec.root)
+}
+
+/// The footer message for `verb` (`rename`, `move`, `set scope`, `delete`)
+/// on `node` when it is a store folder: a folder named like the configured
+/// quick-notes or daily-logs folder, or the todo board's store itself (not
+/// a row under it). `None` for every other row.
+pub(super) fn store_folder_lock(
+    node: &TreeNode,
+    sections: &[SectionSpec],
+    config: &Config,
+    verb: &str,
+) -> Option<String> {
+    if !node.is_dir {
+        return None;
+    }
+    let configured = [&config.paths.quick_notes_dir, &config.paths.daily_logs_dir]
+        .into_iter()
+        .any(|name| *name == node.name);
+    let todo_store = sections.get(node.section).is_some_and(|spec| {
+        node.path.parent() == Some(spec.root.as_path()) && in_section_todo_store(node, spec)
+    });
+    (configured || todo_store)
+        .then(|| format!("{verb}: {} is a notez folder and keeps its name", node.name))
+}
+
+/// What `d` does with the cursor on `row`: [`delete_request`], except that
+/// a store folder ([`store_folder_lock`]) is refused with its footer
+/// message.
+pub(super) fn delete_open(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+    current_project: Option<&str>,
+    config: &Config,
+) -> std::result::Result<Option<DeletePrompt>, String> {
+    let prompt = delete_request(nodes, sections, row, current_project).map_err(str::to_string)?;
+    if prompt.is_some() {
+        let node = row.and_then(|i| nodes.get(i));
+        if let Some(message) = node.and_then(|n| store_folder_lock(n, sections, config, "delete")) {
+            return Err(message);
+        }
+    }
+    Ok(prompt)
 }
 
 // --- Delete ---
@@ -175,9 +196,8 @@ fn remove_folder(
 }
 
 /// What `d` does with the cursor on `row`: `Ok(Some)` opens the prompt on a
-/// note or a folder, `Err` is the footer message for a section row, a row
-/// in the todo board's store ([`is_todo_row`]), a docs folder, or a folder
-/// holding another section, and `Ok(None)` (no row
+/// note or a folder, `Err` is the footer message for a section row, a docs
+/// folder, or a folder holding another section, and `Ok(None)` (no row
 /// under the cursor) does nothing. A folder's contents are counted from
 /// the disk when the prompt opens.
 pub(super) fn delete_request(
@@ -195,9 +215,6 @@ pub(super) fn delete_request(
     let Some(spec) = sections.get(node.section) else {
         return Ok(None);
     };
-    if is_todo_row(node, sections) {
-        return Err(TODOS_DELETE);
-    }
     let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
     let folder = if node.is_dir {
         if spec.is_doc {
@@ -1364,21 +1381,30 @@ mod tests {
         assert_eq!(hint("d").slot, Slot::Priority(7));
     }
 
-    // --- The todo board's store (NZ-20) ---
+    // --- The store folders (NZ-20, NZ-76) ---
 
     /// [`move_fixture`] plus the todo board's store `_todos/` (with a note
-    /// and a category folder), a sibling `_todos-archive/` and a personal
-    /// `_todos/` folder, neither of which is the store.
+    /// and a category folder holding a `TODO.md`), the default quick-notes
+    /// and daily-logs folders with a note each, a sibling `_todos-archive/`
+    /// and a personal `_todos/` folder, neither of which is the store.
     fn todo_fixture() -> (tempfile::TempDir, PathBuf, Vec<(Scope, PathBuf)>) {
         let (dir, notez, roots) = move_fixture();
         let personal = store_of(&roots, Scope::Personal);
-        for sub in ["_todos/work", "_todos-archive"] {
+        for sub in [
+            "_todos/work",
+            "_todos-archive",
+            "00_quick-notes",
+            "01_daily-logs",
+        ] {
             std::fs::create_dir_all(notez.join(sub)).unwrap();
         }
         std::fs::create_dir_all(personal.join("_todos")).unwrap();
         for file in [
             notez.join("_todos/t.md"),
             notez.join("_todos/work/w.md"),
+            notez.join("_todos/work/TODO.md"),
+            notez.join("00_quick-notes/2026-11-08-q.md"),
+            notez.join("01_daily-logs/2026-11-08-daily-log.md"),
             notez.join("_todos-archive/a.md"),
             personal.join("_todos/p.md"),
         ] {
@@ -1387,132 +1413,169 @@ mod tests {
         (dir, notez, roots)
     }
 
+    /// The footer message `verb` gives on the store folder `name`.
+    fn kept(verb: &str, name: &str) -> String {
+        format!("{verb}: {name} is a notez folder and keeps its name")
+    }
+
+    /// NZ-76: `r`, `m`, `S` and `d` on the todo store, the quick-notes and
+    /// the daily-logs folder refuse with one message and change nothing.
     #[test]
-    fn delete_rename_move_and_set_scope_refuse_the_todo_store_and_what_is_in_it() {
+    fn r_m_s_and_d_refuse_the_store_folders_with_one_message() {
         let (dir, notez, roots) = todo_fixture();
         let ctx = move_ctx(&roots);
+        let config = Config::defaults();
         let forest = forest_of(move_sections(&roots));
         let before = disk_entries(dir.path());
         let (nodes, sections) = (&forest.nodes, &forest.sections);
 
-        for sub in ["_todos", "_todos/t.md", "_todos/work", "_todos/work/w.md"] {
-            let at = Some(row(nodes, path_str(&notez.join(sub))));
+        for name in ["_todos", "00_quick-notes", "01_daily-logs"] {
+            let at = Some(row(nodes, path_str(&notez.join(name))));
             assert_eq!(
-                delete_request(nodes, sections, at, Some("proj")).err(),
-                Some(TODOS_DELETE),
-                "{sub}"
+                rename_open(nodes, sections, at, &config),
+                Err(kept("rename", name))
             );
             assert_eq!(
-                rename_request(nodes, sections, at).err(),
-                Some(TODOS_RENAME),
-                "{sub}"
+                move_open(nodes, sections, at, &ctx, false, &config).err(),
+                Some(kept("move", name))
             );
             assert_eq!(
-                move_request(nodes, sections, at, &ctx).err(),
-                Some(TODOS_MOVE),
-                "{sub}"
+                move_open(nodes, sections, at, &ctx, true, &config).err(),
+                Some(kept("set scope", name))
             );
             assert_eq!(
-                set_scope_request(nodes, sections, at, &ctx).err(),
-                Some(TODOS_SET_SCOPE),
-                "{sub}"
+                delete_open(nodes, sections, at, Some("proj"), &config).err(),
+                Some(kept("delete", name))
             );
+            // Only a folder is a store folder: a note row of that name is not.
+            let mut note = nodes[at.unwrap()].clone();
+            note.is_dir = false;
+            assert_eq!(store_folder_lock(&note, sections, &config, "delete"), None);
         }
-        assert_eq!(
-            TODOS_DELETE,
-            "delete: the todo board's store is managed by the todo view"
-        );
+        assert_eq!(disk_entries(dir.path()), before);
+    }
+
+    /// NZ-76: every row inside the store folders, and folders only named
+    /// like the todo store, rename, move, set scope and delete like any
+    /// row. A `TODO.md` keeps its name but moves and deletes.
+    #[test]
+    fn rows_inside_the_store_folders_rename_move_set_scope_and_delete() {
+        let (dir, notez, roots) = todo_fixture();
+        let ctx = move_ctx(&roots);
+        let config = Config::defaults();
+        let forest = forest_of(move_sections(&roots));
+        let before = disk_entries(dir.path());
+        let (nodes, sections) = (&forest.nodes, &forest.sections);
 
         let personal = store_of(&roots, Scope::Personal);
         for path in [
+            notez.join("_todos/t.md"),
+            notez.join("_todos/work"),
+            notez.join("_todos/work/w.md"),
+            notez.join("_todos/work/TODO.md"),
+            notez.join("00_quick-notes/2026-11-08-q.md"),
+            notez.join("01_daily-logs/2026-11-08-daily-log.md"),
             notez.join("_todos-archive"),
-            notez.join("_todos-archive/a.md"),
+            personal.join("_todos"),
             personal.join("_todos/p.md"),
         ] {
             let at = Some(row(nodes, path_str(&path)));
+            let shown = path.display();
+            if path.ends_with("TODO.md") {
+                assert_eq!(
+                    rename_open(nodes, sections, at, &config),
+                    Err("rename: TODO.md keeps its name: todoz finds it by name".to_string())
+                );
+            } else {
+                assert!(
+                    matches!(rename_open(nodes, sections, at, &config), Ok(Some(_))),
+                    "{shown}"
+                );
+            }
+            assert!(
+                move_open(nodes, sections, at, &ctx, false, &config).is_ok(),
+                "{shown}"
+            );
+            assert!(
+                move_open(nodes, sections, at, &ctx, true, &config).is_ok(),
+                "{shown}"
+            );
             assert!(
                 matches!(
-                    delete_request(nodes, sections, at, Some("proj")),
+                    delete_open(nodes, sections, at, Some("proj"), &config),
                     Ok(Some(_))
                 ),
-                "{}",
-                path.display()
-            );
-            assert!(
-                matches!(rename_request(nodes, sections, at), Ok(Some(_))),
-                "{}",
-                path.display()
-            );
-            assert!(
-                move_request(nodes, sections, at, &ctx).is_ok(),
-                "{}",
-                path.display()
-            );
-            assert!(
-                set_scope_request(nodes, sections, at, &ctx).is_ok(),
-                "{}",
-                path.display()
+                "{shown}"
             );
         }
         assert_eq!(disk_entries(dir.path()), before);
     }
 
+    /// NZ-76: a marked set holding rows inside the todo store acts like any
+    /// other; one holding a store folder is refused whole, its name first.
     #[test]
-    fn a_bulk_action_with_a_todo_store_row_is_refused_whole() {
+    fn a_marked_set_is_refused_only_for_a_store_folder() {
         let (dir, notez, roots) = todo_fixture();
         let ctx = move_ctx(&roots);
+        let config = Config::defaults();
         let forest = forest_of(move_sections(&roots));
+        let (nodes, sections) = (&forest.nodes, &forest.sections);
         let before = disk_entries(dir.path());
-        let set = [notez.join("c.md"), notez.join("_todos/work/w.md")];
-        let marks: HashSet<PathBuf> = set.iter().cloned().collect();
+        let marks_of =
+            |set: &[&str]| -> HashSet<PathBuf> { set.iter().map(|sub| notez.join(sub)).collect() };
 
-        let refused =
-            bulk_delete_request(&forest.nodes, &forest.sections, &marks, Some("proj")).err();
-        assert_eq!(refused, Some(format!("_todos/work/w.md: {TODOS_DELETE}")));
-        assert_eq!(
-            bulk_move_at(&forest, &ctx, &set, false).err(),
-            Some(format!("_todos/work/w.md: {TODOS_MOVE}"))
-        );
-        assert_eq!(
-            bulk_move_at(&forest, &ctx, &set, true).err(),
-            Some(format!("_todos/work/w.md: {TODOS_SET_SCOPE}"))
-        );
-        let folder: HashSet<PathBuf> = [notez.join("_todos")].into_iter().collect();
-        let refused =
-            bulk_delete_request(&forest.nodes, &forest.sections, &folder, Some("proj")).err();
-        assert_eq!(refused, Some(format!("_todos/: {TODOS_DELETE}")));
+        let inside = marks_of(&["c.md", "_todos/work/w.md", "_todos/work/TODO.md"]);
+        let items = bulk_delete_open(nodes, sections, &inside, Some("proj"), &config).unwrap();
+        assert_eq!(items.len(), 3);
+        for fixed in [false, true] {
+            let (_, items) =
+                bulk_move_open(nodes, sections, &inside, &ctx, fixed, &config).unwrap();
+            assert_eq!(items.len(), 3, "fixed {fixed}");
+        }
+
+        for name in ["_todos", "01_daily-logs"] {
+            let set = marks_of(&["c.md", name]);
+            assert_eq!(
+                bulk_delete_open(nodes, sections, &set, Some("proj"), &config).err(),
+                Some(format!("{name}/: {}", kept("delete", name)))
+            );
+            assert_eq!(
+                bulk_move_open(nodes, sections, &set, &ctx, false, &config).err(),
+                Some(format!("{name}/: {}", kept("move", name)))
+            );
+            assert_eq!(
+                bulk_move_open(nodes, sections, &set, &ctx, true, &config).err(),
+                Some(format!("{name}/: {}", kept("set scope", name)))
+            );
+        }
         assert_eq!(disk_entries(dir.path()), before);
     }
 
+    /// NZ-76: the todo store and its folders are move destinations.
     #[test]
-    fn the_todo_store_is_never_a_move_destination() {
-        let (dir, notez, roots) = todo_fixture();
+    fn the_todo_store_and_its_folders_are_move_destinations() {
+        let (_dir, notez, roots) = todo_fixture();
         let ctx = move_ctx(&roots);
         let forest = forest_of(move_sections(&roots));
-        let before = disk_entries(dir.path());
         let personal = store_of(&roots, Scope::Personal);
-        let refusal = format!("move: {}", TODO_STORE_MANAGED);
 
-        assert_eq!(
-            move_plan(&forest, &ctx, &notez.join("c.md"), Scope::Global, "_todos"),
-            Err(refusal.clone())
-        );
-        assert_eq!(
-            move_plan(
-                &forest,
-                &ctx,
-                &personal.join("c.md"),
-                Scope::Global,
-                "_todos/work"
-            ),
-            Err(refusal.clone())
-        );
+        let plan = move_plan(&forest, &ctx, &notez.join("c.md"), Scope::Global, "_todos")
+            .expect("the store");
+        assert_eq!(plan.dst, notez.join("_todos/c.md"));
+        let plan = move_plan(
+            &forest,
+            &ctx,
+            &personal.join("c.md"),
+            Scope::Global,
+            "_todos/work",
+        )
+        .expect("a folder in the store");
+        assert_eq!(plan.dst, notez.join("_todos/work/c.md"));
         let set = [personal.join("c.md"), personal.join("ideas/a.md")];
-        assert_eq!(
-            bulk_move_plan(&forest, &ctx, &set, Scope::Global, "_todos").err(),
-            Some(refusal)
-        );
-        assert_eq!(disk_entries(dir.path()), before);
+        assert!(matches!(
+            bulk_move_plan(&forest, &ctx, &set, Scope::Global, "_todos"),
+            Ok(Some(_))
+        ));
 
         let plan = move_plan(
             &forest,

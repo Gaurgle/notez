@@ -1,6 +1,7 @@
 //! The rename prompt (`r`) for notes and folders.
 
 use super::*;
+use crate::commands::agenda;
 
 // --- Rename ---
 
@@ -12,8 +13,7 @@ const FOLDER_RENAME_EMPTY: &str = "rename: the name is empty";
 
 /// What `r` does with the cursor on `row`: `Ok(Some)` opens the rename
 /// prompt with that text (a note's editable title, a folder's name), `Err`
-/// is the footer message for a section row or a row in the todo board's
-/// store ([`is_todo_row`]), and `Ok(None)` does nothing:
+/// is the footer message for a section row, and `Ok(None)` does nothing:
 /// no row under the cursor, or a folder in a docs section.
 pub(super) fn rename_request(
     nodes: &[TreeNode],
@@ -26,14 +26,48 @@ pub(super) fn rename_request(
     if node.depth == 0 {
         return Err(SECTION_RENAME);
     }
-    if is_todo_row(node, sections) {
-        return Err(TODOS_RENAME);
-    }
     if !node.is_dir {
-        return Ok(Some(rename::editable_title(&node.name)));
+        return Ok(Some(note_stem(&node.name)));
     }
     let is_doc = sections.get(node.section).map_or(true, |s| s.is_doc);
     Ok((!is_doc).then(|| node.name.clone()))
+}
+
+/// The file name that makes a note a todo store: todoz finds it by name.
+const TODO_FILE: &str = "TODO.md";
+
+/// What `r` does with the cursor on `row`: [`rename_request`], except that
+/// a row it would open the prompt on keeps its name when [`rename_lock`]
+/// locks it, and the `Err` footer message says why.
+pub(super) fn rename_open(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+    config: &Config,
+) -> std::result::Result<Option<String>, String> {
+    let text = rename_request(nodes, sections, row).map_err(str::to_string)?;
+    if text.is_some() {
+        if let Some(message) = row
+            .and_then(|i| nodes.get(i))
+            .and_then(|n| rename_lock(n, sections, config))
+        {
+            return Err(message);
+        }
+    }
+    Ok(text)
+}
+
+/// Why `node` keeps its name, if it does: a store folder
+/// ([`store_folder_lock`]) or a `TODO.md` note. The rows inside those
+/// folders rename as any other.
+fn rename_lock(node: &TreeNode, sections: &[SectionSpec], config: &Config) -> Option<String> {
+    if node.is_dir {
+        store_folder_lock(node, sections, config, "rename")
+    } else {
+        node.name
+            .eq_ignore_ascii_case(TODO_FILE)
+            .then(|| format!("rename: {TODO_FILE} keeps its name: todoz finds it by name"))
+    }
 }
 
 /// Rename the folder row at `idx` to `name` within its parent, sanitized
@@ -59,7 +93,7 @@ pub(super) fn rename_folder(
         return Ok(());
     };
     // Enter on the untouched prompt keeps the name as it is, even one
-    // sanitizing would change (`00_quick-notes`, `_todos`, `IDEAS`).
+    // sanitizing would change (`My_Ideas`, `IDEAS`).
     if name.trim() == node.name {
         return Ok(());
     }
@@ -116,41 +150,137 @@ pub(super) enum RenameEnter {
     Done(Option<String>),
 }
 
-/// The refusal for a note name typed with an extension other than `.md`.
-const NOTE_EXTENSION: &str = "rename: notes are .md";
+/// The refusal for a note name typed with an extension.
+const NOTE_EXTENSION: &str = "rename: name only, the extension is kept";
 
-/// A note name as typed, with one trailing `.md` (any case) dropped: the
-/// note keeps its `.md` either way. `Err` for a name ending in another
-/// extension (`foo.txt`): a dot, then two or more ASCII letters and digits
-/// starting with a letter. A shorter tail (`a.b`) is no extension; the
-/// altered-name refusal answers it.
-fn note_title(typed: &str) -> std::result::Result<&str, &'static str> {
-    let trimmed = typed.trim();
-    let split = trimmed.len().checked_sub(3).filter(|&i| trimmed.is_char_boundary(i));
-    if let Some(i) = split.filter(|&i| trimmed[i..].eq_ignore_ascii_case(".md")) {
-        return Ok(&trimmed[..i]);
+/// The part of a note's file name the rename prompt edits: the stem,
+/// without its date prefix. The extension, in whatever case, is never
+/// shown (`D.MD` is `D`).
+fn note_stem(file_name: &str) -> String {
+    rename::editable_title(&Path::new(file_name).with_extension("md").to_string_lossy())
+}
+
+/// Whether a typed note name ends in an extension (`b.md`, `b.txt`) or is
+/// one (`.md`): a dot, then two or more ASCII letters and digits starting
+/// with a letter. A note's extension is never typed. A shorter tail
+/// (`a.b`) is no extension; the altered-name refusal answers it.
+fn has_extension(typed: &str) -> bool {
+    typed.rsplit_once('.').is_some_and(|(_, ext)| {
+        ext.len() >= 2
+            && ext.starts_with(|c: char| c.is_ascii_alphabetic())
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    })
+}
+
+/// The rename prompt's title for `node`, by the first kind that holds:
+/// `rename directory` for a folder, `rename todo` for a todo note
+/// ([`is_todo_note`]), `rename log` for a note in a daily-logs folder
+/// ([`agenda::is_daily_log`], within its section), `rename quick note` for
+/// a note directly in a quick-notes folder ([`is_quick_notes_dir`]),
+/// `rename doc` for a note in a docs section, else `rename note`.
+pub(super) fn rename_title(node: &TreeNode, sections: &[SectionSpec], config: &Config) -> &'static str {
+    let spec = sections.get(node.section);
+    let in_section = spec
+        .and_then(|s| node.path.strip_prefix(&s.root).ok())
+        .unwrap_or(&node.path);
+    if node.is_dir {
+        "rename directory"
+    } else if is_todo_note(node) {
+        "rename todo"
+    } else if agenda::is_daily_log(in_section, &config.paths.daily_logs_dir) {
+        "rename log"
+    } else if node.path.parent().is_some_and(|dir| is_quick_notes_dir(dir, config)) {
+        "rename quick note"
+    } else if spec.is_some_and(|s| s.is_doc) {
+        "rename doc"
+    } else {
+        "rename note"
     }
-    match trimmed.rsplit_once('.') {
-        Some((stem, ext))
-            if !stem.is_empty()
-                && ext.len() >= 2
-                && ext.starts_with(|c: char| c.is_ascii_alphabetic())
-                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
-        {
-            Err(NOTE_EXTENSION)
+}
+
+/// The verdict on `typed` in the rename prompt on the note or folder
+/// (`is_dir`) at `path`, prefilled with `shown`. `Ok` is the complete name
+/// the entry would have after `Enter`: a note's file name with its date
+/// prefix and extension ([`note_target`]), a folder's sanitized name, the
+/// current name for `typed` trimmed equal to `shown`. `Err` is why `Enter`
+/// refuses it: an extension typed on a note, a name sanitizing would
+/// alter, an empty name, or a target that already exists (checked live, on
+/// every call; a folder's case-only change finds itself and is allowed).
+/// The popup's live line and [`enter_rename`] both ask this, so they
+/// cannot disagree.
+pub(super) fn rename_verdict(
+    path: &Path,
+    is_dir: bool,
+    shown: &str,
+    typed: &str,
+) -> std::result::Result<String, String> {
+    if typed.trim() == shown {
+        return Ok(file_name_of(path));
+    }
+    let typed = if is_dir { typed } else { typed.trim() };
+    if !is_dir && has_extension(typed) {
+        return Err(NOTE_EXTENSION.to_string());
+    }
+    if let Some(cleaned) = name_would_change(typed) {
+        return Err(altered_name_message(&cleaned));
+    }
+    let target = if is_dir {
+        let cleaned = sanitize::name(typed);
+        if cleaned.is_empty() {
+            return Err(FOLDER_RENAME_EMPTY.to_string());
         }
-        _ => Ok(trimmed),
+        path.with_file_name(cleaned)
+    } else {
+        note_target(path, typed).map_err(|e| format!("rename: {e}"))?
+    };
+    let taken = target != path
+        && std::fs::symlink_metadata(&target).is_ok()
+        && !(is_dir && is_same_entry(path, &target));
+    if taken {
+        return Err(format!("rename: {} already exists", file_name_of(&target)));
     }
+    Ok(file_name_of(&target))
+}
+
+/// Where retitling the note at `path` to the stem `title` puts it: the
+/// date-prefixed name [`rename::renamed_filename`] gives, with `path`'s own
+/// extension put back, so `D.MD` stays `.MD`.
+fn note_target(path: &Path, title: &str) -> anyhow::Result<PathBuf> {
+    let mut target = path.with_file_name(rename::renamed_filename(&file_name_of(path), title)?);
+    target.set_extension(path.extension().unwrap_or_default());
+    Ok(target)
+}
+
+/// Retitle the note at `path` to the stem `title` the way `notez rename`
+/// does ([`rename::rename_note`]), keeping the note's own extension: the
+/// target is [`note_target`]. A note not ending in `.md` moves twice,
+/// through the `.md` name `rename_note` gives it, and a taken target is
+/// refused first.
+fn rename_note_stem(path: &Path, title: &str) -> std::result::Result<PathBuf, String> {
+    let failed = |e: anyhow::Error| format!("rename failed: {e}");
+    let target = note_target(path, title).map_err(failed)?;
+    let extension = path.extension().unwrap_or_default();
+    if target == path {
+        return Ok(target);
+    }
+    if extension == "md" {
+        return rename::rename_note(path, title).map_err(failed);
+    }
+    if std::fs::symlink_metadata(&target).is_ok() {
+        return Err(format!("rename failed: {} already exists", target.display()));
+    }
+    let as_md = rename::rename_note(path, title).map_err(failed)?;
+    std::fs::rename(&as_md, &target).map_err(|e| format!("rename failed: {e}"))?;
+    Ok(target)
 }
 
 /// `Enter` in the rename prompt opened on the row at `idx` showing `shown`
 /// (the text the prompt was prefilled with), with `typed` in the buffer.
 /// `typed` trimmed equal to `shown` changes nothing: no file, heading or
-/// `.tags` key moves, even for a name sanitizing would alter (`My_Note`,
-/// `x.MD`). A note's typed `.md` is dropped ([`note_title`]) and another
-/// extension refused. Otherwise a name [`name_would_change`] alters is
-/// refused before any disk work, and the rest renames the folder
-/// ([`rename_folder`]) or the note (`notez rename`'s [`rename::rename_note`]).
+/// `.tags` key moves, even for a name sanitizing would alter (`My_Note`).
+/// A name [`rename_verdict`] refuses is refused with its reason before any
+/// disk work, and the rest renames the folder ([`rename_folder`]) or the
+/// note, keeping its extension ([`rename_note_stem`]).
 ///
 /// Every refusal that left the row where it was on disk (an empty name, a
 /// clash, an extension) is `Keep`, so the prompt stays open with it; a
@@ -168,29 +298,21 @@ pub(super) fn enter_rename(
     let Some(node) = nodes.get(idx) else {
         return RenameEnter::Done(None);
     };
-    let typed = if node.is_dir {
-        typed
-    } else {
-        match note_title(typed) {
-            Ok(title) if title == shown => return RenameEnter::Done(None),
-            Ok(title) => title,
-            Err(message) => return RenameEnter::Keep(message.to_string()),
-        }
-    };
-    if let Some(cleaned) = name_would_change(typed) {
-        return RenameEnter::Keep(altered_name_message(&cleaned));
+    if let Err(reason) = rename_verdict(&node.path, node.is_dir, shown, typed) {
+        return RenameEnter::Keep(reason);
     }
+    let typed = if node.is_dir { typed } else { typed.trim() };
     let before = node.path.clone();
     let failed = if node.is_dir {
         rename_folder(nodes, sections, idx, typed).err()
     } else {
-        match rename::rename_note(&before, typed) {
+        match rename_note_stem(&before, typed) {
             Ok(new_path) => {
                 nodes[idx].name = file_name_of(&new_path);
                 nodes[idx].path = new_path;
                 None
             }
-            Err(e) => Some(format!("rename failed: {e}")),
+            Err(message) => Some(message),
         }
     };
     match failed {
@@ -408,6 +530,29 @@ mod tests {
             .any(|n| n.path == root.join("caps/c.md")));
     }
 
+    /// A folder's case-only change is a valid verdict (the folder finds itself
+    /// at the target on a case-insensitive file system) and `Enter` does it.
+    #[test]
+    fn folder_case_only_rename_is_allowed_by_the_verdict_and_enter() {
+        let (_dir, notez, root) = vault();
+        std::fs::create_dir_all(root.join("Caps")).unwrap();
+        std::fs::write(root.join("Caps/c.md"), "# c\n").unwrap();
+        let mut forest = forest_of(vault_sections(&notez));
+        let path = root.join("Caps");
+
+        assert_eq!(rename_verdict(&path, true, "Caps", "caps"), Ok("caps".to_string()));
+
+        let i = row(&forest.nodes, path_str(&path));
+        let entered = enter_rename(&mut forest.nodes, &mut forest.sections, i, "Caps", "caps");
+        assert!(matches!(entered, RenameEnter::Done(None)));
+        let names: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"caps".to_string()), "{names:?}");
+    }
+
     #[test]
     fn r_on_a_section_a_docs_folder_or_an_empty_tree_changes_nothing() {
         let sections = project_sections();
@@ -494,36 +639,77 @@ mod tests {
         assert!(root.join("my-ideas/a.md").is_file() && !root.join("ideas").exists());
     }
 
-    /// NZ-72: a note keeps its `.md` whether or not the name is typed with
-    /// it; another extension keeps the prompt open with the refusal.
+    /// NZ-76: the prompt shows a note's stem (no date, no extension) and a
+    /// folder's full name.
     #[test]
-    fn note_rename_keeps_md_and_refuses_another_extension() {
+    fn rename_prefill_is_a_notes_stem_and_a_folders_name() {
         let (_dir, notez, root) = vault();
-        let mut forest = forest_of(vault_sections(&notez));
+        for name in ["D.MD", "README.md", "2026-10-06-dated.md"] {
+            std::fs::write(root.join(name), "# n\n").unwrap();
+        }
+        let mut sections = vault_sections(&notez);
+        sections[0].files.push(root.join("D.MD"));
+        let forest = forest_of(sections);
+        for (path, shown) in [
+            ("top.md", "top"),
+            ("D.MD", "D"),
+            ("README.md", "README"),
+            ("2026-10-06-dated.md", "dated"),
+            ("ideas", "ideas"),
+            ("ideas/deep", "deep"),
+        ] {
+            let i = row(&forest.nodes, path_str(&root.join(path)));
+            assert_eq!(
+                rename_request(&forest.nodes, &forest.sections, Some(i)),
+                Ok(Some(shown.to_string())),
+                "{path}"
+            );
+        }
+    }
+
+    /// NZ-76: a note's name is its stem only. Any typed extension, `.md`
+    /// included, keeps the prompt open with the refusal; the note keeps
+    /// the extension it has, in its case.
+    #[test]
+    fn note_rename_edits_the_stem_and_refuses_any_extension() {
+        let (_dir, notez, root) = vault();
+        std::fs::write(root.join("D.MD"), "# D\n").unwrap();
+        let mut sections = vault_sections(&notez);
+        sections[0].files.push(root.join("D.MD"));
+        let mut forest = forest_of(sections);
         let before = disk_entries(&notez);
-        for typed in ["b.txt", "b.TXT", "b.markdown", "b.md.txt"] {
+        for typed in [
+            "b.md", "b.MD", "top.md", "b.txt", "b.TXT", "b.markdown", "b.md.txt", ".md", " b.md ",
+        ] {
             assert_eq!(
                 rename_enter_at(&mut forest, &root.join("top.md"), typed),
                 RenameEnter::Keep(NOTE_EXTENSION.to_string()),
                 "{typed}"
             );
         }
-        assert_eq!(disk_entries(&notez), before, "nothing renamed");
         assert_eq!(
-            rename_enter_at(&mut forest, &root.join("top.md"), "top.md"),
-            RenameEnter::Done(None),
-            "the shown title with its .md: nothing to do"
+            rename_enter_at(&mut forest, &root.join("D.MD"), "e.MD"),
+            RenameEnter::Keep(NOTE_EXTENSION.to_string())
         );
-        assert_eq!(disk_entries(&notez), before);
+        assert_eq!(disk_entries(&notez), before, "nothing renamed");
 
         assert_eq!(rename_enter_at(&mut forest, &root.join("top.md"), "b"), RenameEnter::Done(None));
         assert!(root.join("b.md").is_file() && !root.join("top.md").exists());
-        assert_eq!(rename_enter_at(&mut forest, &root.join("b.md"), "c.md"), RenameEnter::Done(None));
-        assert!(root.join("c.md").is_file() && !root.join("c.md.md").exists());
-        assert_eq!(std::fs::read_to_string(root.join("c.md")).unwrap().lines().next(), Some("# c"));
-        assert_eq!(rename_enter_at(&mut forest, &root.join("c.md"), "D.MD"), RenameEnter::Done(None));
-        assert!(has_entry_named(&root, "d.md"));
-        assert_eq!(forest.nodes[row(&forest.nodes, path_str(&root.join("d.md")))].name, "d.md");
+        assert_eq!(std::fs::read_to_string(root.join("b.md")).unwrap().lines().next(), Some("# b"));
+        assert_eq!(forest.nodes[row(&forest.nodes, path_str(&root.join("b.md")))].name, "b.md");
+
+        assert_eq!(rename_enter_at(&mut forest, &root.join("D.MD"), "e"), RenameEnter::Done(None));
+        assert!(has_entry_named(&root, "e.MD") && !has_entry_named(&root, "e.md"));
+        assert!(!has_entry_named(&root, "D.MD"));
+        assert_eq!(std::fs::read_to_string(root.join("e.MD")).unwrap(), "# e\n");
+        let e = row(&forest.nodes, path_str(&root.join("e.MD")));
+        assert_eq!(forest.nodes[e].name, "e.MD");
+
+        // `E` sanitizes to the stem it has: the note stays `e.MD`.
+        let disk = disk_entries(&notez);
+        assert_eq!(rename_enter_at(&mut forest, &root.join("e.MD"), "E"), RenameEnter::Done(None));
+        assert_eq!(disk_entries(&notez), disk);
+        assert!(has_entry_named(&root, "e.MD"));
     }
 
     /// An empty or clashing name, for a note or a folder, keeps the prompt
@@ -532,13 +718,25 @@ mod tests {
     fn rename_enter_keeps_an_empty_or_clashing_name() {
         let (_dir, notez, root) = vault();
         std::fs::write(root.join("clash.md"), "# clash\n").unwrap();
-        let mut forest = forest_of(vault_sections(&notez));
+        std::fs::write(root.join("Up.MD"), "# up\n").unwrap();
+        std::fs::write(root.join("taken.MD"), "# taken\n").unwrap();
+        // `taken.md` is free in any case: only the kept extension clashes.
+        std::fs::write(root.join("Long.markdown"), "# long\n").unwrap();
+        std::fs::write(root.join("held.markdown"), "# held\n").unwrap();
+        let mut sections = vault_sections(&notez);
+        sections[0]
+            .files
+            .extend([root.join("Up.MD"), root.join("Long.markdown")]);
+        let mut forest = forest_of(sections);
         let before = disk_entries(&notez);
         for (path, typed, want) in [
             (root.join("top.md"), "", "no usable characters"),
-            (root.join("top.md"), ".md", "no usable characters"),
+            (root.join("top.md"), "  ", "no usable characters"),
             (root.join("top.md"), "clash", "already exists"),
-            (root.join("top.md"), "clash.md", "already exists"),
+            (root.join("top.md"), "Clash", "already exists"),
+            (root.join("Up.MD"), "taken", "already exists"),
+            (root.join("Long.markdown"), "held", "already exists"),
+            (root.join("Up.MD"), "", "no usable characters"),
             (root.join("ideas"), "", "the name is empty"),
             (root.join("ideas"), "plans", "already exists"),
         ] {
@@ -549,6 +747,167 @@ mod tests {
             assert!(message.contains(want), "{typed:?}: {message}");
         }
         assert_eq!(disk_entries(&notez), before, "nothing moved");
+    }
+
+    /// NZ-76: the preview is the complete file name, date prefix and
+    /// extension included, and it is the name the rename then gives on disk.
+    /// A daily log keeps its date.
+    #[test]
+    fn rename_preview_is_the_name_the_rename_gives_on_disk() {
+        let (_dir, notez, root) = vault();
+        std::fs::create_dir_all(root.join("01_daily-logs")).unwrap();
+        for name in ["D.MD", "2026-10-06-dated.md", "01_daily-logs/2026-10-06-daily-log.md"] {
+            std::fs::write(root.join(name), "# n\n").unwrap();
+        }
+        let mut sections = vault_sections(&notez);
+        sections[0].files.push(root.join("D.MD"));
+        let mut forest = forest_of(sections);
+        for (name, typed, want) in [
+            ("top.md", "b", "b.md"),
+            ("2026-10-06-dated.md", "x", "2026-10-06-x.md"),
+            ("D.MD", " e ", "e.MD"),
+            ("01_daily-logs/2026-10-06-daily-log.md", "standup", "2026-10-06-standup.md"),
+        ] {
+            let path = root.join(name);
+            let shown = rename_request(&forest.nodes, &forest.sections, Some(row(&forest.nodes, path_str(&path))))
+                .unwrap()
+                .unwrap();
+            assert_eq!(rename_verdict(&path, false, &shown, typed).as_deref(), Ok(want), "{name}");
+            assert_eq!(rename_enter_at(&mut forest, &path, typed), RenameEnter::Done(None), "{name}");
+            assert!(has_entry_named(path.parent().unwrap(), want), "{name}: {want} on disk");
+            assert!(!path.exists(), "{name} moved");
+        }
+    }
+
+    /// An empty or refused name has no preview but its reason; the
+    /// unchanged name previews the current one.
+    #[test]
+    fn rename_verdict_is_the_reason_for_an_empty_or_refused_name() {
+        let path = Path::new("/v/2026-10-06-dated.md");
+        for (typed, want) in [
+            ("", "no usable characters"),
+            ("  ", "no usable characters"),
+            ("b.md", NOTE_EXTENSION),
+            ("b.txt", NOTE_EXTENSION),
+            ("Bad_Name", "name would become badname"),
+            ("?!", "no usable characters"),
+        ] {
+            let reason = rename_verdict(path, false, "dated", typed).unwrap_err();
+            assert!(reason.contains(want), "{typed:?}: {reason}");
+        }
+        assert_eq!(rename_verdict(path, false, "dated", " dated ").as_deref(), Ok("2026-10-06-dated.md"));
+        let kept = Path::new("/v/2026-10-06-My_Note.md");
+        assert_eq!(rename_verdict(kept, false, "My_Note", "My_Note").as_deref(), Ok("2026-10-06-My_Note.md"));
+        assert_eq!(rename_verdict(path, false, "dated", "A b").as_deref(), Ok("2026-10-06-a-b.md"));
+        let folder = Path::new("/v/ideas");
+        assert_eq!(rename_verdict(folder, true, "ideas", "My Ideas").as_deref(), Ok("my-ideas"));
+        assert_eq!(rename_verdict(folder, true, "ideas", "").unwrap_err(), FOLDER_RENAME_EMPTY);
+        assert_eq!(
+            rename_verdict(folder, true, "ideas", "b.md").unwrap_err(),
+            altered_name_message("bmd"),
+            "a folder name is not a stem"
+        );
+    }
+
+    /// NZ-76: `r` on the configured quick-notes and daily-logs folders, the
+    /// todo store and any `TODO.md` keeps the name with a footer message and
+    /// opens no prompt; the notes and folders inside them still rename.
+    #[test]
+    fn r_on_a_notez_folder_or_a_todo_file_keeps_its_name() {
+        let (_dir, notez, root) = vault();
+        let mut config = Config::defaults();
+        config.paths.quick_notes_dir = "quick".to_string();
+        config.paths.daily_logs_dir = "logs".to_string();
+        for sub in ["quick", "logs", "00_quick-notes", "todo", "todo2"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for file in [
+            "quick/2026-10-06-q.md",
+            "logs/2026-10-06-daily-log.md",
+            "todo/TODO.md",
+            "todo2/todo.md",
+        ] {
+            std::fs::write(root.join(file), "# n\n").unwrap();
+        }
+        std::fs::create_dir_all(notez.join("_todos/sub")).unwrap();
+        std::fs::write(notez.join("_todos/t.md"), "# t\n").unwrap();
+        let mut sections = vault_sections(&notez);
+        let global = sections.iter_mut().find(|s| s.scope == Scope::Global).unwrap();
+        global.files.push(notez.join("_todos/t.md"));
+        global.dirs.extend([notez.join("_todos"), notez.join("_todos/sub")]);
+        let forest = forest_of(sections);
+        let open = |path: &Path| {
+            let i = row(&forest.nodes, path_str(path));
+            rename_open(&forest.nodes, &forest.sections, Some(i), &config)
+        };
+        for (path, want) in [
+            (root.join("quick"), "rename: quick is a notez folder and keeps its name"),
+            (root.join("logs"), "rename: logs is a notez folder and keeps its name"),
+            (root.join("todo/TODO.md"), "rename: TODO.md keeps its name: todoz finds it by name"),
+            (root.join("todo2/todo.md"), "rename: TODO.md keeps its name: todoz finds it by name"),
+            (notez.join("_todos"), "rename: _todos is a notez folder and keeps its name"),
+        ] {
+            assert_eq!(open(&path), Err(want.to_string()), "{}", path.display());
+        }
+        for (path, shown) in [("_todos/sub", "sub"), ("_todos/t.md", "t")] {
+            assert_eq!(
+                open(&notez.join(path)),
+                Ok(Some(shown.to_string())),
+                "{path}"
+            );
+        }
+        for (path, shown) in [
+            ("quick/2026-10-06-q.md", "q"),
+            ("logs/2026-10-06-daily-log.md", "daily-log"),
+            ("00_quick-notes", "00_quick-notes"),
+            ("todo", "todo"),
+            ("ideas", "ideas"),
+        ] {
+            assert_eq!(open(&root.join(path)), Ok(Some(shown.to_string())), "{path}");
+        }
+        let sections_row = row(&forest.nodes, path_str(&root));
+        assert_eq!(
+            rename_open(&forest.nodes, &forest.sections, Some(sections_row), &config),
+            Err(SECTION_RENAME.to_string())
+        );
+        assert_eq!(rename_open(&forest.nodes, &forest.sections, None, &config), Ok(None));
+    }
+
+    /// NZ-76: the prompt's title names the row's kind.
+    #[test]
+    fn rename_title_names_the_rows_kind() {
+        let (_dir, notez, root) = vault();
+        for sub in ["01_daily-logs", "00_quick-notes", "todo"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for file in [
+            "01_daily-logs/2026-10-06-daily-log.md",
+            "00_quick-notes/2026-10-06-q.md",
+            "todo/TODO.md",
+        ] {
+            std::fs::write(root.join(file), "# n\n").unwrap();
+        }
+        let mut forest = forest_of(vault_sections(&notez));
+        let config = Config::defaults();
+        let title = |forest: &Forest, path: &str| {
+            let node = &forest.nodes[row(&forest.nodes, path_str(&root.join(path)))];
+            rename_title(node, &forest.sections, &config)
+        };
+        for (path, want) in [
+            ("ideas", "rename directory"),
+            ("ideas/deep", "rename directory"),
+            ("01_daily-logs", "rename directory"),
+            ("top.md", "rename note"),
+            ("ideas/a.md", "rename note"),
+            ("todo/TODO.md", "rename todo"),
+            ("01_daily-logs/2026-10-06-daily-log.md", "rename log"),
+            ("00_quick-notes/2026-10-06-q.md", "rename quick note"),
+        ] {
+            assert_eq!(title(&forest, path), want, "{path}");
+        }
+        forest.sections[0].is_doc = true;
+        assert_eq!(title(&forest, "top.md"), "rename doc");
+        assert_eq!(title(&forest, "todo/TODO.md"), "rename todo");
     }
 
     #[test]
@@ -571,7 +930,7 @@ mod tests {
         let before = disk_entries(&notez);
         let tags = std::fs::read_to_string(notez.join(".tags")).unwrap();
 
-        for (name, shown) in [("2026-10-06-My_Note.md", "My_Note"), ("x.MD", "x.MD")] {
+        for (name, shown) in [("2026-10-06-My_Note.md", "My_Note"), ("x.MD", "x")] {
             let path = root.join(name);
             for typed in [shown.to_string(), format!("  {shown} ")] {
                 assert_eq!(

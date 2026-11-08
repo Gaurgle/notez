@@ -189,6 +189,38 @@ pub(super) fn bulk_delete_request(
     Ok(items)
 }
 
+/// What `d` does with rows marked: [`bulk_delete_request`], except that a
+/// set holding a store folder is refused whole ([`marked_store_folder`]).
+pub(super) fn bulk_delete_open(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    marks: &HashSet<PathBuf>,
+    current_project: Option<&str>,
+    config: &Config,
+) -> std::result::Result<Vec<BulkItem>, String> {
+    let items = bulk_delete_request(nodes, sections, marks, current_project)?;
+    match marked_store_folder(nodes, sections, marks, config, "delete") {
+        Some(message) => Err(message),
+        None => Ok(items),
+    }
+}
+
+/// The footer message for the first row of the [`action_set`] that is a
+/// store folder ([`store_folder_lock`]), its name in front
+/// (`_todos/: delete: _todos is a notez folder and keeps its name`).
+fn marked_store_folder(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    marks: &HashSet<PathBuf>,
+    config: &Config,
+    verb: &str,
+) -> Option<String> {
+    action_set(marks, nodes).into_iter().find_map(|i| {
+        store_folder_lock(&nodes[i], sections, config, verb)
+            .map(|lock| format!("{}: {lock}", marked_name(&nodes[i], sections)))
+    })
+}
+
 /// One item per row of the [`action_set`], each checked by
 /// [`delete_request`] as if the cursor were on it. A folder's contents are
 /// counted from the disk now.
@@ -382,6 +414,24 @@ fn marked_name(node: &TreeNode, sections: &[SectionSpec]) -> String {
         format!("{rel}/")
     } else {
         rel
+    }
+}
+
+/// What `m` (`fixed` false) or `S` (`fixed` true) does with rows marked:
+/// [`bulk_move_request`], except that a set holding a store folder is
+/// refused whole ([`marked_store_folder`]).
+pub(super) fn bulk_move_open(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    marks: &HashSet<PathBuf>,
+    ctx: &TreeContext,
+    fixed: bool,
+    config: &Config,
+) -> std::result::Result<(MovePrompt, Vec<MovePrompt>), String> {
+    let (prompt, items) = bulk_move_request(nodes, sections, marks, ctx, fixed)?;
+    match marked_store_folder(nodes, sections, marks, config, prompt.verb()) {
+        Some(message) => Err(message),
+        None => Ok((prompt, items)),
     }
 }
 

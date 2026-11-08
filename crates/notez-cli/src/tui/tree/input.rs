@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tui::notice::Notice;
+use crate::tui::prompt::Prompt;
 use crate::tui::sync::VaultSync;
 #[cfg(test)]
 use crate::tui::yank::{Sweep, YANK_FLASH, YANK_FRAME};
@@ -75,6 +76,11 @@ pub(super) fn event_loop(
     // The text the open rename prompt was prefilled with: Enter on it
     // unchanged renames nothing.
     let mut rename_shown = String::new();
+    // The open rename prompt's title, naming the row's kind.
+    let mut rename_label: &'static str = "rename";
+    // The entry the open rename prompt is on and whether it is a folder,
+    // for the live verdict under the name.
+    let mut rename_entry: Option<(PathBuf, bool)> = None;
     // Why Enter refused the rename popup's name, until the next key.
     let mut rename_error: Option<String> = None;
     let mut status_message = Notice::default();
@@ -632,7 +638,17 @@ pub(super) fn event_loop(
 
                 if let Some(buffer) = &rename_buffer {
                     // Over the list pane, never the preview.
-                    rename_popup(buffer, rename_error.as_deref()).render(frame, list_area);
+                    let verdict = rename_entry
+                        .as_ref()
+                        .map(|(path, is_dir)| rename_verdict(path, *is_dir, &rename_shown, buffer));
+                    let (hint, live_error) = rename_lines(verdict.as_ref());
+                    rename_prompt_popup(
+                        buffer,
+                        rename_error.as_deref().or(live_error),
+                        rename_label,
+                        &hint,
+                    )
+                    .render(frame, list_area);
                 }
                 if help.open {
                     help::render(frame, full, TREE_KEYS, &mut help);
@@ -1497,12 +1513,17 @@ pub(super) fn event_loop(
                 flag_mode = true;
             }
             KeyCode::Char('r') => {
-                match rename_request(nodes, &forest.sections, visible.get(selected).copied()) {
+                let rename_row = visible.get(selected).copied();
+                match rename_open(nodes, &forest.sections, rename_row, config) {
                     Ok(text) => {
+                        let node = rename_row.and_then(|i| nodes.get(i));
+                        rename_label =
+                            node.map_or("rename", |n| rename_title(n, &forest.sections, config));
+                        rename_entry = node.map(|n| (n.path.clone(), n.is_dir));
                         rename_shown = text.clone().unwrap_or_default();
                         rename_buffer = text;
                     }
-                    Err(message) => status_message.set(Some(message.to_string())),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('n') => {
@@ -1525,7 +1546,7 @@ pub(super) fn event_loop(
                 }
             }
             KeyCode::Char(code @ ('m' | 'S')) if !marks.is_empty() => {
-                match bulk_move_request(nodes, &forest.sections, &marks, ctx, code == 'S') {
+                match bulk_move_open(nodes, &forest.sections, &marks, ctx, code == 'S', config) {
                     Ok((prompt, items)) => {
                         move_prompt = Some(prompt);
                         move_set = Some(items);
@@ -1534,43 +1555,41 @@ pub(super) fn event_loop(
                 }
             }
             KeyCode::Char('d') if !marks.is_empty() => {
-                match bulk_delete_request(
+                match bulk_delete_open(
                     nodes,
                     &forest.sections,
                     &marks,
                     ctx.current_project.as_deref(),
+                    config,
                 ) {
                     Ok(items) if !items.is_empty() => confirm_bulk_delete = Some(items),
                     Ok(_) => {}
                     Err(message) => status_message.set(Some(message)),
                 }
             }
-            KeyCode::Char('m') => {
-                match move_request(nodes, &forest.sections, visible.get(selected).copied(), ctx) {
-                    Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message.set(Some(message.to_string())),
-                }
-            }
-            KeyCode::Char('S') => {
-                match set_scope_request(
+            KeyCode::Char(code @ ('m' | 'S')) => {
+                match move_open(
                     nodes,
                     &forest.sections,
                     visible.get(selected).copied(),
                     ctx,
+                    code == 'S',
+                    config,
                 ) {
                     Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message.set(Some(message.to_string())),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('d') => {
-                match delete_request(
+                match delete_open(
                     nodes,
                     &forest.sections,
                     visible.get(selected).copied(),
                     ctx.current_project.as_deref(),
+                    config,
                 ) {
                     Ok(prompt) => confirm_delete = prompt,
-                    Err(message) => status_message.set(Some(message.to_string())),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('y') => yank_pending = true,
@@ -1627,6 +1646,34 @@ pub(super) fn yank(
             })
     };
     Some(copied.unwrap_or_else(|e| format!("copy failed: {e:#}")))
+}
+
+/// The rename popup's lines under the name for `verdict`
+/// ([`rename_verdict`]): a valid name is the hint `preview: <name>` and no
+/// error; a refused one is no hint and its reason as the error, drawn red
+/// by the popup.
+pub(super) fn rename_lines(
+    verdict: Option<&std::result::Result<String, String>>,
+) -> (String, Option<&str>) {
+    match verdict {
+        Some(Ok(name)) => (format!("preview: {name}"), None),
+        Some(Err(reason)) => (String::new(), Some(reason.as_str())),
+        None => (String::new(), None),
+    }
+}
+
+/// The rename popup ([`rename_popup`]) titled `title` ([`rename_title`]),
+/// with `hint` and `error` from [`rename_lines`] (or Enter's refusal).
+pub(super) fn rename_prompt_popup<'a>(
+    buffer: &'a str,
+    error: Option<&'a str>,
+    title: &'a str,
+    hint: &'a str,
+) -> Prompt<'a> {
+    let mut popup = rename_popup(buffer, error);
+    popup.title = title;
+    popup.hint = hint;
+    popup
 }
 
 /// A key other than `Enter` in the open rename popup: `esc` closes it with
@@ -1731,6 +1778,98 @@ mod tests {
         assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "top"), RenameEnter::Done(None));
         assert_eq!(rename_popup_on(&mut forest, &root.join("top.md"), "renamed"), RenameEnter::Done(None));
         assert!(root.join("renamed.md").is_file());
+    }
+
+    /// NZ-76: the popup draws the error and hint it is given, under its title.
+    #[test]
+    fn rename_popup_shows_the_given_error_hint_and_title() {
+        let note = rename_prompt_popup("a", Some("refused"), "rename note", "");
+        assert_eq!((note.hint, note.buffer, note.error), ("", "a", Some("refused")));
+        let log = rename_prompt_popup("x", None, "rename log", "preview: 2026-10-06-x.md");
+        assert_eq!((log.title, log.hint, log.error), ("rename log", "preview: 2026-10-06-x.md", None));
+        let folder = rename_prompt_popup("ideas", None, "rename directory", "preview: ideas");
+        assert_eq!((folder.title, folder.hint), ("rename directory", "preview: ideas"));
+    }
+
+    /// The popup as drawn after typing `typed` in the prompt `r` opens on
+    /// `path`: the hint and error lines from the live verdict.
+    fn live_popup(forest: &Forest, path: &Path, typed: &str) -> (String, Option<String>) {
+        let i = row(&forest.nodes, path_str(path));
+        let shown = rename_request(&forest.nodes, &forest.sections, Some(i))
+            .unwrap()
+            .unwrap();
+        let verdict = rename_verdict(path, forest.nodes[i].is_dir, &shown, typed);
+        let (hint, error) = rename_lines(Some(&verdict));
+        let popup = rename_prompt_popup(typed, error, "rename", &hint);
+        (popup.hint.to_string(), popup.error.map(str::to_string))
+    }
+
+    /// NZ-76: under the name the popup always says what the line is:
+    /// `preview: <complete name>` for every rename type while the name is
+    /// valid, the current name included, and the refusal reason as the red
+    /// error, with no preview, while it is not.
+    #[test]
+    fn rename_popup_line_is_the_preview_or_the_live_refusal() {
+        let (_dir, notez, root) = vault();
+        for sub in ["01_daily-logs", "00_quick-notes"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        for name in [
+            "D.MD",
+            "2026-10-06-dated.md",
+            "clash.md",
+            "01_daily-logs/2026-10-06-daily-log.md",
+            "00_quick-notes/2026-10-06-q.md",
+        ] {
+            std::fs::write(root.join(name), "# n\n").unwrap();
+        }
+        let mut sections = vault_sections(&notez);
+        sections[0].files.push(root.join("D.MD"));
+        let mut forest = forest_of(sections);
+        for (path, typed, want) in [
+            ("top.md", "b", "preview: b.md"),
+            ("top.md", "top", "preview: top.md"),
+            ("2026-10-06-dated.md", "x", "preview: 2026-10-06-x.md"),
+            ("D.MD", "e", "preview: e.MD"),
+            ("01_daily-logs/2026-10-06-daily-log.md", "standup", "preview: 2026-10-06-standup.md"),
+            ("00_quick-notes/2026-10-06-q.md", "r", "preview: 2026-10-06-r.md"),
+            ("ideas", "ideas2", "preview: ideas2"),
+            ("ideas", "ideas", "preview: ideas"),
+        ] {
+            assert_eq!(
+                live_popup(&forest, &root.join(path), typed),
+                (want.to_string(), None),
+                "{path} {typed:?}"
+            );
+        }
+        forest.sections[0].is_doc = true;
+        assert_eq!(
+            live_popup(&forest, &root.join("top.md"), "b"),
+            ("preview: b.md".to_string(), None),
+            "a doc"
+        );
+        forest.sections[0].is_doc = false;
+
+        for (path, typed, want) in [
+            ("top.md", "b.md", "extension is kept"),
+            ("top.md", "Bad_Name", "letters, digits and -"),
+            ("top.md", "", "no usable characters"),
+            ("top.md", "clash", "already exists"),
+            ("ideas", "Bad_Name", "letters, digits and -"),
+            ("ideas", "", "the name is empty"),
+            ("ideas", "plans", "already exists"),
+        ] {
+            let path = root.join(path);
+            let (hint, error) = live_popup(&forest, &path, typed);
+            assert_eq!(hint, "", "{typed:?}: no preview");
+            let error = error.unwrap_or_else(|| panic!("{typed:?}: no live error"));
+            assert!(error.contains(want), "{typed:?}: {error}");
+            assert_eq!(
+                rename_popup_on(&mut forest, &path, typed),
+                RenameEnter::Keep(error),
+                "{typed:?}: Enter gives the same reason"
+            );
+        }
     }
 
     #[test]
