@@ -7,10 +7,10 @@ dated words and the pre-0.8.0 baton (archived 2026-10-30).
 
 ## Current lead
 
-Lead `018zBNkK` (Claude `nz-coordinator`, Fable 5.1) HOLDS the baton
-again since 2026-11-05 on Andreas's "continue" (released 2026-11-04
-16:15, no lead in between). `main` = `origin/main` at `8eb01a2`; CI on
-`312410d` (run 41854087161) green.
+None. Lead `018zBNkK` (Claude `nz-coordinator`; Fable 5.1, Opus 5.5 since his
+`/model` 2026-11-05) RELEASED the baton 2026-11-05 14:30 on Andreas's "perhaps
+we should stop for today". No workers or reviewers running. `main` =
+`origin/main` (NZ-77a merged as `bb3c913`, CI green).
 
 ## Standing authority
 
@@ -28,29 +28,28 @@ Coordination docs: lead `018zBNkK` may commit and push them this session (Andrea
 
 ## In flight
 
-- NZ-75 (#104): Ready to integrate, gate owner look; 19b4452 (diff
-  c316e06c254b), CI green, gate holds on 82aa71f; `.claude/worktrees/NZ-75`. Record on #104.
-- NZ-65 (#91): Ready to integrate, gate owner look; 744543b, gate holds on
-  c51a378; `.claude/worktrees/NZ-65`. Likely superseded by NZ-69; lead says drop, his call.
+- NZ-76 (#105): e0ed58f gate holds, NOT merged: his 2026-11-05 go on #105: amendment 3
+  (todos store fully renamable from notez, only default folders fixed; TODO.md
+  name kept, his to confirm) and a daily-log stamping ticket are next. NZ-77b (#106 tree half) after NZ-76.
 - NZ-62 (#88): Review, gate owner look; doc uncommitted in
   `.claude/worktrees/NZ-62` (diff 2b30dd82643c), verdict open. Record on #88.
 
 ## Open questions
 
 - NZ-71 (#100, Backlog): intuitive dated-todo creation, design first; NZ-74
-  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-75 (#104),
-  NZ-76 (#105), NZ-77 (#106): Ready, look changes, from his 2026-11-04 words.
+  (#103, Ready): pane 2 drawn like the todoz board, design first; NZ-78 (#107,
+  Backlog): what defines a log, change-date action, design first (2026-11-05).
 - Need his yes to ticket: #77's question (what defines a todoz todo in a
   file; borrow the board's preview?); frontmatter drawn as rule plus
   paragraph in the rendered preview (NZ-53).
-- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69, NZ-70 (#95, #96) Ready
-  on his go; DESIGN.md "one key, one function" line proposed, not written.
+- NZ-52 (#78) his call; NZ-18, NZ-47d parked. NZ-69 (#95) Ready on his go; NZ-70
+  (#96, scopes) deferred by him 2026-11-05; DESIGN.md "one key, one function" line proposed, not written.
 
 ## Next step
 
 Queue (his 2026-11-03 "continue with the tickets", 2026-11-04 "other
-tickets can go ahead"): NZ-75 (#104), NZ-76 (#105), NZ-77 (#106) in that
-order (todo.rs is shared by 75 and 77); NZ-65 (his call); NZ-69, NZ-70 (on his go); NZ-67 parked; NZ-30
+tickets can go ahead"): NZ-76 (#105) in review, then
+NZ-77b; NZ-65 (his call); NZ-69 (on his go); NZ-67 parked; NZ-30
 (no brief). Per ticket: worktree, worker, reviewer, verify, CI, gate, Done.
 
 ## Start the lead

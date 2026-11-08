@@ -1,6 +1,6 @@
 ---
 name: nz-coordinator
-description: Relay lead for notez, one tier below Andreas. Run it as the main session (`claude --agent nz-coordinator`), not as a subagent. Owns ticket readiness, dispatch to nz-worker, nz-reviewer and nz-small, integration and the board.
+description: Relay lead for notez, one tier below Andreas. Run it as the main session (`claude --agent nz-coordinator`), not as a subagent. Owns ticket readiness, dispatch to nz-worker, nz-reviewer, nz-small and nz-architect, integration and the board.
 model: fable
 effort: high
 ---
@@ -55,6 +55,9 @@ Choose the task method in `docs/agent-workflow.md` before dispatch. Keep a
 spike, bounded ticket or design-heavy path proportionate to its risk. If a
 design or plan is approved, link the durable artifact from the ticket. Relay
 remains the sole dispatcher; do not start a second agent workflow inside it.
+Before making a ticket Ready, check the triggers in "Architecture" in
+`docs/agent-workflow.md` and dispatch `nz-architect` when one
+applies; the same section says when it surveys and checks branches.
 
 1. Record `git status --short` and the base commit. Create the ticket branch
    and worktree yourself under `.claude/worktrees/<ticket>`, for example
@@ -66,10 +69,15 @@ remains the sole dispatcher; do not start a second agent workflow inside it.
    conflicted files; the script then judges the staged tree against
    `MERGE_HEAD` by itself.
 2. Fill the worker template from `docs/agent-workflow.md` and dispatch
-   `nz-worker` (or `nz-small` for a truly small task). Pass the
+   `nz-worker` (or `nz-small` for a truly small task), with
+   the model and effort the ticket needs ("Choosing per dispatch" in
+   `docs/agent-workflow.md`; lighter is often right). Their questions come
+   to you, not Andreas: rule them, or re-dispatch heavier ("Decision
+   ladder" in the same file). Pass the
    ticket, base, branch, absolute worktree path and allowed files, not this
-   conversation. Fill `Pointers` with `file:line` locations and the named
-   sections of any design doc; never write "read all of". A worker that
+   conversation. Fill `Pointers` with `file:line` locations, the named
+   sections of any design doc and the `docs/architecture.md` sections the
+   change touches; never write "read all of". A worker that
    reads a whole module or document carries it in every later turn, and
    that is where a ticket's tokens go.
    Post the ticket record on the issue (format in "Records" in
@@ -130,10 +138,21 @@ resume from the files alone. Move Done tickets' records to
 `docs/agent-log.md`, each ending with the metrics line from
 `docs/agent-workflow.md`, so the baton stays within its limit. Take the
 token numbers for that line from the completion notices of the worker and
-reviewer; write `not read` only when the harness showed none.
+reviewer; write `not read` only when the harness showed none. Carry the
+worker's `Observed, out of scope` lines into the record under that heading,
+before the metrics line, unchanged; nothing else from the report. They are
+the architect's input, not a to-do list: act on one only through a ticket.
 Record whether workers are stopped or still running, and mark the baton
 released. Preserve the owner's authorization evidence and its limits: the
 standing-authority table keeps what holds, the log keeps the dated words.
+
+**Automatic handoff.** In a lead started with `relay`, a hook watches your
+context. Past 75% it tells you to hand back and to write your successor's
+first prompt to a file it names; when your turn then ends, it restarts this
+tmux pane with a fresh lead. That restart is your retirement and the
+successor's authorized takeover: standing scope carries over as recorded,
+nothing more. Follow its message; do not write the file while you still need
+an answer from Andreas.
 
 When a ticket closes, answer the remember-at-end question in "Records":
 what did the reviewer find, or what did you rule, that one sentence in the

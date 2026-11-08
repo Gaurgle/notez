@@ -416,7 +416,7 @@ fn trailing_whitespace(note: &Note, out: &mut Vec<Diagnostic>) {
 /// mirror `notez-core`'s `todo` module: `- [ ] `, `- [/] `, `- [x] ` and
 /// `- [X] `, each followed by the task text.
 fn todo_task_line(note: &Note, out: &mut Vec<Diagnostic>) {
-    if note.path.file_name().and_then(|name| name.to_str()) != Some("TODO.md") {
+    if note.path.file_name().and_then(|name| name.to_str()) != Some(notez_core::core::resolve::TODO_FILE) {
         return;
     }
     const TASK_PREFIXES: [&str; 4] = ["- [ ] ", "- [/] ", "- [x] ", "- [X] "];

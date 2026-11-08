@@ -448,8 +448,6 @@ fn fzf_pick(names: &[String], config: &Config) -> Result<String> {
     Ok(selected)
 }
 
-/// The todo store, never a place for a note.
-const TODOS_DIR: &str = "_todos";
 
 /// Every visible folder under `root` as a relative path, parents before
 /// their children, siblings sorted (`work`, `work/meetings`, `zeta`). Skips
@@ -462,7 +460,7 @@ fn nested_subdirs(root: &Path) -> Vec<String> {
 
 fn collect_subdirs(dir: &Path, prefix: &str, found: &mut Vec<String>) {
     for name in subdirs(dir).unwrap_or_default() {
-        if prefix.is_empty() && name == TODOS_DIR {
+        if prefix.is_empty() && name == resolve::TODOS_DIR {
             continue;
         }
         let path = dir.join(&name);

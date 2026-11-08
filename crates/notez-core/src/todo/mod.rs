@@ -366,14 +366,14 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
     push_section(
         &mut out,
         &mut seen,
-        &notez_root.join("TODO.md"),
+        &notez_root.join(resolve::TODO_FILE),
         "global",
         "NOTEZ",
         true,
     );
 
     // _todos/<category>/TODO.md - always shown.
-    if let Ok(entries) = std::fs::read_dir(notez_root.join("_todos")) {
+    if let Ok(entries) = std::fs::read_dir(notez_root.join(resolve::TODOS_DIR)) {
         let mut dirs: Vec<_> = entries.flatten().filter(|e| e.path().is_dir()).collect();
         dirs.sort_by_key(|e| e.file_name());
         for entry in dirs {
@@ -381,7 +381,7 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
             push_section(
                 &mut out,
                 &mut seen,
-                &entry.path().join("TODO.md"),
+                &entry.path().join(resolve::TODO_FILE),
                 &cat,
                 &cat.to_uppercase(),
                 true,
@@ -397,7 +397,7 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
         push_section(
             &mut out,
             &mut seen,
-            &notez_root.join("personal").join(name).join("TODO.md"),
+            &notez_root.join("personal").join(name).join(resolve::TODO_FILE),
             name,
             &format!("{name} (personal)"),
             false,
@@ -405,7 +405,7 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
         push_section(
             &mut out,
             &mut seen,
-            &local_path.join("notez").join("TODO.md"),
+            &local_path.join("notez").join(resolve::TODO_FILE),
             name,
             &format!("{name} (public)"),
             false,
@@ -413,7 +413,7 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
         push_section(
             &mut out,
             &mut seen,
-            &local_path.join(".notez").join("TODO.md"),
+            &local_path.join(".notez").join(resolve::TODO_FILE),
             name,
             &format!("{name} (scratch)"),
             false,
@@ -428,7 +428,7 @@ pub fn load_board(config: &Config, registry: &ProjectRegistry) -> Vec<Task> {
 /// resolved against the current directory's project.
 pub fn load_scope_board(scope: Scope, config: &Config) -> anyhow::Result<Vec<Task>> {
     let root = resolve::root(scope, config)?;
-    Ok(load_single_todo(&root.join("TODO.md"), &scope.to_string()))
+    Ok(load_single_todo(&root.join(resolve::TODO_FILE), &scope.to_string()))
 }
 
 // --- Saving ---

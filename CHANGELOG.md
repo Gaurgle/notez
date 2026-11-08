@@ -39,6 +39,9 @@ it moves; after a move, every addition below is additive for serde.
 - New `todo::parse_todo_lines`, returning `TodoLine` values that carry the
   due date. `parse_todos_from_content` keeps its tuple signature and output,
   with the `@date` word left in the text.
+- New constants `core::resolve::TODOS_DIR` (`"_todos"`) and
+  `core::resolve::TODO_FILE` (`"TODO.md"`) name the todos store once
+  (NZ-80). Additive; no path or on-disk byte changes.
 
 ## [0.1.0] - 2026-10-15
 

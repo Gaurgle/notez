@@ -149,9 +149,9 @@ fn section_types(spec: &SectionSpec) -> u8 {
 /// anywhere, or any note under the global store's `_todos/`.
 fn is_todo(node: &TreeNode, spec: &SectionSpec) -> bool {
     !node.is_dir
-        && (node.name == "TODO.md"
+        && (node.name == notez_core::core::resolve::TODO_FILE
             || (section_types(spec) == DocType::Global.bit()
-                && node.path.starts_with(spec.root.join("_todos"))))
+                && node.path.starts_with(spec.root.join(notez_core::core::resolve::TODOS_DIR))))
 }
 
 /// Whether `node` is a todo document by [`is_todo`]'s rule, as

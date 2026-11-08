@@ -54,6 +54,14 @@ pub fn daily_logs(scope: Scope, config: &Config) -> Result<PathBuf> {
     Ok(root(scope, config)?.join(&config.paths.daily_logs_dir))
 }
 
+/// The todo board's store under the global notez root: one folder per
+/// category, `<notez_root>/_todos/<category>/TODO.md`.
+pub const TODOS_DIR: &str = "_todos";
+
+/// The file name of every todo list: a scope root's own list and each
+/// `_todos` category's.
+pub const TODO_FILE: &str = "TODO.md";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,6 +165,14 @@ mod tests {
 
         let r = quick_notes(Scope::Global, &config).unwrap();
         assert_eq!(r, dir.path().join("00_qn"));
+    }
+
+    /// The todos store names are on-disk layout shared with existing vaults
+    /// and epoz; renaming either would orphan every todo list.
+    #[test]
+    fn todos_store_names_match_the_vault_layout() {
+        assert_eq!(TODOS_DIR, "_todos");
+        assert_eq!(TODO_FILE, "TODO.md");
     }
 
     /// Create a git repo with a nested subdirectory. Returns (repo root, subdir),

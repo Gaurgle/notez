@@ -362,6 +362,37 @@ stood in the handoff, then its In flight entries in the order they were
 written. In flight entries that cover several tickets at once are under
 "Wave and day notes" below.
 
+### NZ-75 (#104): todoz yy copies the file or the row, yp its TODO.md path, with the sweep
+
+From Andreas's 2026-11-04 words ("implement the yank (yy) and yank
+path (yp) for todoz as well ... yes ... use the flash here as well"),
+look change, run by lead `018zBNkK` on 2026-11-05 after his
+"continue". Branch `feat/nz-75-todoz-yank`, worktree
+`.claude/worktrees/NZ-75`, base `8eb01a2`. Worker (opus, about 9 min,
+112k tokens): the flash code moved to a shared `tui/yank.rs` (tree
+tests untouched), `yank_row`/`yank_text`/`code_todo_line`, wrapped rows
+swept on every line, ten mutations killed. Reviewer (opus, 4 min, 64k)
+accepted first, diff `765935967ddc`; the lead made one follow-up
+mandatory, the cwd-dependent `yp` test marked `#[serial]` (the NZ-68
+flake class; nz-small sonnet, 1 min, 14k; re-review 1 min, 14k, diff
+`d2a5134eefca`), commit `914abc6`, CI 42021133447 green. Andreas tried
+it: "why do i/user see 'copied N B'? ... just say something like
+'copied 1 subtask' or 'copied N tasks'". Amendment (nz-small sonnet,
+1 min, 28k): `copied 1 todo / 1 subtask / 1 code todo / N todos` in
+todoz, `copied N lines` in the tree; review (2 min, 27k) accepted
+first, diff `c316e06c254b`, commit `19b4452`, CI 42022477399 green,
+combined check clean (820 + 5 + 203), gate held. Andreas: "perfect.
+i'm happy!"; merged `--no-ff` as `0f7e311` (Closes #104), CI on `main`
+42023019726 green, remote branch deleted, worktree swept. Follow-ups
+on #104: code-todo file names with spaces fail safely; no test drives
+the event loop; `clipboard::size_label` is now used only by its tests;
+the same unserialized cwd test exists in `commands/cp.rs`. Remember at
+the end: a fact about how he wants to work, for his notes: footer
+messages name the thing in the user's terms (todos, lines), never an
+internal measure.
+
+NZ-75: review accepted first; fix cycles 1; owner decisions 2; worker 11; review 7; models opus/opus; usage 154k; 105k
+
 ### NZ-72 (#101): rename and due prompts as a centred popup with live colour and an error line
 
 From Andreas's 2026-11-04 words after NZ-50b ("put the rename and due
