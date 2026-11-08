@@ -35,7 +35,7 @@ them; notez-cli 38,119, of which `tui/` is about 31,000.
 | `config/` (`mod`, `paths`, `metadata`, `registry`) | `config.toml`, per-machine `registry.toml`, synced `.notez-config.toml`; XDG paths | `Config`, `PathsConfig`, `EditorConfig`, `ToolsConfig`, `NotezMetadata`, `ProjectMetadata`, `ProjectRegistry`, `ProjectEntry` |
 | `core/scope` | the four scopes | `Scope` |
 | `core/project` | git toplevel discovery, `notez/` and `.notez/` stores, scratch gitignore | `Project` |
-| `core/resolve` | scope to directory: `root`, `quick_notes`, `daily_logs` | |
+| `core/resolve` | scope to directory: `root`, `quick_notes`, `daily_logs`; the todos store names `TODOS_DIR` (`_todos`) and `TODO_FILE` (`TODO.md`) | |
 | `core/aggregate` | walking every store into one list | `SourceKind`, `NoteEntry` |
 | `core/frontmatter`, `core/dates` | the `---` block, `NoteDate` parsing | `NoteDate`, `NoteDates` |
 | `core/note` | | `Note` |
@@ -167,11 +167,12 @@ In the CLI, where epoz cannot reach them:
   share the vault's `.tags`, other stores keep their own).
 - The browser's view scopes and document types (`tui/tree/scope.rs`,
   `tui/tree/doc_type.rs`), and the move rules (`tui/move_path.rs`).
-- Store names as literals: a pattern count for `TODO.md`, `_todos`,
-  `00_quick-notes`, `daily*` and the alias names finds 37 hits in 11 CLI
-  files and 23 in 6 core files (estimate: the pattern also matches alias
-  names like `todoz`). `core/resolve` names `quick_notes` and
-  `daily_logs`; there is no equivalent for the todos store.
+- Store names as literals: `core/resolve` names `quick_notes`,
+  `daily_logs` and the todos store (`TODOS_DIR`, `TODO_FILE`, NZ-80), and
+  core's `todo` and `migrate` and the CLI's `commands/{todo,add}.rs`,
+  `tui/todo.rs`, `tui/lint.rs` and `tui/tree/{render,doc_type,delete}.rs`
+  read `TODOS_DIR` and `TODO_FILE` from it. `00_quick-notes`, `daily*`
+  and the alias names were not recounted.
 
 ## Target shape
 

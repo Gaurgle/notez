@@ -44,7 +44,7 @@ fn quick_add(text: String, scope: Scope, config: &Config) -> Result<()> {
         notez_core::core::project::ensure_scratch_gitignored(&dir);
     }
 
-    let path = dir.join("TODO.md");
+    let path = dir.join(resolve::TODO_FILE);
     // Only a missing file starts fresh; an existing but unreadable one is
     // never replaced.
     let mut content = match std::fs::read_to_string(&path) {
@@ -78,7 +78,7 @@ fn launch_tui(scope: Scope, config: &Config, warning: Option<&str>, sync: SyncSt
     ctx.sync = sync;
     let outcome = run_board(items, &ctx, config)?;
     todo::save_todos_for(&outcome.items, &outcome.dirty)
-        .context("failed to save TODO.md files")?;
+        .with_context(|| format!("failed to save {} files", resolve::TODO_FILE))?;
     Ok(())
 }
 
@@ -99,7 +99,7 @@ fn build_board(scope: Scope, config: &Config) -> Result<(Vec<Task>, BoardContext
     // Single-scope board: one synthesized section header + that scope's
     // TODO.md, so the TUI always has a section to add into.
     let root = resolve::root(scope, config)?;
-    let path = root.join("TODO.md");
+    let path = root.join(resolve::TODO_FILE);
     let (name, label) = match Project::try_detect() {
         Some(p) => {
             let label = format!("{} ({})", p.name, scope.label());

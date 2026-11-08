@@ -70,7 +70,7 @@ fn strip_num_prefix(s: &str) -> &str {
 
 fn is_special(dirname: &str) -> bool {
     let name = strip_num_prefix(dirname);
-    matches!(dirname, "_todos" | "personal" | ".git")
+    matches!(dirname, crate::core::resolve::TODOS_DIR | "personal" | ".git")
         || name.starts_with("quick-note")
         || name.starts_with("daily-log")
 }
