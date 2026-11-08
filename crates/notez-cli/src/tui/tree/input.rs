@@ -1546,7 +1546,7 @@ pub(super) fn event_loop(
                 }
             }
             KeyCode::Char(code @ ('m' | 'S')) if !marks.is_empty() => {
-                match bulk_move_request(nodes, &forest.sections, &marks, ctx, code == 'S') {
+                match bulk_move_open(nodes, &forest.sections, &marks, ctx, code == 'S', config) {
                     Ok((prompt, items)) => {
                         move_prompt = Some(prompt);
                         move_set = Some(items);
@@ -1555,43 +1555,41 @@ pub(super) fn event_loop(
                 }
             }
             KeyCode::Char('d') if !marks.is_empty() => {
-                match bulk_delete_request(
+                match bulk_delete_open(
                     nodes,
                     &forest.sections,
                     &marks,
                     ctx.current_project.as_deref(),
+                    config,
                 ) {
                     Ok(items) if !items.is_empty() => confirm_bulk_delete = Some(items),
                     Ok(_) => {}
                     Err(message) => status_message.set(Some(message)),
                 }
             }
-            KeyCode::Char('m') => {
-                match move_request(nodes, &forest.sections, visible.get(selected).copied(), ctx) {
-                    Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message.set(Some(message.to_string())),
-                }
-            }
-            KeyCode::Char('S') => {
-                match set_scope_request(
+            KeyCode::Char(code @ ('m' | 'S')) => {
+                match move_open(
                     nodes,
                     &forest.sections,
                     visible.get(selected).copied(),
                     ctx,
+                    code == 'S',
+                    config,
                 ) {
                     Ok(prompt) => move_prompt = Some(prompt),
-                    Err(message) => status_message.set(Some(message.to_string())),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('d') => {
-                match delete_request(
+                match delete_open(
                     nodes,
                     &forest.sections,
                     visible.get(selected).copied(),
                     ctx.current_project.as_deref(),
+                    config,
                 ) {
                     Ok(prompt) => confirm_delete = prompt,
-                    Err(message) => status_message.set(Some(message.to_string())),
+                    Err(message) => status_message.set(Some(message)),
                 }
             }
             KeyCode::Char('y') => yank_pending = true,

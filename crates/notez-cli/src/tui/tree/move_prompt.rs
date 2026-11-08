@@ -61,8 +61,7 @@ impl MovePrompt {
 
 /// What `m` does with the cursor on `row`: `Ok` opens the move prompt on a
 /// note or a folder, `Err` is the footer message for a section row, a row
-/// in a docs section or in the todo board's store ([`is_todo_row`]), a
-/// folder holding another section, or no row at all.
+/// in a docs section, a folder holding another section, or no row at all.
 /// The scopes `Tab` offers are the row's project's plus global; for a
 /// global row, the project the browser was opened in, if any.
 pub(super) fn move_request(
@@ -84,6 +83,26 @@ pub(super) fn set_scope_request(
     ctx: &TreeContext,
 ) -> std::result::Result<MovePrompt, &'static str> {
     open_move(nodes, sections, row, ctx, true)
+}
+
+/// What `m` (`fixed` false) or `S` (`fixed` true) does with the cursor on
+/// `row`: [`open_move`], except that a store folder
+/// ([`store_folder_lock`]) is refused with its footer message.
+pub(super) fn move_open(
+    nodes: &[TreeNode],
+    sections: &[SectionSpec],
+    row: Option<usize>,
+    ctx: &TreeContext,
+    fixed: bool,
+    config: &Config,
+) -> std::result::Result<MovePrompt, String> {
+    let prompt = open_move(nodes, sections, row, ctx, fixed).map_err(str::to_string)?;
+    let node = row.and_then(|i| nodes.get(i));
+    if let Some(message) = node.and_then(|n| store_folder_lock(n, sections, config, prompt.verb()))
+    {
+        return Err(message);
+    }
+    Ok(prompt)
 }
 
 /// The prompt behind [`move_request`] (`fixed` false) and
@@ -108,9 +127,6 @@ pub(super) fn open_move(
     };
     if spec.is_doc {
         return Err(pick(DOCS_MOVE, DOCS_SET_SCOPE));
-    }
-    if is_todo_row(node, sections) {
-        return Err(pick(TODOS_MOVE, TODOS_SET_SCOPE));
     }
     let notes = if node.is_dir {
         let section_roots: Vec<PathBuf> = sections.iter().map(|s| s.root.clone()).collect();
@@ -281,8 +297,7 @@ pub(super) fn resolve_move(
 /// destination as the prompt shows it (`personal/plans`). `Err` is the
 /// footer message, starting with `verb`: a folder that does not exist
 /// under exactly that spelling, is hidden, a symlink, or steps out with
-/// `..`, or a global destination inside `personal/` or inside the todo
-/// board's store (see [`in_todo_store`]).
+/// `..`, or a global destination inside `personal/`.
 pub(super) fn resolve_folder(
     verb: &str,
     target: &NewNoteTarget,
@@ -326,9 +341,6 @@ pub(super) fn resolve_folder(
         return Err(format!(
             "{verb}: {display} holds the projects' personal notes, not global ones"
         ));
-    }
-    if target.scope == Scope::Global && in_todo_store(&dir, &roots.global) {
-        return Err(format!("{verb}: {TODO_STORE_MANAGED}"));
     }
     Ok((dir, display))
 }

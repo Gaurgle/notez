@@ -217,10 +217,14 @@ folder shows `preview: ideas2`). Its title names what is renamed:
 case), an empty name, a note name typed with an extension or one
 sanitizing would alter shows why in red instead of the preview, and
 `Enter` on it changes nothing: the popup stays open with the name, and
-`Esc` closes it. The quick-notes and daily-logs folders (by their
-configured names), the todo store `_todos` and every `TODO.md` keep their
-names: `r` on them says why in the footer and opens nothing. The notes
-inside those folders rename as usual.
+`Esc` closes it. The folders notez finds by name, the quick-notes and
+daily-logs folders (by their configured names) and the todo store `_todos`
+in the global notes, stay where they are: `r`, `m`, `S` and `d` on them, or
+on a marked set holding one, say `<verb>: <name> is a notez folder and keeps
+its name` and change nothing. Everything inside them, notes and folders
+alike, is yours: it renames, moves, re-scopes and deletes like any other
+row, and the todo store's folders are move destinations. A `TODO.md` keeps
+its name (todoz finds it by name) but moves and deletes like any note.
 Changing only the case of a folder's name works. `d` on a folder asks first, counting what goes, for
 example `delete ideas/ and its 2 notes from personal? y/n` (`and its 1 note`,
 or `(no notes)` for an empty folder), adding `and other files` when the folder holds anything but
@@ -270,11 +274,8 @@ commits or pushes in a project repository: a note moved into public is
 yours to commit. A move between volumes copies, checks the copy, then
 deletes the original; if that fails partway, both copies stay and the footer
 names where. `m` and `S` on a section row or in a `docs` section change
-nothing; `docs` is never a destination. The todo board's store, `_todos`
-in the global notes, belongs to the todo view: `d`, `r`, `m` and `S` on it
-or on anything in it are refused (`delete: the todo board's store is managed
-by the todo view`), a marked set holding such a row is refused whole, and it
-is never a move destination; `n` and `N` work there as anywhere.
+nothing; `docs` is never a destination. The quick-notes, daily-logs and
+todo store folders themselves never move (see rename above).
 
 **Marking several notes.** `Space` marks the note or folder under the
 cursor (again to unmark) and steps down one row; section rows cannot be

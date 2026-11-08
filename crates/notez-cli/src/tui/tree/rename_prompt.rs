@@ -13,8 +13,7 @@ const FOLDER_RENAME_EMPTY: &str = "rename: the name is empty";
 
 /// What `r` does with the cursor on `row`: `Ok(Some)` opens the rename
 /// prompt with that text (a note's editable title, a folder's name), `Err`
-/// is the footer message for a section row or a row in the todo board's
-/// store ([`is_todo_row`]), and `Ok(None)` does nothing:
+/// is the footer message for a section row, and `Ok(None)` does nothing:
 /// no row under the cursor, or a folder in a docs section.
 pub(super) fn rename_request(
     nodes: &[TreeNode],
@@ -26,9 +25,6 @@ pub(super) fn rename_request(
     };
     if node.depth == 0 {
         return Err(SECTION_RENAME);
-    }
-    if is_todo_row(node, sections) {
-        return Err(TODOS_RENAME);
     }
     if !node.is_dir {
         return Ok(Some(note_stem(&node.name)));
@@ -51,22 +47,22 @@ pub(super) fn rename_open(
 ) -> std::result::Result<Option<String>, String> {
     let text = rename_request(nodes, sections, row).map_err(str::to_string)?;
     if text.is_some() {
-        if let Some(message) = row.and_then(|i| nodes.get(i)).and_then(|n| rename_lock(n, config)) {
+        if let Some(message) = row
+            .and_then(|i| nodes.get(i))
+            .and_then(|n| rename_lock(n, sections, config))
+        {
             return Err(message);
         }
     }
     Ok(text)
 }
 
-/// Why `node` keeps its name, if it does: a folder named like the
-/// configured quick-notes or daily-logs folder, or a `TODO.md` note. The
-/// notes inside those folders rename as any other.
-fn rename_lock(node: &TreeNode, config: &Config) -> Option<String> {
+/// Why `node` keeps its name, if it does: a store folder
+/// ([`store_folder_lock`]) or a `TODO.md` note. The rows inside those
+/// folders rename as any other.
+fn rename_lock(node: &TreeNode, sections: &[SectionSpec], config: &Config) -> Option<String> {
     if node.is_dir {
-        [&config.paths.quick_notes_dir, &config.paths.daily_logs_dir]
-            .into_iter()
-            .find(|name| **name == node.name)
-            .map(|name| format!("rename: {name} is a notez folder and keeps its name"))
+        store_folder_lock(node, sections, config, "rename")
     } else {
         node.name
             .eq_ignore_ascii_case(TODO_FILE)
@@ -815,7 +811,7 @@ mod tests {
 
     /// NZ-76: `r` on the configured quick-notes and daily-logs folders, the
     /// todo store and any `TODO.md` keeps the name with a footer message and
-    /// opens no prompt; the notes inside those folders still rename.
+    /// opens no prompt; the notes and folders inside them still rename.
     #[test]
     fn r_on_a_notez_folder_or_a_todo_file_keeps_its_name() {
         let (_dir, notez, root) = vault();
@@ -849,11 +845,16 @@ mod tests {
             (root.join("logs"), "rename: logs is a notez folder and keeps its name"),
             (root.join("todo/TODO.md"), "rename: TODO.md keeps its name: todoz finds it by name"),
             (root.join("todo2/todo.md"), "rename: TODO.md keeps its name: todoz finds it by name"),
-            (notez.join("_todos"), TODOS_RENAME),
-            (notez.join("_todos/sub"), TODOS_RENAME),
-            (notez.join("_todos/t.md"), TODOS_RENAME),
+            (notez.join("_todos"), "rename: _todos is a notez folder and keeps its name"),
         ] {
             assert_eq!(open(&path), Err(want.to_string()), "{}", path.display());
+        }
+        for (path, shown) in [("_todos/sub", "sub"), ("_todos/t.md", "t")] {
+            assert_eq!(
+                open(&notez.join(path)),
+                Ok(Some(shown.to_string())),
+                "{path}"
+            );
         }
         for (path, shown) in [
             ("quick/2026-10-06-q.md", "q"),
